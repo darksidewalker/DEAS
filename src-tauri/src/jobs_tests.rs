@@ -2631,7 +2631,7 @@ fn invalid_intents_cannot_smuggle_graphs_or_unbounded_inputs() {
         ("seed", json!(0.5)),
         ("width", json!(65)),
         ("width", json!(8200)),
-        ("height", json!(56)),
+        ("height", json!(4)),
         ("steps", json!(151)),
         ("steps", json!(0)),
         ("cfg", json!(30.1)),
@@ -5987,4 +5987,66 @@ fn image_reference_compiles_core_revision_and_rejects_split_families() {
     bad["imageReference"]["images"][0]["image"] = json!("deas-inputs/ref.png");
     bad["imageReference"]["images"] = json!([]);
     assert!(compile(&bad).unwrap_err().contains("imageReference"));
+}
+
+#[test]
+fn the_canvas_floor_eight_and_the_header_dims_and_the_input_canvas_wall() {
+    // The compile numeric table admits the latent-grid floor and refuses below it.
+    let mut i = intent();
+    i["width"] = json!(8);
+    i["height"] = json!(8);
+    compile(&i).expect("8x8 compiles through the numeric table");
+    i["width"] = json!(57);
+    assert!(
+        compile(&i).unwrap_err().contains("width"),
+        "57 is off the 8-grid"
+    );
+
+    // The shared header parse: PNG IHDR, VP8X, VP8 (lossy) and no-ops.
+    let png = |w: u32, h: u32| {
+        let mut b = vec![0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a];
+        b.extend_from_slice(&13u32.to_be_bytes());
+        b.extend_from_slice(b"IHDR");
+        b.extend_from_slice(&w.to_be_bytes());
+        b.extend_from_slice(&h.to_be_bytes());
+        b
+    };
+    assert_eq!(
+        image_header_dims(&png(10_000, 10_000)),
+        Some((10_000, 10_000))
+    );
+    assert_eq!(image_header_dims(&png(8, 8)), Some((8, 8)));
+    let mut vp8x = b"RIFF\0\0\0\0WEBPVP8X".to_vec();
+    vp8x.extend_from_slice(&10u32.to_le_bytes());
+    vp8x.push(0);
+    vp8x.extend_from_slice(&[0, 0, 0]);
+    vp8x.extend_from_slice(&[99, 0, 0]);
+    vp8x.extend_from_slice(&[7, 3, 0]);
+    assert_eq!(
+        image_header_dims(&vp8x),
+        Some((100, 776)),
+        "the 24-bit LE codes are minus-one"
+    );
+
+    // The i2i wall at the compile/prepare boundary: a placed oversized input is
+    // refused naming its dims; a legal one, an absent file and the bracketed
+    // `[output]` form all pass the wall (other laws own those).
+    let root = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(root.path().join("deas-inputs")).unwrap();
+    std::fs::write(root.path().join("deas-inputs/big.png"), png(10_000, 10_000)).unwrap();
+    std::fs::write(root.path().join("deas-inputs/ok.png"), png(1024, 768)).unwrap();
+    let mut i2i = intent();
+    i2i["inputImage"] = json!("deas-inputs/big.png");
+    i2i["denoise"] = json!(0.6);
+    let problem = check_input_canvas(Some(root.path()), &i2i).expect_err("the input IS the canvas");
+    assert!(problem.contains("10000x10000"), "{problem}");
+    assert!(problem.contains("Invalid inputImage canvas"), "{problem}");
+    i2i["inputImage"] = json!("deas-inputs/ok.png");
+    check_input_canvas(Some(root.path()), &i2i).expect("a legal placed input passes");
+    i2i["inputImage"] = json!("deas-inputs/absent.png");
+    check_input_canvas(Some(root.path()), &i2i).expect("the existence law owns an absent file");
+    i2i["inputImage"] = json!("out.png [output]");
+    check_input_canvas(Some(root.path()), &i2i).expect("bracketed sources sit outside the root");
+    check_input_canvas(None, &json!({"inputImage": "deas-inputs/big.png"}))
+        .expect("no root: the wall is inert");
 }

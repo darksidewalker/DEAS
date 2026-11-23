@@ -13,7 +13,11 @@ use std::sync::Mutex;
 // ONLY lever that forces one full re-describe (stamp-reuse cache miss) on
 // already-stamped files. Live proof 2026-11-22: refreshed:144 yet the trio kept
 // component:null in unchanged-stamp records until this bump.
-pub(crate) const SCHEMA: u32 = 2;
+// v3: LORA FAMILY ROUTING changed what detect() stamps for loras (kohya
+// ss_base_model_version/ss_network_module tokens and tensor signatures now
+// outrank an unverifiable modelspec.architecture claim; eight live anima LoRAs
+// were stamped sd15). Every already-stamped lora must re-describe once.
+pub(crate) const SCHEMA: u32 = 3;
 const MAX_BYTES: u64 = 64 * 1024 * 1024;
 static REFRESH: Mutex<()> = Mutex::new(());
 
@@ -949,7 +953,9 @@ mod tests {
         // logic changes, so stale already-stamped records are forced through one
         // full re-describe. Raised 1 -> 2 for the AF2-M26 component signatures;
         // live proof 2026-11-22 (refreshed:144 with component:null persisting).
-        assert_eq!(SCHEMA, 2);
+        // Raised 2 -> 3 for LORA FAMILY ROUTING: the lying-arch demotion and the
+        // kohya metadata arm change every lora stamp on the live library.
+        assert_eq!(SCHEMA, 3);
     }
 
     #[test]

@@ -68,6 +68,8 @@ pub struct Status {
     #[serde(skip)]
     pub(crate) output_root: Option<PathBuf>,
     #[serde(skip)]
+    pub(crate) input_root: Option<PathBuf>,
+    #[serde(skip)]
     pub(crate) model_roots: Vec<PathBuf>,
 }
 impl Default for Status {
@@ -78,6 +80,7 @@ impl Default for Status {
             error: None,
             generation_ready: false,
             output_root: None,
+            input_root: None,
             model_roots: vec![],
         }
     }
@@ -613,6 +616,7 @@ fn terminate(inner: &mut Inner, grace: Duration) {
     inner.environment_lock = None;
     inner.status.endpoint = None;
     inner.status.output_root = None;
+    inner.status.input_root = None;
     inner.status.model_roots.clear();
 }
 fn fail(inner: &mut Inner, error: String) {
@@ -813,6 +817,14 @@ impl Lifecycle {
             .find(|pair| pair[0] == "--output-directory")
             .map(|pair| PathBuf::from(&pair[1]))
             .unwrap_or_else(|| root.join("ComfyUI/output"));
+        // The input root joins the snapshot: LoadImage/LoadVideo resolve input-folder
+        // names against exactly this argv value, and the door-side i2i canvas law
+        // (jobs::check_input_canvas) reads placed files from it.
+        let input_root = folder_args
+            .windows(2)
+            .find(|pair| pair[0] == "--input-directory")
+            .map(|pair| PathBuf::from(&pair[1]))
+            .unwrap_or_else(|| root.join("ComfyUI/input"));
         command.args(folder_args);
         command.args(crate::startup::args(root, Some(&approved.plan))?);
         command
@@ -938,6 +950,7 @@ impl Lifecycle {
         inner.status = Status {
             state: "starting".into(),
             output_root: Some(output_root),
+            input_root: Some(input_root),
             model_roots,
             ..Status::default()
         };

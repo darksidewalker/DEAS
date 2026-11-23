@@ -20,7 +20,7 @@
     "clipType": "stable_diffusion", "textEncoders": ["qwen_3_600m", "qwen3_06b", "qwen_3_06b", "qwen3-0.6b"], "vaes": ["qwen_image_vae", "wan_2.1_vae"],
     "architectures": ["anima"], "bases": ["Anima"],
     "model": [["llm.adapter.blocks", "adaln.modulation.cross.attn"]],
-    "lora": [["llm.adapter.blocks"], ["blocks.27.adaln.modulation.cross.attn"], ["blocks.27.cross.attn.output.proj"]],
+    "lora": [["llm.adapter.blocks"], ["blocks.27.adaln.modulation.cross.attn"], ["blocks.27.cross.attn.output.proj"], ["lora.unet.blocks", "adaln.modulation.cross.attn"], ["lora.unet.blocks", "adaln.modulation.mlp"], ["diffusion.model.blocks", "adaln.modulation.cross.attn"]],
     "defaults": { "width": 1024, "height": 1024, "steps": 30, "cfg": 4, "sampler": "er_sde", "scheduler": "simple" }
   },
   {

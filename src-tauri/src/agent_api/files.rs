@@ -780,42 +780,59 @@ pub(crate) fn promote_copy(
     }))
 }
 
-/* ---------------- BENCH DOORS (LEG M17b, owner ruling E22 BENCH) ----------------
+/* ---------------- BENCH DOORS (LEG M17b, ruling E22 BENCH; WHOLE-ROOT SWEEP
+restate — owner ruling 2026-11-22, supersedes the pick-list body grammar) ----
 
-BENCH IS NON-DESTRUCTIVE DECLUTTER: a named input/output file MOVES into ONE
-dot-prefixed `.bench-<UTC stamp>` folder under the SAME root. Nothing is
-deleted (deletion stays unruled); both walks already skip dot-prefixed entries
-at every level, so a benched item leaves the inventories the moment it lands,
+BENCH IS A NON-DESTRUCTIVE WHOLE-ROOT SWEEP: one call moves EVERY file under
+the served root — the whole tree, placement names, operator drops, UI-placed
+files and the continuity-state clutter class alike — into ONE date-time-stamped
+folder inside the `.bench` parent under the SAME root:
+`<root>/.bench/<YYYYMMDDTHHMMSSZ>/<original relative path>`. There is NO body
+list (the 1..=100 pick-list grammar and its entry cap are dead); one call
+sweeps the whole root. The stamp folder groups everything benched by one call
+(and by every call landing in the same wall-clock second), so the group a bench
+command moved is one dated folder to find later. Nothing is deleted (deletion
+stays unruled). THE FOLDER IS LAZY (bench-behaviour leg): it is minted only at
+the first real move — an all-refused call leaves NOTHING on disk — and an
+existing folder under the same stamp name is REUSED, never an error, never a
+minted suffix. Both walks and [`sweep_names`] skip dot-prefixed entries at
+every level, so the `.bench` parent (and the legacy `.bench-<stamp>` folders
+from the pre-sweep grammar) is NEVER re-swept; a benched item leaves the
+inventories the moment it lands,
 while the byte doors still reach it by its explicit new name — the containment
 grammar refuses only empty/`.`/`..` segments, a leading dot is a legal segment.
-Every moved item keeps its FULL source-relative name under the bench folder
-(`deas-inputs/project1/pic.jpg` → `.bench-<stamp>/deas-inputs/project1/pic.jpg`),
+Every moved item keeps its FULL source-relative name under the stamp folder
+(`deas-inputs/project1/pic.jpg` → `.bench/<stamp>/deas-inputs/project1/pic.jpg`),
 so each row is a round-trip: `old` is gone (a queue naming it answers
 `inputMissing`, and the new name is not placement-form, so it is never a new
-reference), `new` is exactly what the byte door serves. Moves WITHIN the served
-root are sanctioned by E20-AMENDED (UI-placed and operator-dropped files
-included — which is why the source wall is the containment law, not the
-placement grammar). Un-benching has no door in this leg: it is an owner-UI /
-future-leg move.
+reference), `new` is exactly what the byte door serves. Files a LIVE queue row
+(queued/draining/wedged) still references are refused per-row as
+`claimedByQueue` and stay exactly where the drain will look for them; TERMINAL
+rows never claim anything — the sweep is not required to track items that were
+already generated. Moves WITHIN the served root are sanctioned by E20-AMENDED
+(UI-placed and operator-dropped files included — which is why the source wall
+is the containment law, not the placement grammar). Un-benching has no door in
+this leg: it is an owner-UI / future-leg move.
 --------------------------------------------------------------------------- */
 
-/// The bench folder prefix: the dot that hides the folder (and everything under
-/// it) from both walks — the law M17a pre-positioned in `inputs::labelable`
-/// and the `list_outputs` skip.
-pub(crate) const BENCH_PREFIX: &str = ".bench-";
+/// The bench parent folder: the dot that hides it (and everything under it) from
+/// both walks and from every sweep — the law M17a pre-positioned in
+/// `inputs::labelable` and the `list_outputs` skip. Each bench call stamps ONE
+/// folder INSIDE this parent ([`bench_folder_name`]).
+pub(crate) const BENCH_PARENT: &str = ".bench";
 
-/// One bench call moves at most this many entries — the closed body grammar
-/// bound (the row-cap idiom, restated for a write door: the cap is the
-/// plane's, never a client parameter).
-pub(crate) const MAX_BENCH_ENTRIES: usize = 100;
-
-/// The one-call bench folder name: `.bench-YYYYMMDDTHHMMSSZ` (UTC). The stamp
-/// rides the plane's clock law ([`super::spool::now_ms`]: 0 for a clock set
-/// before the POSIX epoch — the hostile-clock honesty marker the spool already
-/// carries, and `bench_folder_name(0)` answers 1970, never a panic). Two calls
-/// landing in the same second SHARE one folder, which is harmless: every row
-/// keeps its full source-relative name under the folder, so different names
-/// never collide there and the same name answers `targetExists`.
+/// The one-call bench folder name: `.bench/YYYYMMDDTHHMMSSZ` (UTC) — the parent
+/// plus this call's stamp segment, one date-time folder per bench command
+/// (owner ruling 2026-11-22: the group benched together is one stamped folder
+/// inside `.bench`). The stamp rides the plane's clock law
+/// ([`super::spool::now_ms`]: 0 for a clock set before the POSIX epoch — the
+/// hostile-clock honesty marker the spool already carries, and
+/// `bench_folder_name(0)` answers 1970, never a panic). Two calls landing in
+/// the same second SHARE one folder, and the law is REUSE, not collision
+/// (bench-behaviour leg P1): an existing folder under this name — same-second
+/// sibling or older disk state — is entered as-is, no error, no minted suffix.
+/// Every row keeps its full source-relative name under the folder, so
+/// different names never collide there and the same name answers `targetExists`.
 #[must_use]
 pub(crate) fn bench_folder_name(now_ms: u64) -> String {
     let seconds = i64::try_from(now_ms / 1_000).unwrap_or(i64::MAX);
@@ -823,11 +840,71 @@ pub(crate) fn bench_folder_name(now_ms: u64) -> String {
     let second_of_day = seconds.rem_euclid(86_400);
     let (year, month, day) = civil_from_days(days);
     format!(
-        "{BENCH_PREFIX}{year:04}{month:02}{day:02}T{:02}{:02}{:02}Z",
+        "{BENCH_PARENT}/{year:04}{month:02}{day:02}T{:02}{:02}{:02}Z",
         second_of_day / 3_600,
         (second_of_day % 3_600) / 60,
         second_of_day % 60,
     )
+}
+
+/// The sweep's name list: EVERY regular file under `root`, recursively,
+/// root-relative and '/'-joined — the whole-root law of the bench sweep doors
+/// (owner ruling 2026-11-22: bench moves all existing files, the doors take no
+/// body list). Iterative walk (a stack, `std::fs::read_dir`), no new deps.
+///
+/// DOT LAW: any entry whose file name starts with `.` is skipped, FILES AND
+/// DIRECTORIES alike (never descended into) — the `.bench` parent is never
+/// re-swept, the legacy `.bench-<stamp>` folders from the pre-sweep grammar
+/// stay exactly where they are, and any dot state stays invisible. SYMLINKS are
+/// skipped as sweep sources (they are never collected; the per-row symlink wall
+/// inside [`bench_move`] keeps refusing them if any other caller names one).
+/// Only REGULAR FILES are collected: directories are descended into and are
+/// never rows themselves. The result is sorted for a deterministic row order.
+///
+/// `bench_move` claims law protects the files a live queue row references; the
+/// sweep itself never deletes and never removes a directory — a claimed file
+/// simply stays at its original path.
+///
+/// # Errors
+///
+/// Names the unreadable directory: a root (or subtree) the walk cannot read
+/// refuses the WHOLE call — a sweep that cannot see the plane will not half
+/// sweep it (the door hoists `maintenanceActive`).
+pub(crate) fn sweep_names(root: &Path) -> Result<Vec<String>, String> {
+    let mut stack = vec![root.to_path_buf()];
+    let mut names: Vec<String> = Vec::new();
+    while let Some(dir) = stack.pop() {
+        let entries = std::fs::read_dir(&dir)
+            .map_err(|problem| format!("cannot read the directory {}: {problem}", dir.display()))?;
+        // read_dir order is filesystem-dependent; sort each level so the walk
+        // (and therefore the answer's row order) is deterministic.
+        let mut level: Vec<_> = entries.flatten().collect();
+        level.sort_by_key(|entry| entry.file_name());
+        for entry in level {
+            let file_name = entry.file_name();
+            let text = file_name.to_string_lossy();
+            if text.starts_with('.') {
+                continue; // the dot law: .bench, legacy .bench-* folders, dot state
+            }
+            // file_type() here is the entry's OWN type (an lstat, never a
+            // followed link), so a symlink reads as Symlink and is skipped.
+            match entry.file_type() {
+                Ok(kind) if kind.is_dir() => stack.push(entry.path()),
+                Ok(kind) if kind.is_file() => {
+                    let relative = contained_tail(root, &entry.path());
+                    if let Some(segments) = relative {
+                        names.push(segments.join("/"));
+                    }
+                }
+                // Symlinks, fifos, sockets: never swept (bench_move's per-row
+                // symlink wall stays the second line of defense). Ok(Err) is a
+                // fs surprise on this entry: skip it honestly rather than guess.
+                Ok(_) | Err(_) => {}
+            }
+        }
+    }
+    names.sort();
+    Ok(names)
 }
 
 /// Days since the Unix epoch → proleptic Gregorian (year, month, day): the
@@ -926,31 +1003,56 @@ impl BenchRow {
     }
 }
 
-/// Moves every named file under `root` into one prepared bench folder, keeping
-/// each full source-relative name. Wall order per call: the WHOLE source list
+/// Moves every named file under `root` into one bench folder, keeping each
+/// full source-relative name. Wall order per call: the WHOLE source list
 /// faces the containment law first (a grammar or symlink violation hoists to
 /// the call as `bodyInvalid` BEFORE a single rename happens — walls are body
-/// law, never row state; a missing source is a per-row `notFound`), then the
-/// folder is prepared, then rows move in request order. Every per-file fs
-/// condition after that lands in its row: the call answers partials.
+/// law, never row state; a missing source is a per-row `notFound`), then rows
+/// move in request order. Every per-file fs condition after that lands in its
+/// row: the call answers partials.
 ///
-/// `claims` is the live-row claim set ([`super::inputs::queued_input_claims`],
-/// LEG AF2-M18c): a name a live spool row still references is refused per-row as
-/// `claimedByQueue` naming that row, and the claim check rides the SAME
-/// validate-all-then-move-all pass, so a refused claim never half-moves a call —
-/// the other rows move exactly as they did before the guard. The outputs bench
-/// has no input references to protect and passes an empty slice.
+/// THE FOLDER IS LAZY (bench-behaviour leg P1, the owner stamp law): no folder
+/// is prepared up front — the first row that reaches its rename creates it (the
+/// per-row parent mkdir covers the folder itself). A call whose every row is
+/// refused therefore leaves NOTHING on disk, and an existing folder under the
+/// same stamp name is REUSED — never an error, never a minted suffix; the only
+/// collision word stays the per-row `targetExists`. A folder-creation failure
+/// is that row's `moveFailed` with the OS word verbatim, not a call-level
+/// refusal: the wall order hoists GRAMMAR, never fs state.
+///
+/// `claims` is the live-row claim set — [`super::inputs::queued_input_claims`]
+/// at the input door, [`super::inputs::queued_output_claims`] at the output
+/// mirror (LEG AF2-M18c + bench-behaviour leg P2): a name a live spool row
+/// still references is refused per-row as `claimedByQueue` naming that row, and
+/// the claim check rides the SAME validate-all-then-move-all pass, so a refused
+/// claim never half-moves a call — the other rows move exactly as they did
+/// before the guard.
 ///
 /// # Errors
 ///
-/// `bodyInvalid` hoisted from the containment wall (grammar or symlink),
-/// `maintenanceActive` when the bench folder itself cannot be prepared.
+/// `bodyInvalid` hoisted from the containment wall (grammar or symlink).
+/// Everything after that wall is a row (`notFound`, `targetExists`,
+/// `moveFailed`, `claimedByQueue`) — the call never refuses on fs state.
 pub(crate) fn bench_move(
     root: &Path,
     names: &[String],
     folder: &str,
     claims: &[super::inputs::InputClaim],
 ) -> Result<Vec<BenchRow>, ApiError> {
+    // NAME-SHAPE LAW (bench-behaviour leg P3, asserted in code): the bench
+    // folder is ONE dot-prefixed segment directly under the served root, never
+    // a path of its own. The doors always pass [`bench_folder_name`]; this
+    // wall is against a future caller inventing a folder word, checked before
+    // anything touches the disk.
+    debug_assert!(
+        folder.starts_with(BENCH_PARENT)
+            && folder.as_bytes().get(BENCH_PARENT.len()) == Some(&b'/')
+            && folder.len() > BENCH_PARENT.len() + 1
+            && folder.matches('/').count() == 1
+            && !folder.contains('\\')
+            && !folder[BENCH_PARENT.len() + 1..].contains('.'),
+        "the bench folder is .bench/<stamp>: the dot-prefixed parent plus exactly one non-empty dot-free stamp segment, got {folder:?}"
+    );
     // Pass 1: every source faces the shared wall before any rename touches
     // the disk, so a hoisted refusal leaves the plane exactly as it was.
     let mut sources: Vec<Option<PathBuf>> = Vec::with_capacity(names.len());
@@ -961,12 +1063,10 @@ pub(crate) fn bench_move(
             Err(error) => return Err(error),
         }
     }
+    // LAZY FOLDER (leg P1): nothing is minted here. The first rename-bound row
+    // creates the folder through its own parent mkdir below; an all-refused
+    // call leaves no trace, and an existing same-name folder is simply entered.
     let bench_dir = root.join(folder);
-    std::fs::create_dir_all(&bench_dir).map_err(|problem| {
-        ApiError::new(ErrorKind::MaintenanceActive).with_hint(format!(
-            "the bench folder cannot be prepared under the served root: {problem}"
-        ))
-    })?;
     let mut rows = Vec::with_capacity(names.len());
     for (old, source) in names.iter().zip(sources) {
         let Some(source) = source else {
@@ -1011,8 +1111,27 @@ pub(crate) fn bench_move(
                 continue;
             }
         }
+        // SAME-ROOT LAW (bench-behaviour leg P3, asserted before the rename):
+        // the operation is a move WITHIN the served root — the source came from
+        // `contained` (root-joined segments only, traversal and absolute forms
+        // already refused), the target is root + one folder segment + the same
+        // segments. The canary turns a future wiring slip into a loud failure.
+        debug_assert!(
+            source.starts_with(root) && target.starts_with(root),
+            "a bench rename never leaves the served root: {source:?} -> {target:?}"
+        );
         let outcome = match std::fs::rename(&source, &target) {
-            Ok(()) => BenchOutcome::Moved { new },
+            // MOVE, never copy-and-delete (leg P3): rename semantics — after
+            // `Ok` the source address is gone and the target holds the same
+            // bytes. The canary turns a filesystem surprise into a loud
+            // failure instead of a silent `{old,new}` lie.
+            Ok(()) => {
+                debug_assert!(
+                    source.symlink_metadata().is_err() && target.symlink_metadata().is_ok(),
+                    "the rename answered Ok but the move shape is broken: {source:?} -> {target:?}"
+                );
+                BenchOutcome::Moved { new }
+            }
             Err(problem) => BenchOutcome::MoveFailed {
                 problem: problem.to_string(),
             },
@@ -1361,32 +1480,47 @@ mod tests {
 
     /* ---- BENCH DOOR tests (LEG M17b, ruling E22 BENCH) ---- */
 
-    /// The stamp grammar is closed and UTC: `.bench-YYYYMMDDTHHMMSSZ`, the
-    /// ruling's own timestamp included. A pre-epoch clock answers 1970 (the
-    /// spool's hostile-clock honesty marker, never a panic); milliseconds
-    /// truncate; the leap day lands where the calendar says.
+    /// The stamp grammar is closed and UTC: `.bench/YYYYMMDDTHHMMSSZ` (the
+    /// dot-prefixed parent plus one stamp segment — the owner sweep ruling
+    /// 2026-11-22), the ruling's own timestamp included. A pre-epoch clock
+    /// answers 1970 (the spool's hostile-clock honesty marker, never a panic);
+    /// milliseconds truncate; the leap day lands where the calendar says.
     #[test]
     fn the_bench_stamp_is_the_closed_utc_grammar() {
-        assert_eq!(bench_folder_name(0), ".bench-19700101T000000Z");
+        assert_eq!(bench_folder_name(0), ".bench/19700101T000000Z");
         assert_eq!(
             bench_folder_name(951_827_696_000),
-            ".bench-20000229T123456Z"
+            ".bench/20000229T123456Z"
         );
         assert_eq!(
             bench_folder_name(1_709_251_199_999),
-            ".bench-20240229T235959Z",
+            ".bench/20240229T235959Z",
             "milliseconds truncate; the leap day rides"
         );
         assert_eq!(
             bench_folder_name(1_795_277_498_000),
-            ".bench-20261121T161138Z",
+            ".bench/20261121T161138Z",
             "the E22 ruling's own timestamp, verbatim"
         );
         assert_eq!(
             bench_folder_name(1_798_761_599_000),
-            ".bench-20261231T235959Z"
+            ".bench/20261231T235959Z"
         );
-        assert_eq!(bench_folder_name(0).chars().count(), 23, "the closed shape");
+        assert_eq!(
+            bench_folder_name(0).chars().count(),
+            23,
+            "the closed shape: the 7-char `.bench/` parent plus the 16-char stamp (the design note's 24 miscounts the stamp grammar it names)"
+        );
+        assert_eq!(
+            &bench_folder_name(0)[..BENCH_PARENT.len()],
+            BENCH_PARENT,
+            "the parent rides the front of the folder name"
+        );
+        assert_eq!(
+            bench_folder_name(0).split('/').count(),
+            2,
+            "parent plus exactly one stamp segment"
+        );
     }
 
     /// The headline law: one call, one stamp, every moved item keeps its FULL
@@ -1420,10 +1554,10 @@ mod tests {
         assert_eq!(
             news,
             vec![
-                ".bench-20261121T161138Z/deas-inputs/project1/pic.jpg",
-                ".bench-20261121T161138Z/deas-masks/m.png",
-                ".bench-20261121T161138Z/deas-input-clip.mp4",
-                ".bench-20261121T161138Z/operator-drop.png",
+                ".bench/20261121T161138Z/deas-inputs/project1/pic.jpg",
+                ".bench/20261121T161138Z/deas-masks/m.png",
+                ".bench/20261121T161138Z/deas-input-clip.mp4",
+                ".bench/20261121T161138Z/operator-drop.png",
             ],
             "one stamp per call; the full source-relative name rides under the folder"
         );
@@ -1467,7 +1601,7 @@ mod tests {
         let served = serve_bytes(
             root.path(),
             Caps::default(),
-            ".bench-20261121T161138Z/deas-inputs/project1/pic.jpg",
+            ".bench/20261121T161138Z/deas-inputs/project1/pic.jpg",
             &HeaderMap::new(),
         )
         .expect("benched bytes are served");
@@ -1604,6 +1738,160 @@ mod tests {
         let _ = fs::remove_file(&outside);
     }
 
+    /* ---- BENCH BEHAVIOUR LEG tests (owner ruling 2026-11-22: P1 lazy folder +
+    same-second reuse, P3 move-not-delete + name-shape law) ---- */
+
+    /// P1 (the live-observed flaw): a call whose every row is refused must
+    /// leave NOTHING on disk — no `.bench` parent, no stamp folder inside it.
+    /// The folder is minted lazily at the first rename-bound row; refused rows
+    /// never reach it.
+    #[test]
+    fn a_fully_refused_bench_call_leaves_no_folder_on_disk() {
+        let root = tempfile::tempdir().expect("served root");
+        place(root.path(), "deas-inputs/claimed.png", b"claimed");
+        let folder = bench_folder_name(1_795_277_498_000);
+        let claims = [super::super::inputs::InputClaim {
+            name: "deas-inputs/claimed.png".to_owned(),
+            row: "row-a".to_owned(),
+        }];
+        let names = [
+            "deas-inputs/gone.png".to_owned(),
+            "deas-inputs/claimed.png".to_owned(),
+        ];
+        let rows = bench_move(root.path(), &names, &folder, &claims).expect("partials answer 200");
+        assert_eq!(
+            rows.iter()
+                .filter(|row| matches!(row.outcome, BenchOutcome::Moved { .. }))
+                .count(),
+            0,
+            "every row refused: {rows:?}"
+        );
+        let entries: Vec<String> = fs::read_dir(root.path())
+            .expect("root readable")
+            .flatten()
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .collect();
+        assert!(
+            !entries.iter().any(|name| name == BENCH_PARENT),
+            "an all-refused call minted the .bench parent: {entries:?}"
+        );
+        assert!(
+            root.path().join("deas-inputs").join("claimed.png").exists(),
+            "the claimed source stayed exactly where the drain will look for it"
+        );
+    }
+
+    /// P1 (same-second reuse law): the stamped folder already exists — a
+    /// same-second sibling call, or older disk state the clock landed on — the
+    /// call REUSES it: no error, no minted suffix. A same-name retry inside
+    /// that shared folder answers the honest per-row `targetExists`.
+    #[test]
+    fn two_calls_under_one_stamp_second_share_the_same_folder() {
+        let root = tempfile::tempdir().expect("served root");
+        place(root.path(), "deas-inputs/a.png", b"a");
+        place(root.path(), "deas-inputs/b.png", b"b");
+        let folder = bench_folder_name(1_795_277_498_000);
+        // Pre-mint the folder: the same-second elder call benched something else
+        // (or nothing at all — the folder existing is the whole condition).
+        fs::create_dir_all(root.path().join(&folder)).expect("elder folder");
+        let rows_1 = bench_move(root.path(), &["deas-inputs/a.png".to_owned()], &folder, &[])
+            .expect("first call");
+        let rows_2 = bench_move(root.path(), &["deas-inputs/b.png".to_owned()], &folder, &[])
+            .expect("second call");
+        assert!(
+            matches!(rows_1[0].outcome, BenchOutcome::Moved { .. })
+                && matches!(rows_2[0].outcome, BenchOutcome::Moved { .. }),
+            "an existing folder never blocks: {rows_1:?} / {rows_2:?}"
+        );
+        assert_eq!(
+            fs::read(root.path().join(&folder).join("deas-inputs").join("a.png")).expect("a"),
+            b"a"
+        );
+        assert_eq!(
+            fs::read(root.path().join(&folder).join("deas-inputs").join("b.png")).expect("b"),
+            b"b",
+            "one folder, both calls, no suffix minted"
+        );
+        let benched: Vec<String> = fs::read_dir(root.path().join(BENCH_PARENT))
+            .expect("the .bench parent readable")
+            .flatten()
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(
+            benched,
+            vec![folder.split('/').nth(1).expect("the stamp segment")],
+            "exactly ONE stamp folder inside the .bench parent"
+        );
+        // Same name, same shared folder: the collision word is the per-row
+        // targetExists — never an error, never a second folder.
+        place(root.path(), "deas-inputs/a.png", b"a again");
+        let rows_3 = bench_move(root.path(), &["deas-inputs/a.png".to_owned()], &folder, &[])
+            .expect("retry");
+        assert_eq!(rows_3[0].outcome, BenchOutcome::TargetExists);
+    }
+
+    /// P3 (move-not-delete shape law, documented as a test over the code
+    /// canary): a successful `{old,new}` row means the SOURCE path is gone and
+    /// the NEW path exists with the same bytes — rename, never copy, never
+    /// delete. The never-moved-onto twin (`targetExists` refusal) is pinned by
+    /// `a_bench_refusal_is_a_row_not_the_call`; the escape law (dot-dot and
+    /// absolute sources hoist `bodyInvalid` before any rename) is pinned by
+    /// `the_bench_source_wall_hoists_before_any_rename`.
+    #[test]
+    fn the_bench_move_shape_source_gone_target_present_same_bytes() {
+        let root = tempfile::tempdir().expect("served root");
+        place(root.path(), "deas-inputs/deep/x.png", b"payload");
+        let folder = bench_folder_name(1_795_277_498_000);
+        let rows = bench_move(
+            root.path(),
+            &["deas-inputs/deep/x.png".to_owned()],
+            &folder,
+            &[],
+        )
+        .expect("move");
+        assert_eq!(
+            rows[0].outcome,
+            BenchOutcome::Moved {
+                new: format!("{folder}/deas-inputs/deep/x.png"),
+            }
+        );
+        assert!(
+            !root
+                .path()
+                .join("deas-inputs")
+                .join("deep")
+                .join("x.png")
+                .exists(),
+            "after {{old,new}} the source address is GONE"
+        );
+        assert_eq!(
+            fs::read(
+                root.path()
+                    .join(&folder)
+                    .join("deas-inputs")
+                    .join("deep")
+                    .join("x.png")
+            )
+            .expect("after {old,new} the new address EXISTS"),
+            b"payload",
+            "and carries the same bytes — a move, not a copy"
+        );
+    }
+
+    /// P3 (name-shape law, asserted in code): the bench folder is the `.bench`
+    /// parent plus exactly ONE stamp segment — a deeper path (three segments)
+    /// is a programmer-side violation and the `debug_assert` fires before any
+    /// rename is issued (release builds keep the containment law; the assert
+    /// is the debug-profile canary the suite pins). A normal `.bench/<stamp>`
+    /// folder is legal — every other bench test here rides one.
+    #[test]
+    #[should_panic(expected = "the bench folder is .bench/<stamp>")]
+    fn a_multi_segment_bench_folder_panics_the_shape_assert() {
+        let root = tempfile::tempdir().expect("served root");
+        place(root.path(), "x.png", b"x");
+        let _ = bench_move(root.path(), &["x.png".to_owned()], ".bench/2026/a", &[]);
+    }
+
     /* ---- BENCH CLAIM GUARD tests (LEG AF2-M18c: the bench-vs-spool TOCTOU) ---- */
 
     /// The claim matcher: equality in the placement form the collector produces,
@@ -1661,5 +1949,132 @@ mod tests {
             queued_input_claims(&[]).is_empty(),
             "an empty spool claims nothing"
         );
+    }
+
+    /* ---- BENCH SWEEP LEG tests (owner ruling 2026-11-22: whole-root sweeps,
+    no body list, one dated folder inside the .bench parent) ---- */
+
+    /// The sweep's dot law: the `.bench` parent is NEVER re-swept (neither
+    /// after a fresh sweep minted it nor as pre-existing disk state), the
+    /// legacy `.bench-<stamp>` folders from the pre-sweep grammar are skipped
+    /// with their contents, and any dot state stays invisible.
+    #[test]
+    fn sweep_names_skips_the_bench_parent_and_every_dot_folder() {
+        let root = tempfile::tempdir().expect("served root");
+        place(root.path(), "deas-inputs/hero.png", b"hero");
+        place(root.path(), ".state/config.json", b"dot state file");
+        place(
+            root.path(),
+            ".bench-20260101T000000Z/old.png",
+            b"legacy benched file",
+        );
+        place(root.path(), ".hidden.png", b"dot file");
+        let names = sweep_names(root.path()).expect("walk");
+        assert_eq!(
+            names,
+            vec!["deas-inputs/hero.png"],
+            "dot entries never sweep"
+        );
+        // A fresh sweep's own .bench parent is invisible to the next sweep:
+        // sweeping once, then sweeping again, collects nothing new.
+        let folder = bench_folder_name(1_795_277_498_000);
+        bench_move(root.path(), &names, &folder, &[]).expect("first sweep");
+        assert_eq!(
+            sweep_names(root.path()).expect("second walk"),
+            Vec::<String>::new(),
+            "the .bench parent (and everything benched inside it) is never re-swept"
+        );
+        assert!(
+            root.path()
+                .join(".bench-20260101T000000Z")
+                .join("old.png")
+                .exists(),
+            "the legacy dot folder stayed exactly where it was"
+        );
+    }
+
+    /// Regular files only: directories are descended into, never collected as
+    /// rows, and empty leftover directories are not names (the sweep never
+    /// deletes a directory, so leftovers simply produce no rows).
+    #[test]
+    fn sweep_names_collects_regular_files_never_directories() {
+        let root = tempfile::tempdir().expect("served root");
+        place(root.path(), "deas-inputs/project1/deep/pic.jpg", b"deep");
+        place(root.path(), "loose.wav", b"loose");
+        fs::create_dir_all(root.path().join("empty-dir")).expect("empty dir");
+        fs::create_dir_all(root.path().join("nested").join("emptier")).expect("nested dirs");
+        let mut names = sweep_names(root.path()).expect("walk");
+        names.sort();
+        assert_eq!(
+            names,
+            vec!["deas-inputs/project1/deep/pic.jpg", "loose.wav"],
+            "directories are walked through, never named"
+        );
+    }
+
+    /// Root-relative names join with '/' on every platform (the walk's own
+    /// separators never leak onto the wire), and the list is deterministic
+    /// (sorted) regardless of the filesystem's read_dir order.
+    #[test]
+    fn sweep_names_are_root_relative_and_slash_joined() {
+        let root = tempfile::tempdir().expect("served root");
+        place(root.path(), "deas-masks/a.png", b"a");
+        place(root.path(), "deas-inputs/b/c.mp4", b"c");
+        place(root.path(), "top.txt", b"top");
+        let names = sweep_names(root.path()).expect("walk");
+        assert_eq!(
+            names,
+            vec!["deas-inputs/b/c.mp4", "deas-masks/a.png", "top.txt"],
+            "/-joined, root-relative, sorted"
+        );
+        assert!(
+            names.iter().all(|name| !name.contains('\\')),
+            "no platform separator ever rides a sweep name: {names:?}"
+        );
+    }
+
+    /// The portable arm of the walk-failure law: a root the walk cannot open at
+    /// all (a regular file where a directory must be) refuses the WHOLE sweep,
+    /// naming what it could not read — a sweep that cannot see the plane will
+    /// not half-sweep it (the door hoists the Err as `maintenanceActive`).
+    #[test]
+    fn sweep_names_refuses_an_unopenable_root_by_name() {
+        let root = tempfile::tempdir().expect("served root");
+        place(
+            root.path(),
+            "not-a-directory",
+            b"a file where the walk expects a root",
+        );
+        let problem = sweep_names(&root.path().join("not-a-directory"))
+            .expect_err("an unopenable root refuses");
+        assert!(
+            problem.contains("not-a-directory"),
+            "the refusal names the directory it could not read: {problem}"
+        );
+    }
+
+    /// The POSIX arm of the same law: an unreadable (mode-000) directory refuses
+    /// by name — the same unix-only idiom the symlink-source test uses.
+    #[cfg(unix)]
+    #[test]
+    fn sweep_names_refuses_an_unreadable_directory_by_name() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = tempfile::tempdir().expect("served root");
+        place(root.path(), "blocked/inside.png", b"inside");
+        fs::set_permissions(
+            root.path().join("blocked"),
+            fs::Permissions::from_mode(0o000),
+        )
+        .expect("permissions");
+        let problem = sweep_names(root.path()).expect_err("the unreadable dir refuses");
+        assert!(
+            problem.contains("blocked"),
+            "the refusal names the unreadable directory: {problem}"
+        );
+        fs::set_permissions(
+            root.path().join("blocked"),
+            fs::Permissions::from_mode(0o755),
+        )
+        .expect("restore");
     }
 }

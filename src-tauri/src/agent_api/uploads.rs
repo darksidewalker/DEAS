@@ -18,6 +18,12 @@
 //!   belongs to the M4 drain);
 //! * the closed content table — the stock sniffer's magic-bytes verdict must match
 //!   the requested kind, and masks are PNG-only (the stock mask seam's own law);
+//! * the image pixel law — a placed image becomes a canvas (i2i encodes at the
+//!   input's own dims, reference arrays decode the full frame), so a PNG or WebP
+//!   whose header dims cross the canvas law (edge 8..=8192 aligned to 8, product
+//!   16.7M — the same law both compile arms enforce) is refused at the door, not
+//!   queued against; headerless classes (jpeg/gif are not in the sniffer's set) and
+//!   unparseable headers pass this wall and stay owned by the content table;
 //! * the pathwall — a supplied `name` must be a bare filename: no separators, no
 //!   traversal, no control characters. Root placements are always minted by the stock
 //!   seam (uuid, `overwrite=false`), so no client string ever reaches a root path.
@@ -203,6 +209,34 @@ pub(crate) fn check_placement(placement: &str) -> Result<(), ApiError> {
     Err(ApiError::new(ErrorKind::BodyInvalid).with_hint(
         "the composed placement exceeds the 255-byte reference law; shorten the subfolder or the name",
     ))
+}
+
+/// The image pixel law at the door (the resolution-sanity ruling): nobody renders
+/// a 30000x30000 canvas, and an uploaded image CAN become one — i2i encodes at the
+/// input's own dims, so a legal dial set cannot save the row. PNG and WebP carry
+/// cheap header dims ([`crate::jobs::image_header_dims`], the same parse the door's
+/// i2i wall uses); dims crossing the canvas law (edge 8..=8192 aligned to 8,
+/// product ≤ 16,777,216 — the stock wording mirrored from `check_image_canvas`) are
+/// refused with `bodyInvalid` naming the dims. A class with no cheap parse, or a
+/// header that will not parse, passes here: the content table and the stock seam
+/// own those.
+pub(crate) fn check_pixels(head: &[u8]) -> Result<(), ApiError> {
+    let Some((width, height)) = crate::jobs::image_header_dims(head) else {
+        return Ok(());
+    };
+    for (field, edge) in [("width", width), ("height", height)] {
+        if !crate::jobs::canvas_edge_ok(edge) {
+            return Err(ApiError::new(ErrorKind::BodyInvalid).with_hint(format!(
+                "the placed image reads {width}x{height}: the {field} crosses the canvas law (an integer 8..=8192 aligned to 8, the stock canvas law the render arms enforce)"
+            )));
+        }
+    }
+    if !crate::jobs::canvas_pixels_ok(width, height) {
+        return Err(ApiError::new(ErrorKind::BodyInvalid).with_hint(format!(
+            "the placed image reads {width}x{height}: the canvas exceeds the 16.7M pixel ceiling (the stock canvas law the render arms enforce)"
+        )));
+    }
+    Ok(())
 }
 
 /// One E22 scoped placement request: the subfolder (relative to `deas-inputs/`,
@@ -570,5 +604,69 @@ mod tests {
         let long = format!("deas-inputs/{}/{}", "s".repeat(120), "n".repeat(200));
         let error = check_placement(&long).expect_err("over 255 bytes");
         assert_eq!(error.body_json()["reason"], "bodyInvalid");
+    }
+
+    /// A PNG head for the pixel law: magic, the IHDR length prefix and tag, and the
+    /// BE dims — the wall reads dims only and never decodes, so the chunk body
+    /// (bit depth onward) stays a stub.
+    fn png_head(width: u32, height: u32) -> Vec<u8> {
+        let mut head = vec![0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a];
+        head.extend_from_slice(&13u32.to_be_bytes());
+        head.extend_from_slice(b"IHDR");
+        head.extend_from_slice(&width.to_be_bytes());
+        head.extend_from_slice(&height.to_be_bytes());
+        head.extend_from_slice(&[8, 6, 0, 0, 0]);
+        head
+    }
+
+    /// A VP8X WebP head: RIFF/WEBP, the VP8X chunk, and the documented 24-bit LE
+    /// minus-1 canvas codes.
+    fn vp8x_head(width: u32, height: u32) -> Vec<u8> {
+        let code = |n: u32| [(n - 1) as u8, ((n - 1) >> 8) as u8, ((n - 1) >> 16) as u8];
+        let mut head = b"RIFF".to_vec();
+        head.extend_from_slice(&0u32.to_le_bytes());
+        head.extend_from_slice(b"WEBPVP8X");
+        head.extend_from_slice(&10u32.to_le_bytes());
+        head.push(0);
+        head.extend_from_slice(&[0, 0, 0]);
+        head.extend_from_slice(&code(width));
+        head.extend_from_slice(&code(height));
+        head.extend_from_slice(&[0, 0, 0]);
+        head
+    }
+
+    /// The door's image pixel law: a 10000x10000 PNG (the class that used to land
+    /// and only die at the drain) and an 8200-edge PNG are refused naming the dims;
+    /// the exact 16.7M pair (8192x2048) and the tiny 8x8 floor land; a VP8X canvas
+    /// is read at its documented offsets; an unparseable head passes the wall (the
+    /// content table owns those).
+    #[test]
+    fn the_pixel_law_refuses_headers_crossing_the_canvas_law() {
+        for (width, height) in [(10_000u32, 10_000u32), (8200, 1024), (1024, 8200)] {
+            let error =
+                check_pixels(&png_head(width, height)).expect_err("{width}x{height} is refused");
+            let refusal = error.body_json();
+            assert_eq!(refusal["reason"], "bodyInvalid", "{width}x{height}");
+            let hint = refusal["hint"].as_str().expect("hint");
+            assert!(hint.contains(&format!("{width}x{height}")), "{hint}");
+        }
+        // The product law, not just the edges: 4096x8192 is 33.5M with legal edges.
+        let error = check_pixels(&png_head(4096, 8192)).expect_err("the product is refused");
+        assert!(
+            error.body_json()["hint"]
+                .as_str()
+                .is_some_and(|hint| hint.contains("16.7M")),
+            "the hint names the ceiling"
+        );
+        // Legal: the exact 16.7M ceiling pair, and the raised floor.
+        check_pixels(&png_head(8192, 2048)).expect("8192x2048 is exactly 16.7M");
+        check_pixels(&png_head(8, 8)).expect("8 is the latent-grid floor");
+        check_pixels(&vp8x_head(10_000, 8)).expect_err("a 10000-edge VP8X canvas is refused");
+        check_pixels(&vp8x_head(8192, 8)).expect("an 8192-edge VP8X canvas is legal");
+        // No cheap parse, no dims, no wall: the content table owns these.
+        check_pixels(&[0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 1, 0, 1, 0])
+            .expect("gif is outside the sniffer's set");
+        check_pixels(&[0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a, b's', b'h'])
+            .expect("a stubbed IHDR never blocks a body the content table refuses anyway");
     }
 }

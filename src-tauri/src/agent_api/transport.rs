@@ -120,6 +120,8 @@ mod tests {
                 port: 8790,
                 standing_key: standing_key.map(str::to_owned),
                 origin_allowlist: allowlist.iter().map(|value| (*value).to_owned()).collect(),
+
+                component_overrides: Default::default(),
             },
             app_data: PathBuf::from("."),
             lanes: Arc::new(Lanes::new()),
@@ -4689,86 +4691,99 @@ mod tests {
         assert_eq!(body["reason"], "bodyInvalid");
     }
 
-    /* ---- BENCH DOOR tests (LEG M17b, ruling E22 BENCH) ---- */
+    /* ---- BENCH DOOR tests (LEG M17b ruling E22 BENCH; WHOLE-ROOT SWEEP
+    restate — owner ruling 2026-11-22: no body list, one call sweeps the whole
+    root into one dated folder inside the .bench parent) ---- */
 
-    /// The input bench door end to end: one call stamps ONE `.bench-<UTC>`
-    /// folder, MOVES each named file into it keeping the full source-relative
-    /// name, answers the old→new map with honest partial rows, hides the folder
-    /// from the listing (dot law), keeps the benched bytes reachable through the
-    /// byte door by explicit percent-form name, and the OLD placement name now
-    /// fails the existence law (422 `inputMissing`) — while the benched NEW name
-    /// is not placement-form and never even reaches that law (benched = hidden
-    /// from new references; no unbench door this leg).
+    /// The input bench door end to end, sweep law: an EMPTY body sweeps the
+    /// whole input root — every file moves into ONE `.bench/<UTC stamp>` folder
+    /// keeping its full source-relative name — the answer carries honest
+    /// counts, `rowsTruncated` and the sweep note, the listing goes blind to
+    /// the folder (dot law), the byte door reaches the benched bytes by
+    /// explicit percent-form name (the OLD spelling 404s), and the OLD
+    /// placement name now fails the existence law (422 `inputMissing`) while
+    /// the benched NEW name is not placement-form and never even reaches that
+    /// law (benched = hidden from new references; no unbench door).
     #[tokio::test]
     async fn the_inputs_bench_door_moves_declutters_answers_partials_and_hides_the_folder() {
         let dir = tempfile::tempdir().expect("tempdir");
         let inputs = tempfile::tempdir().expect("input root");
-        std::fs::create_dir_all(inputs.path().join("deas-inputs").join("project1"))
-            .expect("nested folder");
-        std::fs::write(
-            inputs
-                .path()
-                .join("deas-inputs")
-                .join("project1")
-                .join("pic.jpg"),
+        bench_place(
+            inputs.path(),
+            "deas-inputs/project1/pic.jpg",
             b"nested jpeg",
-        )
-        .expect("pic");
-        std::fs::write(inputs.path().join("deas-input-clip.mp4"), b"video bytes").expect("clip");
+        );
+        bench_place(inputs.path(), "deas-input-clip.mp4", b"video bytes");
+        bench_place(inputs.path(), "loose.png", b"loose");
         let mut plane = plane_with_app_data(dir.path());
         plane.input_root = Some(inputs.path().to_path_buf());
         let app = router(plane);
-        let (status, body) = call(
-            &app,
-            post_request(
-                "/v1/inputs/bench",
-                r#"{"names":["deas-inputs/project1/pic.jpg","deas-inputs/gone.png","deas-input-clip.mp4"]}"#,
-            ),
-        )
-        .await;
+        let (status, body) = call(&app, post_request("/v1/inputs/bench", "")).await;
         assert_eq!(status, StatusCode::OK, "{body}");
-        assert_eq!(body["moved"], 2, "partials answer 200 truth");
-        assert_eq!(body["refused"], 1);
+        assert_eq!(body["moved"], 3, "the sweep moves the WHOLE plane: {body}");
+        assert_eq!(body["refused"], 0);
+        assert_eq!(
+            body["rowsTruncated"], false,
+            "a small plane is never truncated"
+        );
         let folder = body["folder"]
             .as_str()
             .expect("the stamped folder")
             .to_owned();
+        assert_eq!(
+            folder.chars().count(),
+            23,
+            "the closed shape .bench/YYYYMMDDTHHMMSSZ (7-char parent + 16-char stamp): {folder}"
+        );
         assert!(
-            folder.starts_with(".bench-") && folder.ends_with('Z') && folder.chars().count() == 23,
-            "the closed stamp grammar .bench-YYYYMMDDTHHMMSSZ: {folder}"
+            folder.starts_with(".bench/") && folder.ends_with('Z'),
+            "the stamp folder rides the .bench parent: {folder}"
+        );
+        assert!(hint_absent(&body), "a 200 answer carries no refusal hint");
+        let note = body["note"].as_str().expect("the note");
+        assert!(
+            note.contains("takes NO body") && note.contains(".bench/YYYYMMDDTHHMMSSZ"),
+            "the note carries the sweep law: {note}"
         );
         let rows = body["rows"].as_array().expect("rows");
-        assert_eq!(rows[0]["old"], "deas-inputs/project1/pic.jpg");
-        assert_eq!(
-            rows[0]["new"],
-            format!("{folder}/deas-inputs/project1/pic.jpg"),
-            "the full source-relative name rides under the folder"
-        );
-        assert_eq!(rows[1]["error"], "notFound", "request order is kept");
-        assert_eq!(rows[2]["new"], format!("{folder}/deas-input-clip.mp4"));
-        assert!(
-            !inputs
-                .path()
-                .join("deas-inputs")
-                .join("project1")
-                .join("pic.jpg")
-                .exists(),
-            "a MOVE, not a copy: the old path is gone"
-        );
+        assert_eq!(rows.len(), 3);
+        for old in [
+            "deas-inputs/project1/pic.jpg",
+            "deas-input-clip.mp4",
+            "loose.png",
+        ] {
+            assert_eq!(
+                rows.iter()
+                    .find(|row| row["old"] == old)
+                    .expect("the swept name answers a row")["new"],
+                format!("{folder}/{old}"),
+                "the full source-relative name rides under the stamp folder"
+            );
+            assert!(
+                !inputs
+                    .path()
+                    .join(old.replace('/', std::path::MAIN_SEPARATOR_STR))
+                    .exists(),
+                "a MOVE, not a copy: {old} is gone from its old path"
+            );
+        }
         // Both listing law pins from the door side: the folder and its contents
         // are absent from GET /v1/inputs (the dot law M17a pre-positioned).
         let (status, listed) = call(&app, test_request("/v1/inputs")).await;
         assert_eq!(status, StatusCode::OK);
         let wire = serde_json::to_string(&listed).expect("wire");
         assert!(
-            !wire.contains(".bench-") && listed["count"] == 0,
-            "the bench folder hides itself from the walk: {wire}"
+            !wire.contains(".bench") && listed["count"] == 0,
+            "the bench parent hides itself from the walk: {wire}"
         );
         // The byte door reaches the benched path by explicit percent-form name.
+        // The input template is ONE segment, so the stamp folder's '/' rides the
+        // percent form too (the M16 idiom, now two levels deep).
+        let wire_folder = folder.replace('/', "%2F");
         let (status, _, bytes) = call_raw(
             &app,
             test_request(&format!(
-                "/v1/files/inputs/{folder}%2Fdeas-inputs%2Fproject1%2Fpic.jpg"
+                "/v1/files/inputs/{wire_folder}%2Fdeas-inputs%2Fproject1%2Fpic.jpg"
             )),
         )
         .await;
@@ -4792,7 +4807,7 @@ mod tests {
         assert_eq!(body["reason"], "inputMissing");
         assert!(
             hint(&body).contains("deas-inputs/project1/pic.jpg"),
-            "the refusal names what the bench moved away: {body}"
+            "the refusal names what the sweep moved away: {body}"
         );
         // The NEW name is not placement-form (leading dot): the existence law
         // never collects it, so it never reaches inputMissing — hidden from new
@@ -4832,17 +4847,24 @@ mod tests {
         )
     }
 
-    /// THE CLAIM GUARD (LEG AF2-M18c, the bench-vs-spool TOCTOU): the existence law
-    /// stats an input at QUEUE time, the drain reads it at DRAIN time, so a name a
-    /// live spool row still references is refused per-row as `claimedByQueue` naming
-    /// that row — while every other name in the SAME call moves exactly as it did
-    /// before the guard (validate-all-then-move-all; a claim never half-moves a call).
+    /// True when the answer carries no `hint` member (200 bodies are clean).
+    fn hint_absent(body: &Value) -> bool {
+        body["hint"].is_null()
+    }
+
+    /// THE CLAIM GUARD (LEG AF2-M18c, the bench-vs-spool TOCTOU, sweep law): the
+    /// existence law stats an input at QUEUE time, the drain reads it at DRAIN
+    /// time, so a name a live spool row still references is refused per-row as
+    /// `claimedByQueue` naming that row — while every OTHER file in the swept
+    /// plane moves exactly as it did before the guard (the claim check and the
+    /// renames ride one pass; a claim never half-sweeps a call).
     #[tokio::test]
     async fn a_queued_rows_input_is_claimed_and_stays_put_while_the_rest_move() {
         let dir = tempfile::tempdir().expect("tempdir");
         let inputs = tempfile::tempdir().expect("input root");
         bench_place(inputs.path(), "deas-inputs/proj/a.png", b"claimed");
         bench_place(inputs.path(), "deas-inputs/free.png", b"decluttered");
+        bench_place(inputs.path(), "deas-inputs/other.png", b"decluttered too");
         let mut plane = plane_with_app_data(dir.path());
         plane.input_root = Some(inputs.path().to_path_buf());
         let app = router(plane);
@@ -4853,30 +4875,28 @@ mod tests {
         .await;
         assert_eq!(status, StatusCode::OK, "the row queues: {answer}");
         let row = answer["id"].as_str().expect("row id").to_owned();
-        let (status, body) = call(
-            &app,
-            post_request(
-                "/v1/inputs/bench",
-                r#"{"names":["deas-inputs/proj/a.png","deas-inputs/free.png","deas-inputs/gone.png"]}"#,
-            ),
-        )
-        .await;
+        let (status, body) = call(&app, post_request("/v1/inputs/bench", "")).await;
         assert_eq!(status, StatusCode::OK, "{body}");
-        assert_eq!(body["moved"], 1, "the unclaimed name still moves: {body}");
-        assert_eq!(body["refused"], 2);
+        assert_eq!(body["moved"], 2, "the unclaimed files still move: {body}");
+        assert_eq!(body["refused"], 1);
         let folder = body["folder"].as_str().expect("the stamped folder");
         let rows = body["rows"].as_array().expect("rows");
-        assert_eq!(rows[0]["error"], "claimedByQueue", "{body}");
+        let claimed = rows
+            .iter()
+            .find(|row| row["old"] == "deas-inputs/proj/a.png")
+            .expect("the swept plane answers a row per file");
+        assert_eq!(claimed["error"], "claimedByQueue", "{body}");
         assert_eq!(
-            rows[0]["claimedBy"], row,
+            claimed["claimedBy"], row,
             "the refusal names the row that still needs the input"
         );
         assert_eq!(
-            rows[1]["new"],
+            rows.iter()
+                .find(|row| row["old"] == "deas-inputs/free.png")
+                .expect("free row")["new"],
             format!("{folder}/deas-inputs/free.png"),
-            "request order is kept and the rest of the call proceeds"
+            "the rest of the sweep proceeds"
         );
-        assert_eq!(rows[2]["error"], "notFound");
         assert!(
             inputs
                 .path()
@@ -4894,7 +4914,7 @@ mod tests {
                 .join("proj")
                 .join("a.png")
                 .exists(),
-            "and nothing was moved into the bench folder behind the claim"
+            "and nothing was moved into the stamp folder behind the claim"
         );
         assert!(
             inputs
@@ -4911,9 +4931,10 @@ mod tests {
         assert_eq!(listed["rows"][0]["id"], row);
     }
 
-    /// A TERMINAL row claims nothing: the batch read its inputs (or died trying), so
-    /// the declutter door must still be able to tidy the plane after it (test 2 —
-    /// `done` is the terminal arm; `failed`/`cancelled` ride the same match).
+    /// A TERMINAL row claims nothing: the batch read its inputs (or died trying),
+    /// so the sweep must still be able to tidy the plane after it (`done` is the
+    /// terminal arm; `failed`/`cancelled` ride the same match) — the owner law:
+    /// the sweep never tracks items that were already generated.
     #[tokio::test]
     async fn a_done_rows_input_is_not_claimed_and_the_bench_moves_it() {
         let dir = tempfile::tempdir().expect("tempdir");
@@ -4935,14 +4956,7 @@ mod tests {
                 .expect("status write"),
             "the row was queued and flips to done"
         );
-        let (status, body) = call(
-            &app,
-            post_request(
-                "/v1/inputs/bench",
-                r#"{"names":["deas-inputs/proj/a.png"]}"#,
-            ),
-        )
-        .await;
+        let (status, body) = call(&app, post_request("/v1/inputs/bench", "")).await;
         assert_eq!(status, StatusCode::OK, "{body}");
         assert_eq!(body["moved"], 1, "a terminal row does not claim: {body}");
         assert!(
@@ -4956,11 +4970,13 @@ mod tests {
         );
     }
 
-    /// Test 3 — the NESTED placement form matches (the E22 subfolder grammar lands
-    /// names like `deas-inputs/project1/deep/pic.jpg`, and the claim set holds them
-    /// exactly as the existence law spelled them), and a name that merely CONTAINS a
-    /// claimed placement as a whole segment run is refused too: over-refusing one row
-    /// is cheap, moving a file the drain needs is the race.
+    /// Test 3 — the NESTED placement form matches (the E22 subfolder grammar
+    /// lands names like `deas-inputs/project1/deep/pic.jpg`, and the claim set
+    /// holds them exactly as the existence law spelled them), and a swept name
+    /// that merely CONTAINS a claimed placement as a whole segment run is
+    /// refused too: over-refusing one row is cheap, moving a file the drain
+    /// needs is the race. Under the sweep law all three files are collected by
+    /// the walk — the claims law, not the body grammar, is what keeps them put.
     #[tokio::test]
     async fn a_nested_placement_name_is_claimed_and_so_is_a_deeper_path_over_it() {
         let dir = tempfile::tempdir().expect("tempdir");
@@ -4978,36 +4994,36 @@ mod tests {
         let app = router(plane);
         let (_, answer) = call(&app, post_request("/v1/queue", &i2i_row_naming(nested))).await;
         let row = answer["id"].as_str().expect("row id").to_owned();
-        let (status, body) = call(
-            &app,
-            post_request(
-                "/v1/inputs/bench",
-                r#"{"names":["deas-inputs/project1/deep/pic.jpg","deas-inputs/project1/pic.jpg","archive/deas-inputs/project1/deep/pic.jpg"]}"#,
-            ),
-        )
-        .await;
+        let (status, body) = call(&app, post_request("/v1/inputs/bench", "")).await;
         assert_eq!(status, StatusCode::OK, "{body}");
         assert_eq!(body["moved"], 1, "only the sibling moved: {body}");
+        assert_eq!(body["refused"], 2, "both claimed paths stayed put: {body}");
+        let folder = body["folder"].as_str().expect("folder");
         let rows = body["rows"].as_array().expect("rows");
+        let row_for = |name: &str| {
+            rows.iter()
+                .find(|candidate| candidate["old"] == name)
+                .unwrap_or_else(|| panic!("the sweep answers a row for {name}: {rows:?}"))
+                .clone()
+        };
+        let claimed = row_for(nested);
         assert_eq!(
-            rows[0]["error"], "claimedByQueue",
+            claimed["error"], "claimedByQueue",
             "the nested form: {body}"
         );
-        assert_eq!(rows[0]["claimedBy"], row);
+        assert_eq!(claimed["claimedBy"], row);
         assert_eq!(
-            rows[1]["new"]
+            row_for("deas-inputs/project1/pic.jpg")["new"]
                 .as_str()
                 .expect("the sibling is not the claimed name"),
-            format!(
-                "{}/deas-inputs/project1/pic.jpg",
-                body["folder"].as_str().expect("folder")
-            )
+            format!("{folder}/deas-inputs/project1/pic.jpg")
         );
+        let mirror = row_for("archive/deas-inputs/project1/deep/pic.jpg");
         assert_eq!(
-            rows[2]["error"], "claimedByQueue",
+            mirror["error"], "claimedByQueue",
             "a deeper name whose path contains the claimed placement as a segment run"
         );
-        assert_eq!(rows[2]["claimedBy"], row);
+        assert_eq!(mirror["claimedBy"], row);
         assert!(
             inputs
                 .path()
@@ -5031,56 +5047,49 @@ mod tests {
         );
     }
 
-    /// The output bench door: the promote locate grammar ({subfolder?,name})
-    /// moves each item to `.bench-<stamp>/<subfolder>/<name>`, the listing goes
-    /// blind to it (dot law), and both byte-door grammars reach the benched
-    /// file — subfolder=.bench-<stamp> two-segment and the one-segment percent
-    /// form.
+    /// The output bench door, sweep law: a ZERO-KEY body sweeps the WHOLE
+    /// output tree (the promote door's grammar is one way the file got there),
+    /// every file lands under `.bench/<stamp>/<original relative path>`, the
+    /// listing goes blind to it (dot law), and the catch-all byte door (AF2-
+    /// M29) reaches the benched file ONLY at its `.bench/<stamp>/...` spelling
+    /// — the old spelling 404s.
     #[tokio::test]
     async fn the_outputs_bench_door_moves_the_promote_grammar_and_the_byte_door_reaches_it() {
         let dir = tempfile::tempdir().expect("tempdir");
         let outputs = tempfile::tempdir().expect("output root");
-        std::fs::create_dir_all(outputs.path().join("starred")).expect("folder");
-        std::fs::write(
-            outputs.path().join("starred").join("keep.mp4"),
-            b"kept video",
-        )
-        .expect("keep");
-        std::fs::write(outputs.path().join("root.png"), b"root hero").expect("root");
+        bench_place(outputs.path(), "starred/keep.mp4", b"kept video");
+        bench_place(outputs.path(), "root.png", b"root hero");
         let mut plane = plane_with_app_data(dir.path());
         plane.output_root = Some(outputs.path().to_path_buf());
         let app = router(plane);
-        let (status, body) = call(
-            &app,
-            post_request(
-                "/v1/outputs/bench",
-                r#"{"items":[{"subfolder":"starred","name":"keep.mp4"},{"name":"root.png"},{"subfolder":"starred","name":"gone.mp4"}]}"#,
-            ),
-        )
-        .await;
+        let (status, body) = call(&app, post_request("/v1/outputs/bench", "")).await;
         assert_eq!(status, StatusCode::OK, "{body}");
-        assert_eq!(body["moved"], 2, "{body}");
-        assert_eq!(body["refused"], 1);
+        assert_eq!(body["moved"], 2, "the sweep takes the whole tree: {body}");
+        assert_eq!(body["refused"], 0);
         let folder = body["folder"]
             .as_str()
             .expect("the stamped folder")
             .to_owned();
         let rows = body["rows"].as_array().expect("rows");
-        assert_eq!(rows[0]["new"], format!("{folder}/starred/keep.mp4"));
-        assert_eq!(
-            rows[1]["new"],
-            format!("{folder}/root.png"),
-            "a bare name benches to the folder root"
-        );
-        assert_eq!(rows[2]["error"], "notFound");
-        // The listing skips the dot folder every level (M17a pre-positioned).
+        assert_eq!(rows.len(), 2);
+        for name in ["starred/keep.mp4", "root.png"] {
+            assert_eq!(
+                rows.iter()
+                    .find(|row| row["old"] == name)
+                    .expect("a row per swept file")["new"],
+                format!("{folder}/{name}"),
+                "the original relative path rides under the stamp folder"
+            );
+        }
+        // The listing skips the dot parent every level (M17a pre-positioned).
         let (status, listed) = call(&app, test_request("/v1/outputs")).await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(listed["count"], 0, "{listed}");
         let wire = serde_json::to_string(&listed).expect("wire");
-        assert!(!wire.contains(".bench-"), "{wire}");
-        // The two-segment byte door: subfolder=.bench-<stamp>%2Fstarred — the
-        // nested-subfolder idiom M16 pinned, riding the dot folder unchanged.
+        assert!(!wire.contains(".bench"), "{wire}");
+        // The catch-all byte door reaches the benched file ONLY at the new
+        // spelling: the percent form and the subfolder form of
+        // `.bench/<stamp>/starred/keep.mp4` both serve; the OLD spelling 404s.
         let (status, _, bytes) = call_raw(
             &app,
             test_request(&format!("/v1/files/outputs/{folder}%2Fstarred/keep.mp4")),
@@ -5092,7 +5101,6 @@ mod tests {
             "the subfolder form reaches the benched file: {status}"
         );
         assert_eq!(bytes, b"kept video");
-        // And the one-segment percent form reaches it under the same wall.
         let (status, _, bytes) = call_raw(
             &app,
             test_request(&format!("/v1/files/outputs/{folder}%2Fstarred%2Fkeep.mp4")),
@@ -5100,12 +5108,19 @@ mod tests {
         .await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(bytes, b"kept video");
+        let (status, _) = call(&app, test_request("/v1/files/outputs/starred/keep.mp4")).await;
+        assert_eq!(
+            status,
+            StatusCode::NOT_FOUND,
+            "the old spelling is gone: the bytes live under .bench/<stamp>/ only"
+        );
     }
 
-    /// M18d pin (LEG AF2-M19b, the spool-corrupt arm of the claim guard): an
-    /// unreadable spool means the bench door cannot see which live rows still claim
-    /// their inputs, so it refuses the WHOLE call — `maintenanceActive` naming the
-    /// unreadable spool (the same word `GET /v1/queue` answers), and nothing moves.
+    /// M18d pin (LEG AF2-M19b, the spool-corrupt arm of the claim guard, sweep
+    /// law): an unreadable spool means the sweep door cannot see which live rows
+    /// still claim their inputs, so it refuses the WHOLE call —
+    /// `maintenanceActive` naming the unreadable spool (the same word
+    /// `GET /v1/queue` answers), and nothing moves.
     #[tokio::test]
     async fn an_unreadable_spool_refuses_the_whole_inputs_bench_by_name() {
         let dir = tempfile::tempdir().expect("tempdir");
@@ -5116,11 +5131,7 @@ mod tests {
         let mut plane = plane_with_app_data(dir.path());
         plane.input_root = Some(inputs.path().to_path_buf());
         let app = router(plane);
-        let (status, body) = call(
-            &app,
-            post_request("/v1/inputs/bench", r#"{"names":["deas-inputs/keep.png"]}"#),
-        )
-        .await;
+        let (status, body) = call(&app, post_request("/v1/inputs/bench", "")).await;
         assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{body}");
         assert_eq!(body["reason"], "maintenanceActive");
         let problem = hint(&body);
@@ -5134,99 +5145,480 @@ mod tests {
         );
     }
 
-    /// The bench walls in order: auth first (the transport's wall stands before
-    /// any body parse), then the closed body grammar (1..=100, dup refusal,
-    /// unknown fields, the bare-name wall), then the root law — and a hoisted
-    /// grammar refusal touches NO disk (validate-all-then-move-all).
+    /// Bench-leg P1 (the live-observed empty-folder flaw, door level, sweep
+    /// law): a sweep whose every swept file is claimed answers an honest 200
+    /// partial (moved:0, refused:1) AND leaves NO `.bench` entry on disk. The
+    /// stamp folder is minted lazily at the first real move; the answered
+    /// `folder` word is the name a move would have used, not a promise that it
+    /// exists. (The outputs half of the old pick-list version of this test died
+    /// with the body grammar: an outputs sweep with an empty tree answers an
+    /// EMPTY row set — the audited output claim set is empty — and the same
+    /// lazy-folder law for both doors is pinned at the code level by
+    /// `files::a_fully_refused_bench_call_leaves_no_folder_on_disk`.)
+    #[tokio::test]
+    async fn an_all_refused_bench_call_leaves_no_folder_on_disk() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let inputs = tempfile::tempdir().expect("input root");
+        bench_place(inputs.path(), "deas-inputs/here.png", b"here");
+        let mut plane = plane_with_app_data(dir.path());
+        plane.input_root = Some(inputs.path().to_path_buf());
+        let app = router(plane);
+        let (status, answer) = call(
+            &app,
+            post_request("/v1/queue", &i2i_row_naming("deas-inputs/here.png")),
+        )
+        .await;
+        assert_eq!(
+            status,
+            StatusCode::OK,
+            "the row claims the only file: {answer}"
+        );
+        let (status, body) = call(&app, post_request("/v1/inputs/bench", "")).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["moved"], 0, "{body}");
+        assert_eq!(
+            body["refused"], 1,
+            "the claimed file is the whole sweep: {body}"
+        );
+        assert_eq!(body["rows"][0]["error"], "claimedByQueue", "{body}");
+        assert!(
+            std::fs::read_dir(inputs.path())
+                .expect("root readable")
+                .flatten()
+                .all(|entry| entry.file_name() != ".bench"),
+            "an all-refused sweep minted the .bench parent (the live-observed empty-folder flaw)"
+        );
+    }
+
+    /// Bench-leg P1 (same-second reuse law, door level, sweep law): two sweep
+    /// calls land in the SAME stamp folder whenever the wall-clock second does
+    /// not roll over between them — never an error, never a minted suffix — and
+    /// the second call's sweep finds only the files the first call left behind
+    /// (the .bench parent and everything inside it are never re-swept). Every
+    /// file rides exactly one folder; the .bench parent is minted once.
+    #[tokio::test]
+    async fn two_bench_calls_inside_one_stamp_second_share_the_same_folder() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let inputs = tempfile::tempdir().expect("input root");
+        bench_place(inputs.path(), "deas-inputs/a.png", b"a");
+        bench_place(inputs.path(), "deas-inputs/b.png", b"b");
+        let mut plane = plane_with_app_data(dir.path());
+        plane.input_root = Some(inputs.path().to_path_buf());
+        let app = router(plane);
+        let before = spool::now_ms();
+        let (_, first) = call(&app, post_request("/v1/inputs/bench", "")).await;
+        // A fresh file lands between the calls: the second sweep's sweep set is
+        // exactly the leftovers the first call did not move (which, by the
+        // dot law, never include the first call's bench folder).
+        bench_place(inputs.path(), "deas-inputs/c.png", b"c");
+        let (_, second) = call(&app, post_request("/v1/inputs/bench", "")).await;
+        let after = spool::now_ms();
+        let stamp = |at: u64| super::super::files::bench_folder_name(at);
+        let first_folder = first["folder"].as_str().expect("first folder").to_owned();
+        let second_folder = second["folder"].as_str().expect("second folder").to_owned();
+        if stamp(before) == stamp(after) {
+            assert_eq!(
+                first_folder, second_folder,
+                "one wall-clock second spanned both calls — they must share ONE folder: {first} / {second}"
+            );
+        }
+        assert_eq!(first["moved"], 2, "the first sweep took a and b: {first}");
+        assert_eq!(second["moved"], 1, "the second sweep took only c: {second}");
+        for (name, folder) in [
+            ("a.png", &first_folder),
+            ("b.png", &first_folder),
+            ("c.png", &second_folder),
+        ] {
+            assert!(
+                inputs
+                    .path()
+                    .join(folder.replace('/', std::path::MAIN_SEPARATOR_STR))
+                    .join("deas-inputs")
+                    .join(name)
+                    .exists(),
+                "{name} rides its call's folder {folder}"
+            );
+        }
+        let mut stamp_folders: Vec<String> = std::fs::read_dir(inputs.path().join(".bench"))
+            .expect("the .bench parent readable")
+            .flatten()
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .collect();
+        stamp_folders.sort();
+        let mut expected: Vec<String> = vec![
+            first_folder.split('/').nth(1).expect("stamp").to_owned(),
+            second_folder.split('/').nth(1).expect("stamp").to_owned(),
+        ];
+        expected.sort();
+        expected.dedup();
+        assert_eq!(
+            stamp_folders, expected,
+            "no collision suffix was minted — the stamp set inside .bench is exactly the answered folders"
+        );
+    }
+
+    /// Bench-leg P2 (valid=movable, the draining arm, sweep law): a `draining`
+    /// row claims its input exactly like a queued one — the batch reads each row
+    /// at its own turn — so inside an otherwise fully swept plane the claimed
+    /// file stays put (`moved:N refused:1 claimedByQueue`) where the batch will
+    /// read it. (The `queued` arm and the terminal `done` arm keep their
+    /// sibling tests; `wedged` rides the same non-terminal match.)
+    #[tokio::test]
+    async fn a_draining_row_still_claims_its_input_to_the_bench() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let inputs = tempfile::tempdir().expect("input root");
+        bench_place(inputs.path(), "deas-inputs/proj/a.png", b"mid-batch");
+        bench_place(inputs.path(), "deas-inputs/free-1.png", b"goes");
+        bench_place(inputs.path(), "deas-inputs/free-2.png", b"goes too");
+        let mut plane = plane_with_app_data(dir.path());
+        plane.input_root = Some(inputs.path().to_path_buf());
+        let spool = Arc::clone(&plane.spool);
+        let app = router(plane);
+        let (_, answer) = call(
+            &app,
+            post_request("/v1/queue", &i2i_row_naming("deas-inputs/proj/a.png")),
+        )
+        .await;
+        let row = answer["id"].as_str().expect("row id").to_owned();
+        assert!(
+            spool
+                .set_status(&row, spool::RowStatus::Queued, spool::RowStatus::Draining)
+                .expect("status write"),
+            "the row was queued and flips to draining"
+        );
+        let (status, body) = call(&app, post_request("/v1/inputs/bench", "")).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["moved"], 2, "the plane swept around the claim: {body}");
+        assert_eq!(body["refused"], 1, "a draining row claims: {body}");
+        let rows = body["rows"].as_array().expect("rows");
+        let claimed = rows
+            .iter()
+            .find(|row| row["old"] == "deas-inputs/proj/a.png")
+            .expect("the claimed file answers a row");
+        assert_eq!(claimed["error"], "claimedByQueue", "{body}");
+        assert_eq!(claimed["claimedBy"], row, "{body}");
+        assert!(
+            inputs
+                .path()
+                .join("deas-inputs")
+                .join("proj")
+                .join("a.png")
+                .exists(),
+            "the mid-batch input stayed where the batch will read it"
+        );
+    }
+
+    /// Bench-leg P2 (the outputs mirror wiring is REAL, not decorative, sweep
+    /// law): the outputs door reads the live rows under the spool write window
+    /// before it renames, so an unreadable spool refuses the WHOLE call with the
+    /// same honest word the inputs door answers, and nothing moves.
+    #[tokio::test]
+    async fn an_unreadable_spool_refuses_the_whole_outputs_bench_by_name() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let outputs = tempfile::tempdir().expect("output root");
+        bench_place(outputs.path(), "starred/keep.mp4", b"stays put");
+        std::fs::write(dir.path().join(spool::FILE), b"{ broken spool !!")
+            .expect("corrupt spool staged");
+        let mut plane = plane_with_app_data(dir.path());
+        plane.output_root = Some(outputs.path().to_path_buf());
+        let app = router(plane);
+        let (status, body) = call(&app, post_request("/v1/outputs/bench", "")).await;
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{body}");
+        assert_eq!(body["reason"], "maintenanceActive");
+        let problem = hint(&body);
+        assert!(
+            problem.contains("spool is unreadable"),
+            "the refusal names the unreadable spool: {problem}"
+        );
+        assert!(
+            outputs.path().join("starred").join("keep.mp4").exists(),
+            "a door that cannot check its claims moves nothing"
+        );
+        assert!(
+            std::fs::read_dir(outputs.path())
+                .expect("root readable")
+                .flatten()
+                .all(|entry| entry.file_name() != ".bench"),
+            "the refused call left no folder behind"
+        );
+    }
+
+    /// The walk law at the door: a root the sweep cannot open refuses the WHOLE
+    /// call as `maintenanceActive` naming the root — a door that cannot see the
+    /// plane will not half-sweep it — and nothing moves.
+    #[tokio::test]
+    async fn an_unwalkable_root_refuses_the_whole_inputs_bench_by_name() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let inputs = tempfile::tempdir().expect("input root");
+        // The served "root" is a regular file: the walk cannot open it at all.
+        let not_a_root = inputs.path().join("not-a-directory");
+        std::fs::write(&not_a_root, b"a file where the walk expects a root").expect("file");
+        let mut plane = plane_with_app_data(dir.path());
+        plane.input_root = Some(not_a_root.clone());
+        let app = router(plane);
+        let (status, body) = call(&app, post_request("/v1/inputs/bench", "")).await;
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{body}");
+        assert_eq!(body["reason"], "maintenanceActive");
+        let problem = hint(&body);
+        assert!(
+            problem.contains("the input root cannot be walked")
+                && problem.contains("not-a-directory"),
+            "the refusal names the unwalkable root: {problem}"
+        );
+        assert_eq!(
+            std::fs::read(&not_a_root).expect("the file is untouched"),
+            b"a file where the walk expects a root",
+            "a refused sweep touched nothing"
+        );
+    }
+
+    /// Bench-leg P2 (the mirror audit pinned at the door, sweep law): chain and
+    /// continuity references are CLIP IDS the drain resolves against the stock
+    /// session ledger, not output-root files — a queued join row with a `chain`
+    /// arm claims NOTHING to the outputs door, and the sweep moves the file the
+    /// clip's old export used to name. Benching output files never breaks a
+    /// story chain.
+    #[tokio::test]
+    async fn a_queued_join_row_with_clip_ids_does_not_claim_output_files() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let outputs = tempfile::tempdir().expect("output root");
+        bench_place(outputs.path(), "c-0-export.mp4", b"elder export");
+        let mut plane = plane_with_app_data(dir.path());
+        plane.output_root = Some(outputs.path().to_path_buf());
+        let app = router(plane);
+        let (status, answer) = call(
+            &app,
+            post_request(
+                "/v1/videos/join",
+                r#"{"kind":"segments","session":"story-1","chain":["c-0","c-1"]}"#,
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "the join row queues: {answer}");
+        let (status, body) = call(&app, post_request("/v1/outputs/bench", "")).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(
+            body["moved"], 1,
+            "the queued chain row claims clip ids, never output paths: {body}"
+        );
+        assert_eq!(body["rows"][0]["error"], Value::Null, "{body}");
+    }
+
+    /// The bench walls in order (sweep law): auth first (the transport's wall
+    /// stands before any body parse), then the ZERO-KEY body law — the OLD
+    /// pick-list bodies (`{"names":[...]}`, `{"items":[...]}`) are now the
+    /// refused bodies, named by the sweep law — then the root law, and every
+    /// refusal touches NO disk: nothing moved, no folder minted.
     #[tokio::test]
     async fn the_bench_walls_stand_auth_first_and_never_move_on_a_refused_body() {
         // Auth-first: the standing key wall answers before the handler parses
         // (the origin is allowlisted so the KEY wall is the wall under test).
         let keyed = router(state(&["http://localhost:1420"], Some("s3cret")));
-        let (status, body) = call(
-            &keyed,
-            post_request("/v1/inputs/bench", r#"{"names":["deas-inputs/x.png"]}"#),
-        )
-        .await;
+        let (status, body) = call(&keyed, post_request("/v1/inputs/bench", "")).await;
         assert_eq!(status, StatusCode::UNAUTHORIZED, "{body}");
         assert_eq!(body["reason"], "keyMissing");
-        let (status, body) = call(
-            &keyed,
-            post_request("/v1/outputs/bench", r#"{"items":[{"name":"x.png"}]}"#),
-        )
-        .await;
+        let (status, body) = call(&keyed, post_request("/v1/outputs/bench", "")).await;
         assert_eq!(status, StatusCode::UNAUTHORIZED, "{body}");
         assert_eq!(body["reason"], "keyMissing");
-        // The body grammar walls, both doors.
-        let many = (0..files_cap_plus_one())
-            .map(|index| format!(r#""deas-inputs/x{index}.png""#))
-            .collect::<Vec<String>>()
-            .join(",");
         let dir = tempfile::tempdir().expect("tempdir");
         let inputs = tempfile::tempdir().expect("input root");
-        std::fs::create_dir_all(inputs.path().join("deas-inputs")).expect("folder");
-        std::fs::write(inputs.path().join("deas-inputs").join("here.png"), b"here").expect("file");
+        bench_place(inputs.path(), "deas-inputs/here.png", b"here");
         let mut plane = plane_with_app_data(dir.path());
         plane.input_root = Some(inputs.path().to_path_buf());
         let app = router(plane);
-        for body_text in [
-            r#"{}"#,
-            r#"{"names":[]}"#,
-            &format!(r#"{{"names":[{many}]}}"#),
-            r#"{"names":["deas-inputs/here.png","deas-inputs/here.png"]}"#,
-            r#"{"names":["deas-inputs/here.png"],"extra":1}"#,
-            r#"{"names":["deas-inputs/here.png","../escape.png"]}"#,
-            r#"{"names":["de-as-inputs//double.png"]}"#,
-            r#"{"names":"deas-inputs/here.png"}"#,
+        // The zero-key law, both doors: ANY key refuses naming the sweep law —
+        // the pick-list bodies the doors used to serve are now the refused
+        // bodies, and the hint tells the stale client what to drop.
+        for (path, body_text, key) in [
+            (
+                "/v1/inputs/bench",
+                r#"{"names":["deas-inputs/here.png"]}"#,
+                "names",
+            ),
+            (
+                "/v1/inputs/bench",
+                r#"{"items":[{"name":"x.png"}]}"#,
+                "items",
+            ),
+            ("/v1/inputs/bench", r#"{"folder":"mine"}"#, "folder"),
+            (
+                "/v1/outputs/bench",
+                r#"{"items":[{"name":"here.png"}]}"#,
+                "items",
+            ),
+            ("/v1/outputs/bench", r#"{"names":["here.png"]}"#, "names"),
         ] {
+            let (status, body) = call(&app, post_request(path, body_text)).await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{body_text}: {body}");
+            assert_eq!(body["reason"], "bodyInvalid", "{body_text}");
+            let problem = hint(&body);
+            assert!(
+                problem.contains("the bench sweep takes no body")
+                    && problem.contains(&format!("drop the field '{key}'")),
+                "the refusal names the key and the sweep law: {problem}"
+            );
+        }
+        // Malformed shapes and over-cap bodies are the same honest word; the
+        // cap only walls out hostile streams now — sweeps themselves are
+        // unbounded (the old 100-entry body cap no longer exists).
+        let huge = format!(r#"{{"junk":"{}"}}"#, "x".repeat(65_536));
+        for body_text in [r#"{"names"#, r#"[]"#, r#""bench""#, &huge] {
             let (status, body) = call(&app, post_request("/v1/inputs/bench", body_text)).await;
             assert_eq!(status, StatusCode::BAD_REQUEST, "{body_text}: {body}");
             assert_eq!(body["reason"], "bodyInvalid", "{body_text}");
         }
-        for body_text in [
-            r#"{"items":[{"subfolder":"a","name":"b/c.png"}]}"#,
-            r#"{"items":[{"subfolder":"a","name":"x.png"},{"subfolder":"a","name":"x.png"}]}"#,
-            r#"{"items":[{"subfolder":"a","name":"x.png","extra":true}]}"#,
-            r#"{"items":["a/x.png"]}"#,
-            r#"{"items":[]}"#,
-        ] {
-            let (status, body) = call(&app, post_request("/v1/outputs/bench", body_text)).await;
-            assert_eq!(status, StatusCode::BAD_REQUEST, "{body_text}: {body}");
-            assert_eq!(body["reason"], "bodyInvalid", "{body_text}");
-        }
-        // Nothing moved, no folder created: every refusal above was hoisted
-        // before a single rename.
-        assert!(inputs.path().join("deas-inputs").join("here.png").exists());
-        assert!(
-            std::fs::read_dir(inputs.path())
-                .expect("root readable")
-                .flatten()
-                .all(|entry| !entry.file_name().to_string_lossy().starts_with(".bench-")),
-            "a refused bench body never even prepares the folder"
-        );
-        // The root law: no derivable environment answers maintenanceActive, not
-        // a guessed folder (the door idiom, both doors).
+        // The grammar wall stands BEFORE the root law: a list body on a plane
+        // with no derivable root still answers its grammar word, not a root one.
         let bare = router(plane_with_app_data(dir.path()));
         let (status, body) = call(
             &bare,
             post_request("/v1/inputs/bench", r#"{"names":["x.png"]}"#),
         )
         .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+        assert_eq!(body["reason"], "bodyInvalid");
+        // Nothing moved, no folder minted: every refusal above was hoisted
+        // before a walk or a rename.
+        assert!(inputs.path().join("deas-inputs").join("here.png").exists());
+        assert!(
+            std::fs::read_dir(inputs.path())
+                .expect("root readable")
+                .flatten()
+                .all(|entry| entry.file_name() != ".bench"),
+            "a refused sweep body never even mints the .bench parent"
+        );
+        // The root law: no derivable environment answers maintenanceActive, not
+        // a guessed folder (the door idiom, both doors).
+        let (status, body) = call(&bare, post_request("/v1/inputs/bench", "")).await;
         assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{body}");
         assert_eq!(body["reason"], "maintenanceActive");
-        let (status, body) = call(
-            &bare,
-            post_request("/v1/outputs/bench", r#"{"items":[{"name":"x.png"}]}"#),
-        )
-        .await;
+        let (status, body) = call(&bare, post_request("/v1/outputs/bench", "")).await;
         assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{body}");
         assert_eq!(body["reason"], "maintenanceActive");
     }
 
-    /// The cap constant's home is `files::MAX_BENCH_ENTRIES`; the wall test
-    /// stages one entry past it without importing the constant path noise.
-    fn files_cap_plus_one() -> usize {
-        super::super::files::MAX_BENCH_ENTRIES + 1
+    /// The SWEEP dot law at the door: the legacy `.bench-<stamp>` folders from
+    /// the pre-sweep grammar (and any dot state) stay EXACTLY where they are —
+    /// the walk never descends into a dot entry, so a sweep moves only the
+    /// non-dot plane and the legacy group remains findable by its old name.
+    #[tokio::test]
+    async fn a_legacy_bench_dot_folder_is_never_re_swept() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let inputs = tempfile::tempdir().expect("input root");
+        bench_place(
+            inputs.path(),
+            ".bench-20260101T000000Z/old.png",
+            b"elder bench",
+        );
+        bench_place(inputs.path(), "deas-inputs/now.png", b"live plane");
+        let mut plane = plane_with_app_data(dir.path());
+        plane.input_root = Some(inputs.path().to_path_buf());
+        let app = router(plane);
+        let (status, body) = call(&app, post_request("/v1/inputs/bench", "")).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["moved"], 1, "only the non-dot file swept: {body}");
+        let folder = body["folder"].as_str().expect("the stamped folder");
+        assert_eq!(body["rows"][0]["old"], "deas-inputs/now.png");
+        assert_eq!(
+            body["rows"][0]["new"],
+            format!("{folder}/deas-inputs/now.png")
+        );
+        assert!(
+            inputs
+                .path()
+                .join(".bench-20260101T000000Z")
+                .join("old.png")
+                .exists(),
+            "the legacy dot folder and its file stayed exactly where they were"
+        );
+        // The byte door still reaches the legacy path by its OLD spelling.
+        let (status, _, bytes) = call_raw(
+            &app,
+            test_request("/v1/files/inputs/.bench-20260101T000000Z%2Fold.png"),
+        )
+        .await;
+        assert_eq!(
+            status,
+            StatusCode::OK,
+            "the legacy bytes stay served: {status}"
+        );
+        assert_eq!(bytes, b"elder bench");
+    }
+
+    /// The parent law at the door: after a sweep the disk shape is
+    /// `<root>/.bench/<stamp>/<rel>` — a SECOND sweep creates a SECOND stamp
+    /// folder INSIDE THE SAME `.bench` parent (never a second parent, never a
+    /// sibling beside it). If the wall-clock second never rolls over between
+    /// the calls the two stamps legitimately coincide (the reuse law), so the
+    /// test asserts the parent share in that case, matching the stamp-test
+    /// idiom for second-rolling.
+    #[tokio::test]
+    async fn the_bench_parent_nests_the_stamp_folder() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let inputs = tempfile::tempdir().expect("input root");
+        bench_place(inputs.path(), "deas-inputs/first.png", b"first");
+        let mut plane = plane_with_app_data(dir.path());
+        plane.input_root = Some(inputs.path().to_path_buf());
+        let app = router(plane);
+        let (status, first) = call(&app, post_request("/v1/inputs/bench", "")).await;
+        assert_eq!(status, StatusCode::OK, "{first}");
+        assert_eq!(first["moved"], 1, "{first}");
+        let first_folder = first["folder"].as_str().expect("first folder").to_owned();
+        assert_eq!(
+            std::fs::read(
+                inputs
+                    .path()
+                    .join(first_folder.replace('/', std::path::MAIN_SEPARATOR_STR))
+                    .join("deas-inputs")
+                    .join("first.png")
+            )
+            .expect("the disk shape is <root>/.bench/<stamp>/<rel>"),
+            b"first",
+            "the benched bytes ride the nested path"
+        );
+        // The next second gets a fresh file and a fresh call; whether the stamp
+        // rolls over is the clock's, not the door's.
+        std::thread::sleep(std::time::Duration::from_millis(1_100));
+        bench_place(inputs.path(), "deas-inputs/second.png", b"second");
+        let (status, second) = call(&app, post_request("/v1/inputs/bench", "")).await;
+        assert_eq!(status, StatusCode::OK, "{second}");
+        assert_eq!(second["moved"], 1, "{second}");
+        let second_folder = second["folder"].as_str().expect("second folder").to_owned();
+        assert!(
+            first_folder.starts_with(".bench/") && second_folder.starts_with(".bench/"),
+            "both stamps nest in the SAME .bench parent: {first_folder} / {second_folder}"
+        );
+        let parents: Vec<String> = std::fs::read_dir(inputs.path())
+            .expect("root readable")
+            .flatten()
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .filter(|name| name.starts_with(".bench"))
+            .collect();
+        assert_eq!(
+            parents,
+            vec![".bench".to_owned()],
+            "exactly ONE .bench parent on disk — legacy .bench-<stamp> siblings are never minted again"
+        );
+        let mut stamp_folders: Vec<String> = std::fs::read_dir(inputs.path().join(".bench"))
+            .expect("the parent readable")
+            .flatten()
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .collect();
+        stamp_folders.sort();
+        stamp_folders.dedup();
+        if first_folder == second_folder {
+            assert_eq!(
+                stamp_folders,
+                vec![first_folder.split('/').nth(1).expect("stamp")],
+                "one second, one stamp folder (the reuse law)"
+            );
+        } else {
+            assert_eq!(
+                stamp_folders.len(),
+                2,
+                "two seconds, TWO stamp folders inside the ONE .bench parent: {stamp_folders:?}"
+            );
+        }
     }
 
     #[tokio::test]

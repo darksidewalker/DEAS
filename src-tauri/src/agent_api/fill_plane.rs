@@ -1031,6 +1031,24 @@ pub(crate) fn fill(
     sheet: &DefaultsSheet,
     request_extras: Option<&Map<String, Value>>,
 ) -> Result<FillOutcome, ApiError> {
+    fill_at(family, mode, request_dials, sheet, request_extras, None)
+}
+
+/// [`fill`] with the engine's INPUT root threaded in: the i2i canvas law (the P3
+/// door wall) reads the PLACED `inputImage` file's header dims, and only the queue
+/// door (which owns the plane state) can name that root. `None` keeps every other
+/// law identical and leaves only the input-header read inert — the compile-side
+/// mirror (`jobs::check_input_canvas`, fed by the backend's snapshotted input
+/// folder) still refuses an oversized placed input before `VAEEncode`.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn fill_at(
+    family: &str,
+    mode: &str,
+    request_dials: Option<&Dials>,
+    sheet: &DefaultsSheet,
+    request_extras: Option<&Map<String, Value>>,
+    input_root: Option<&std::path::Path>,
+) -> Result<FillOutcome, ApiError> {
     let spec = MODE_SPECS
         .iter()
         .find(|spec| spec.mode == mode)
@@ -1211,7 +1229,7 @@ pub(crate) fn fill(
         key_law: KeyLaw::Image,
     };
     check_image_canvas(&plan)?;
-    check_pairing_laws(&plan)?;
+    check_pairing_laws(&plan, input_root)?;
     Ok(FillOutcome::Plan(plan))
 }
 
@@ -1559,6 +1577,7 @@ fn fill_video(
         }
     }
     check_video_ranges(family, &fields)?;
+    check_latent_upscale_canvas(family, &fields, &extras)?;
 
     // The family block: ltx/wan ride the request verbatim (their value laws are the
     // stock compiler's); h3 gets the door-built mode, media and reference legs.
@@ -1680,6 +1699,17 @@ fn push_integer_field(
     Ok(())
 }
 
+/// The door's video pixel-frame budget: `width * height * frames` in
+/// pixels-frames, 4,294,967,296 (4.3e9 — a 1024x1024 x 4096-frame film, or a
+/// 4096x4096 x 256-frame film). Chosen CONSERVATIVE, and deliberately below what
+/// the per-frame laws already admit: edges 8..=8192, product 16.7M and frames
+/// 1..=3600 together allow e.g. 4096x4096 x 3600 frames, whose decoded float32
+/// RGB batches (`host_memory::pixel_batches`, 12 bytes per pixel-frame plus the
+/// post-upscale decode) would ask for ~800 GiB of host RAM — a full-frame decode
+/// of that size is the host-OOM class the drain estimator already refuses, so the
+/// door refuses the request up front instead of queueing a doomed row.
+pub(crate) const MAX_VIDEO_PIXEL_FRAMES: u64 = 4_294_967_296;
+
 /// The door-side value gates the stock video validator runs before its family
 /// block: canvas grid, frame grid, frameRate/cfg ranges, the 1..=150 steps gate,
 /// the per-family step choices and pinned sampler (`model_families::video_recipe`,
@@ -1698,9 +1728,9 @@ fn check_video_ranges(family: &str, fields: &[ResolvedField]) -> Result<(), ApiE
             })
     };
     for field in ["width", "height"] {
-        let Some(edge) = integer(field).filter(|edge| (64..=8192).contains(edge)) else {
+        let Some(edge) = integer(field).filter(|edge| (8..=8192).contains(edge)) else {
             return Err(invalid(format!(
-                "{field} must be an integer 64..=8192 for the video recipe; supply it in the dials block or the sheet"
+                "{field} must be an integer 8..=8192 for the video recipe; supply it in the dials block or the sheet"
             )));
         };
         if edge % multiple != 0 {
@@ -1726,6 +1756,15 @@ fn check_video_ranges(family: &str, fields: &[ResolvedField]) -> Result<(), ApiE
     if (frames - offset) % step != 0 {
         return Err(invalid(format!(
             "frames {frames} must be {step}k+{offset} for family '{family}' (the latent grid law)"
+        )));
+    }
+    // The frames-x-pixels budget (the per-frame laws bound each factor; only their
+    // product bounds the decode): see [`MAX_VIDEO_PIXEL_FRAMES`] for the choice.
+    let pixel_frames = width.saturating_mul(height).saturating_mul(frames);
+    if pixel_frames > MAX_VIDEO_PIXEL_FRAMES {
+        return Err(invalid(format!(
+            "the film exceeds the {} pixels-frames budget ({width}x{height} x {frames} frames = {pixel_frames}); lower frames or the canvas (the decode would cross host memory — see the host-memory budget law)",
+            MAX_VIDEO_PIXEL_FRAMES
         )));
     }
     if !number("frameRate").is_some_and(|value| (1.0..=120.0).contains(&value)) {
@@ -1842,6 +1881,30 @@ fn check_video_passthrough_shape(key: &str, family: &str, value: &Value) -> Resu
             }
             if !value.is_object() {
                 return Err(invalid("latentUpscale must be an object".to_owned()));
+            }
+            // The scale range law mirrored from `jobs_video::validate_latent_upscale`
+            // (ltx-2 pins scale exactly 2; minimax-h3 admits a finite 1..=8 unless
+            // Hi-Res Regenerate replaces the settings). The RESULT-canvas law rides
+            // `check_latent_upscale_canvas` after the ladder, where the merged dials
+            // are known.
+            let upscale = value.as_object().expect("gated above");
+            if upscale.get("regenerate").is_some() {
+                return Ok(());
+            }
+            let scale = upscale["scale"].as_f64();
+            if family == "ltx-2" {
+                if scale != Some(2.0) {
+                    return Err(invalid(
+                        "latentUpscale.scale: ltx-2 upscales by exactly 2 (the stock law)"
+                            .to_owned(),
+                    ));
+                }
+            } else if !scale.is_some_and(|scale| scale.is_finite() && (1.0..=8.0).contains(&scale))
+            {
+                return Err(invalid(
+                    "latentUpscale.scale must be a finite number 1..=8 (the stock minimax-h3 law)"
+                        .to_owned(),
+                ));
             }
         }
         "faceRefine" => {
@@ -3285,10 +3348,52 @@ pub(crate) fn check_passthrough_shape(key: &str, value: &Value) -> Result<(), Ap
                 || layers.iter().any(|layer| {
                     layer.as_object().is_none_or(|object| object.len() != 5)
                         || !layer["image"].as_str().is_some_and(crate::jobs::model_name)
+                        // The numeric mirror of compile's layer law (jobs.rs:549):
+                        // x/y bounded by 8192, width/height 1..=8192.
+                        || ["x", "y", "width", "height"].iter().any(|key| {
+                            !layer[*key].as_u64().is_some_and(|n| {
+                                n <= crate::jobs::MAX_CANVAS_EDGE
+                                    && (n > 0 || *key == "x" || *key == "y")
+                            })
+                        })
                 })
             {
                 return Err(invalid(
-                    "inputLayers must be 1..4 objects of {image,x,y,width,height}".to_owned(),
+                    "inputLayers must be 1..4 objects of {image,x,y,width,height} with x/y bounded by 8192 and width/height in 1..=8192"
+                        .to_owned(),
+                ));
+            }
+        }
+        "inpaintCrop" => {
+            // The numeric mirror of compile's crop law (jobs.rs:520-536): exactly
+            // six keys, the source rectangle bounded by 8192, and the model-aligned
+            // target edges on the 8..=8192 canvas grid under the 16.7M product.
+            // The mask pairing and the rectangle's containment in the merged source
+            // edges stay `check_pairing_laws`' (they need the ladder), not restated.
+            let Some(object) = value.as_object() else {
+                return Err(invalid(
+                    "inpaintCrop needs {x,y,width,height,targetWidth,targetHeight}".to_owned(),
+                ));
+            };
+            let keys = ["x", "y", "width", "height", "targetWidth", "targetHeight"];
+            let number = |key: &str| object.get(key).and_then(Value::as_u64);
+            let inside = object.len() == keys.len()
+                && !object.keys().any(|key| !keys.contains(&key.as_str()))
+                && keys.iter().all(|key| {
+                    let positive = *key != "x" && *key != "y";
+                    number(key)
+                        .is_some_and(|n| n <= crate::jobs::MAX_CANVAS_EDGE && (!positive || n > 0))
+                })
+                && ["targetWidth", "targetHeight"]
+                    .iter()
+                    .all(|key| number(key).is_some_and(crate::jobs::canvas_edge_ok))
+                && number("targetWidth")
+                    .zip(number("targetHeight"))
+                    .is_some_and(|(w, h)| crate::jobs::canvas_pixels_ok(w, h));
+            if !inside {
+                return Err(invalid(
+                    "inpaintCrop: a bounded source rectangle and a model-aligned 8..=8192 target under the 16.7M pixel ceiling, with inputMask"
+                        .to_owned(),
                 ));
             }
         }
@@ -3325,6 +3430,18 @@ pub(crate) fn check_passthrough_shape(key: &str, value: &Value) -> Result<(), Ap
             }
             for lora in loras {
                 if let Some(name) = lora["name"].as_str() {
+                    // LORA FAMILY ROUTING (owner ruling 2026-11-22): a LoRA may ride as a
+                    // reference instead of a file name - the 12-hex library handle or the
+                    // full 64-hex fingerprint. Both are sha256-based identity words that
+                    // resolve against the scan index (resolver::find_entries), so the
+                    // safetensors-extension law cannot see them; the index itself only
+                    // ever records safetensors LoRAs under those digests. A dotted name
+                    // still rides the format wall unchanged.
+                    if crate::agent_api::resolver::is_handle(name)
+                        || crate::agent_api::resolver::is_sha256(name)
+                    {
+                        continue;
+                    }
                     crate::jobs::validate_lora_format(name).map_err(invalid)?;
                 }
             }
@@ -3359,6 +3476,36 @@ pub(crate) fn check_passthrough_shape(key: &str, value: &Value) -> Result<(), Ap
             }
             if !object["width"].is_number() || !object["height"].is_number() {
                 return Err(invalid("refine needs aligned width and height".to_owned()));
+            }
+            // The refine pass renders its own canvas: the stock edges and the pixel
+            // product (`jobs::valid_refine`, jobs.rs:1457) are mirrored HERE, so an
+            // oversized refine block never reaches the spool (the door's rule: what
+            // compile will refuse, the door refuses first).
+            for field in ["width", "height"] {
+                let edge = object[field]
+                    .as_f64()
+                    .filter(|edge| edge.fract() == 0.0)
+                    .map(|edge| {
+                        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                        {
+                            edge as u64
+                        }
+                    });
+                if !edge.is_some_and(crate::jobs::canvas_edge_ok) {
+                    return Err(invalid(format!(
+                        "refine.{field} must be an integer 8..=8192 aligned to 8 (the stock canvas law)"
+                    )));
+                }
+            }
+            let (rw, rh) = (
+                object["width"].as_f64().unwrap_or(0.0) as u64,
+                object["height"].as_f64().unwrap_or(0.0) as u64,
+            );
+            if !crate::jobs::canvas_pixels_ok(rw, rh) {
+                return Err(invalid(
+                    "the refine canvas exceeds the 16.7M pixel ceiling (the stock canvas law)"
+                        .to_owned(),
+                ));
             }
             if !object["denoise"]
                 .as_f64()
@@ -3419,8 +3566,10 @@ pub(crate) fn check_passthrough_shape(key: &str, value: &Value) -> Result<(), Ap
             }
         }
         // maskBlur, inpaintCrop, inputResize, h3Edit, faceRefine, skipLayers,
-        // latentUpscale and wildcard carry value laws the stock compiler owns outright;
-        // their pairing laws are enforced in `check_pairing_laws`.
+        // latentUpscale and wildcard carry value laws the stock compiler owns; the
+        // numeric canvas mirrors for refine, inputResize, inpaintCrop and
+        // inputLayers live beside the grammars below, and the pairing laws are
+        // enforced in `check_pairing_laws`.
         _ => {}
     }
     Ok(())
@@ -3446,7 +3595,9 @@ fn finite(value: f64) -> bool {
 
 /// The door-side half of the stock image arm's canvas law (LEG M13). The law home is
 /// `jobs::compile`'s numeric table (jobs.rs:857-868): `width` and `height` are integers
-/// in 64..=8192 aligned to 8, and the pixel product stays at or under 16,777,216. The
+/// in 8..=8192 aligned to 8, and the pixel product stays at or under 16,777,216 (the
+/// floor was raised from the historical 64 to the true latent-grid floor, 8: one latent
+/// cell; 1x1 cannot exist on the grid, so 8 is as low as the arms can render). The
 /// video arm has mirrored its own grid law since M9c (`check_video_ranges`); the image
 /// arm left this to compile alone, so a partial body carrying an off-grid width queued
 /// green at the door and died only at the drain. Half-override stays legal — the flat
@@ -3468,12 +3619,12 @@ fn check_image_canvas(plan: &IntentPlan) -> Result<(), ApiError> {
     for (index, field) in ["width", "height"].into_iter().enumerate() {
         let Some(edge) = edges[index] else {
             return Err(invalid(format!(
-                "{field} must be an integer 64..=8192 aligned to 8; supply it in the dials block or the sheet"
+                "{field} must be an integer 8..=8192 aligned to 8; supply it in the dials block or the sheet"
             )));
         };
-        if !(64..=8192).contains(&edge) || edge % 8 != 0 {
+        if !(8..=8192).contains(&edge) || edge % 8 != 0 {
             return Err(invalid(format!(
-                "{field} {edge} must be an integer 64..=8192 aligned to 8 (the stock canvas law)"
+                "{field} {edge} must be an integer 8..=8192 aligned to 8 (the stock canvas law)"
             )));
         }
     }
@@ -3489,9 +3640,65 @@ fn check_image_canvas(plan: &IntentPlan) -> Result<(), ApiError> {
     Ok(())
 }
 
+/// Read only the head window of a file (the header-dimension laws never decode a
+/// body); `None` when the file is absent or unreadable.
+fn read_head_bytes(path: &std::path::Path, limit: usize) -> Option<Vec<u8>> {
+    use std::io::Read as _;
+    let mut file = std::fs::File::open(path).ok()?;
+    let mut buffer = vec![0u8; limit];
+    let read = file.read(&mut buffer).ok()?;
+    buffer.truncate(read);
+    Some(buffer)
+}
+
+/// The intent's merged edge (the source extent compile measures `inpaintCrop`
+/// against); 8193 when the dial is absent, mirroring compile's `unwrap_or(8193)`.
+fn plan_source_edge(plan: &IntentPlan, field: &str) -> u64 {
+    plan.dial(field)
+        .and_then(|edge| edge.as_u64())
+        .unwrap_or(8193)
+}
+
+/// The latent-upscale RESULT-canvas law at the door: the stock compiler sizes the
+/// post-upscale canvas from the merged dials (`jobs_video::latent_upscale_size`:
+/// ltx-2 doubles, minimax-h3 scales on its 32-px grid, Hi-Res Regenerate picks a
+/// pinned target grid) and refuses an over-canvas result only at compile
+/// (`jobs_video::validate_latent_upscale`, jobs_video.rs:515). The door calls the
+/// SAME stock size function over the merged dial pair, so the effective canvas is
+/// computed identically on both walls and an over-canvas row never queues.
+fn check_latent_upscale_canvas(
+    family: &str,
+    fields: &[ResolvedField],
+    extras: &Map<String, Value>,
+) -> Result<(), ApiError> {
+    let Some(upscale) = extras.get("latentUpscale") else {
+        return Ok(());
+    };
+    let invalid = |hint: String| ApiError::new(ErrorKind::BodyInvalid).with_hint(hint);
+    let probe = json!({
+        "family": family,
+        "width": dial_value(fields, "width").unwrap_or(Value::Null),
+        "height": dial_value(fields, "height").unwrap_or(Value::Null),
+        "latentUpscale": upscale,
+    });
+    let (width, height) = crate::jobs_video::latent_upscale_size(&probe);
+    if width > crate::jobs::MAX_CANVAS_EDGE
+        || height > crate::jobs::MAX_CANVAS_EDGE
+        || !crate::jobs::canvas_pixels_ok(width, height)
+    {
+        return Err(invalid(format!(
+            "latentUpscale produces an {width}x{height} effective canvas; edges must stay 8..=8192 and the product at or under 16.7M pixels (the stock latentUpscale canvas law)"
+        )));
+    }
+    Ok(())
+}
+
 /// The mode and family pairing laws, evaluated over exactly the keys the flat intent will
 /// carry, so a plan this plane calls complete cannot trip compile's shape refusals.
-fn check_pairing_laws(plan: &IntentPlan) -> Result<(), ApiError> {
+fn check_pairing_laws(
+    plan: &IntentPlan,
+    input_root: Option<&std::path::Path>,
+) -> Result<(), ApiError> {
     let extras = &plan.extras;
     let has = |key: &str| extras.contains_key(key);
     let clip_type = plan
@@ -3513,12 +3720,64 @@ fn check_pairing_laws(plan: &IntentPlan) -> Result<(), ApiError> {
         ));
     }
 
+    // The i2i canvas law (P3): an unresized, uncropped `inputImage` encodes at the
+    // SOURCE's own dims (`LoadImage` -> `VAEEncode`, jobs.rs:1111-1127), so legal
+    // dials do not bound the canvas. The door reads the placed file's header dims
+    // (the same parse the uploads pixel law uses) and applies the canvas law; the
+    // compile mirror is `jobs::check_input_canvas`. Inert when the root is unknown,
+    // the source is a bracketed stock one, `inputResize`/`inpaintCrop` govern the
+    // canvas, or the file/header cannot be read — the existing grammar laws keep
+    // refusing a non-image or absent placement there.
+    if let (Some(root), Some(name)) = (input_root, extras.get("inputImage").and_then(Value::as_str))
+    {
+        let governs_encode = !name.contains('[')
+            && !has("inputResize")
+            && !has("inpaintCrop")
+            && crate::jobs::model_name(name);
+        if governs_encode {
+            let head = read_head_bytes(&root.join(name), 64);
+            if let Some((width, height)) = head.as_deref().and_then(crate::jobs::image_header_dims)
+            {
+                let invalid = |hint: String| ApiError::new(ErrorKind::BodyInvalid).with_hint(hint);
+                for (field, edge) in [("width", width), ("height", height)] {
+                    if !crate::jobs::canvas_edge_ok(edge) {
+                        return Err(invalid(format!(
+                            "inputImage reads {width}x{height}: i2i renders at the INPUT's own dims, and the canvas law is 8..=8192 aligned to 8 on {field} (the stock canvas law)",
+                        )));
+                    }
+                }
+                if !crate::jobs::canvas_pixels_ok(width, height) {
+                    return Err(invalid(format!(
+                        "inputImage reads {width}x{height}: i2i renders at the INPUT's own dims, and the 16.7M pixel product is the canvas law (the stock pixel limit)",
+                    )));
+                }
+            }
+        }
+    }
+
     // `inputMask` is a mask for an UNRESIZED inputImage; mask legs hang off it.
     for key in ["inputMask", "maskBlur", "inpaintCrop"] {
         if has(key) && (!has("inputImage") || has("inputResize")) {
             return Err(refusal(
                 key,
                 "needs an inputImage with no inputResize (a mask paints at the source's own size)",
+            ));
+        }
+    }
+    // `inpaintCrop`'s source rectangle stays inside the merged source edges — the
+    // half of compile's crop law (jobs.rs:526-527) that needs the ladder; the key
+    // and canvas numerics ride `check_passthrough_shape`.
+    if let Some(crop) = extras.get("inpaintCrop") {
+        let extent = |offset: &str, size: &str, edge: &str| {
+            crop[offset]
+                .as_u64()
+                .zip(crop[size].as_u64())
+                .is_some_and(|(start, span)| start + span <= plan_source_edge(plan, edge))
+        };
+        if !extent("x", "width", "width") || !extent("y", "height", "height") {
+            return Err(refusal(
+                "inpaintCrop",
+                "its source rectangle (x+width, y+height) must stay inside the intent's width and height",
             ));
         }
     }
@@ -3566,6 +3825,29 @@ fn check_pairing_laws(plan: &IntentPlan) -> Result<(), ApiError> {
             return Err(refusal(
                 "inputResize",
                 "its width/height plus padding must equal the intent's width and height",
+            ));
+        }
+        // The resize TARGET obeys the canvas law too (compile admits an aligned
+        // 8..=8192 target, jobs.rs:882; the merged output pair already rides the
+        // door's canvas gate, so what this wall adds is the target's own bounds).
+        for field in ["width", "height"] {
+            if !resize[field]
+                .as_u64()
+                .is_some_and(crate::jobs::canvas_edge_ok)
+            {
+                return Err(refusal(
+                    "inputResize",
+                    "its width/height must be integers 8..=8192 aligned to 8 (the stock canvas law)",
+                ));
+            }
+        }
+        if !crate::jobs::canvas_pixels_ok(
+            resize["width"].as_u64().unwrap_or(0),
+            resize["height"].as_u64().unwrap_or(0),
+        ) {
+            return Err(refusal(
+                "inputResize",
+                "its width x height must stay at or under 16.7M pixels (the stock canvas law)",
             ));
         }
     }
@@ -6351,5 +6633,372 @@ mod tests {
             );
         }
         assert_eq!(MUSIC_MAX_AUDIO, 1);
+    }
+
+    /* ---------- LEG resolution-sanity: the canvas gates at the door ---------- */
+
+    /// The frames-x-pixels budget: the per-frame laws bound each factor, only the
+    /// product bounds the decode. One pair straddles the named constant exactly.
+    #[test]
+    fn the_video_pixel_frame_budget_refuses_a_film_past_the_wall() {
+        let dials = Dials {
+            width: Some(4096),
+            height: Some(4096),
+            ..Dials::default()
+        };
+        let ltx = extras(
+            r#"{"checkpoint":"ltx/model.safetensors","positivePrompt":"x",
+                "diffusion":{"textEncoder":"gemma.safetensors","clipType":"ltxv","vae":"video_vae.safetensors"},
+                "ltx":{"textProjection":"proj.safetensors","audioVae":"audio_vae.safetensors","passes":1}}"#,
+        );
+        let over = body(
+            fill(
+                "ltx-2",
+                "video",
+                Some(&dials),
+                &sheet("{}"),
+                Some(&ltx_request(&ltx, 257)),
+            )
+            .expect_err("4096x4096x257 = 4.3e9+1 pixels-frames"),
+        );
+        assert_eq!(over["reason"], "bodyInvalid");
+        assert!(hint_names(&over, "pixels-frames"));
+        assert!(hint_names(&over, "4096x4096 x 257"));
+        // One grid step under the wall: 4096x4096x249 = 4,278,190,080 fits.
+        fill(
+            "ltx-2",
+            "video",
+            Some(&dials),
+            &sheet("{}"),
+            Some(&ltx_request(&ltx, 249)),
+        )
+        .expect("inside the budget fills");
+        const {
+            assert!(MAX_VIDEO_PIXEL_FRAMES == 4_294_967_296);
+        }
+    }
+
+    /// The ltx video request of the budget pair: the shared slots/diffusion/`ltx`
+    /// block plus the per-case `frames` dial.
+    fn ltx_request(ltx: &Map<String, Value>, frames: u64) -> Map<String, Value> {
+        let mut request = ltx.clone();
+        extend(&mut request, &format!(r#"{{"frames":{frames}}}"#));
+        request
+    }
+
+    /// The raised floor: 8x8 (one latent cell) fills at the door; 0 (the floor
+    /// edge from below) is refused naming the new law.
+    #[test]
+    fn the_image_canvas_floor_is_eight_and_refuses_the_edge_below_it() {
+        let dials = Dials {
+            width: Some(8),
+            height: Some(8),
+            ..Dials::default()
+        };
+        let plan = fill("sdxl", "t2i", Some(&dials), &sheet("{}"), None)
+            .expect("8x8 is the latent-grid floor")
+            .plan();
+        assert_eq!(dial_value(&plan.fields, "width"), Some(json!(8)));
+        assert_eq!(dial_value(&plan.fields, "height"), Some(json!(8)));
+        let dials = Dials {
+            width: Some(0),
+            ..Dials::default()
+        };
+        let refused = body(
+            fill("sdxl", "t2i", Some(&dials), &sheet("{}"), None)
+                .expect_err("0 is under the floor"),
+        );
+        assert_eq!(refused["reason"], "bodyInvalid");
+        assert!(hint_names(&refused, "width 0"), "{refused}");
+        assert!(hint_names(&refused, "8..=8192"), "{refused}");
+    }
+
+    /// The video arm's floor moved with the image arm's: an under-floor width is
+    /// refused naming the 8..=8192 bound (the family grid is a separate law).
+    #[test]
+    fn the_video_canvas_floor_names_the_eight_bound() {
+        let dials = Dials {
+            width: Some(4),
+            height: Some(704),
+            ..Dials::default()
+        };
+        let request = extras(
+            r#"{"checkpoint":"ltx/model.safetensors","positivePrompt":"x",
+                "diffusion":{"textEncoder":"gemma.safetensors","clipType":"ltxv","vae":"video_vae.safetensors"},
+                "ltx":{"textProjection":"proj.safetensors","audioVae":"audio_vae.safetensors","passes":1}}"#,
+        );
+        let refused = body(
+            fill("ltx-2", "video", Some(&dials), &sheet("{}"), Some(&request))
+                .expect_err("4 is under the floor"),
+        );
+        assert_eq!(refused["reason"], "bodyInvalid");
+        assert!(hint_names(&refused, "integer 8..=8192"), "{refused}");
+    }
+
+    /// The refine block is a second render canvas: the door admits the stock
+    /// edges and product, and refuses an oversized one before the spool sees it.
+    #[test]
+    fn the_refine_block_is_gated_by_the_canvas_law_at_the_door() {
+        let refused = body(
+            fill(
+                "sdxl",
+                "refine",
+                None,
+                &sheet("{}"),
+                Some(&extras(
+                    r#"{"refine":{"width":16384,"height":1024,"denoise":0.4}}"#,
+                )),
+            )
+            .expect_err("a 16384 refine edge never reaches the spool"),
+        );
+        assert_eq!(refused["reason"], "bodyInvalid");
+        assert!(hint_names(&refused, "refine.width"), "{refused}");
+        let refused = body(
+            fill(
+                "sdxl",
+                "refine",
+                None,
+                &sheet("{}"),
+                Some(&extras(
+                    r#"{"refine":{"width":8192,"height":4096,"denoise":0.4}}"#,
+                )),
+            )
+            .expect_err("8192x4096 is 33.5M"),
+        );
+        assert!(hint_names(&refused, "16.7M"), "{refused}");
+        let admitted = fill(
+            "sdxl",
+            "refine",
+            None,
+            &sheet("{}"),
+            Some(&extras(
+                r#"{"checkpoint":"sd/model.safetensors","positivePrompt":"x","outputPrefix":"agent/r","refine":{"width":8192,"height":2048,"denoise":0.4}}"#,
+            )),
+        )
+        .expect("8192x2048 is exactly 16.7M and admits")
+        .plan();
+        assert!(admitted.extras.contains_key("refine"));
+    }
+
+    /// The latent-upscale result canvas is measured at the door with the stock
+    /// size function over the merged dials, and the scale range law mirrors the
+    /// stock family law (h3 1..=8, ltx exactly 2).
+    #[test]
+    fn the_latent_upscale_result_canvas_is_gated_at_the_door() {
+        let upscale = |scale: &str| {
+            format!(
+                r#"{{"latentUpscale":{{"model":"minimax/minimax_h3_latent_upscaler.safetensors","scale":{scale},"steps":4,"denoise":0.5}}}}"#
+            )
+        };
+        let mut request = h3_slots("minimax_h3");
+        extend(&mut request, &upscale("8.0"));
+        let refused = body(
+            fill("minimax-h3", "video", None, &sheet("{}"), Some(&request))
+                .expect_err("1024x768 x 8 = 8192x6144 crosses the edge"),
+        );
+        assert_eq!(refused["reason"], "bodyInvalid");
+        assert!(hint_names(&refused, "8192x6144"), "{refused}");
+        let mut request = h3_slots("minimax_h3");
+        extend(&mut request, &upscale("9.0"));
+        let refused = body(
+            fill("minimax-h3", "video", None, &sheet("{}"), Some(&request))
+                .expect_err("scale 9 is outside the stock range"),
+        );
+        assert_eq!(refused["reason"], "bodyInvalid");
+        assert!(hint_names(&refused, "1..=8"), "{refused}");
+        let mut request = h3_slots("minimax_h3");
+        extend(&mut request, &upscale("4.0"));
+        // The accept case must clear the whole door, so it carries the family's
+        // mode leg too (`h3.mode` is the stock H3 requirement).
+        extend(
+            &mut request,
+            r#"{"h3":{"mode":"T2VA","audioVae":"h3_audio_vae.safetensors","shiftVideo":1.0,"shiftAudio":1.0}}"#,
+        );
+        let plan = fill("minimax-h3", "video", None, &sheet("{}"), Some(&request))
+            .expect("1024x768 x 4 = 4096x3072 is inside the canvas law")
+            .plan();
+        assert!(plan.extras.contains_key("latentUpscale"));
+        let ltx = |scale: &str| {
+            extras(&format!(
+                r#"{{"checkpoint":"ltx/model.safetensors","positivePrompt":"x",
+                "diffusion":{{"textEncoder":"gemma.safetensors","clipType":"ltxv","vae":"video_vae.safetensors"}},
+                "ltx":{{"textProjection":"proj.safetensors","audioVae":"audio_vae.safetensors","passes":1}},
+                "latentUpscale":{{"model":"ltx/ltx_2_spatial_upscaler.safetensors","scale":{scale}}}}}"#
+            ))
+        };
+        let request = ltx("3.0");
+        let refused = body(
+            fill("ltx-2", "video", None, &sheet("{}"), Some(&request))
+                .expect_err("ltx-2 pins scale exactly 2"),
+        );
+        assert_eq!(refused["reason"], "bodyInvalid");
+        assert!(hint_names(&refused, "exactly 2"), "{refused}");
+        let request = ltx("2.0");
+        let dials = Dials {
+            width: Some(7360),
+            height: Some(704),
+            ..Dials::default()
+        };
+        let refused = body(
+            fill("ltx-2", "video", Some(&dials), &sheet("{}"), Some(&request))
+                .expect_err("7360x704 doubles to a 14720 edge"),
+        );
+        assert_eq!(refused["reason"], "bodyInvalid");
+        assert!(hint_names(&refused, "14720x1408"), "{refused}");
+    }
+
+    /// The i2i canvas law at the door: an unresized `inputImage` renders at its
+    /// own dims, so the PLACED file's header dims ride the canvas law.
+    #[test]
+    fn an_oversized_placed_input_image_is_refused_at_the_door() {
+        let root = tempfile::tempdir().expect("input root");
+        let folder = root.path().join("deas-inputs");
+        std::fs::create_dir_all(&folder).expect("placement folder");
+        let head = |width: u32, height: u32| -> Vec<u8> {
+            let mut bytes = vec![0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a];
+            bytes.extend_from_slice(&13u32.to_be_bytes());
+            bytes.extend_from_slice(b"IHDR");
+            bytes.extend_from_slice(&width.to_be_bytes());
+            bytes.extend_from_slice(&height.to_be_bytes());
+            bytes.extend_from_slice(&[8, 6, 0, 0, 0]);
+            bytes
+        };
+        std::fs::write(folder.join("big.png"), head(10_000, 10_000)).expect("placed");
+        std::fs::write(folder.join("legal.png"), head(8, 8)).expect("placed");
+        let sheet = sheet(r#"{"families":{"anima":{"denoise":0.5}}}"#);
+        let request = extras(r#"{"inputImage":"deas-inputs/big.png"}"#);
+        let refused = body(
+            fill_at(
+                "anima",
+                "i2i",
+                None,
+                &sheet,
+                Some(&request),
+                Some(root.path()),
+            )
+            .expect_err("a 10000x10000 placed input cannot become a canvas"),
+        );
+        assert_eq!(refused["reason"], "bodyInvalid");
+        assert!(hint_names(&refused, "10000x10000"), "{refused}");
+        assert!(hint_names(&refused, "inputImage"), "{refused}");
+        let request = extras(r#"{"inputImage":"deas-inputs/legal.png"}"#);
+        fill_at(
+            "anima",
+            "i2i",
+            None,
+            &sheet,
+            Some(&request),
+            Some(root.path()),
+        )
+        .expect("an 8x8 placed input is the latent-grid floor");
+        // Absent file / no threaded root: the wall is inert, the existing grammar
+        // laws own the placement, and the compile-side mirror catches the row.
+        let request = extras(r#"{"inputImage":"deas-inputs/absent.png"}"#);
+        fill_at(
+            "anima",
+            "i2i",
+            None,
+            &sheet,
+            Some(&request),
+            Some(root.path()),
+        )
+        .expect("the existence law is the queue door's, not this wall's");
+        let request = extras(r#"{"inputImage":"deas-inputs/big.png"}"#);
+        fill("anima", "i2i", None, &sheet, Some(&request))
+            .expect("no root threaded: the compile-side mirror owns this row");
+    }
+
+    /// `inputResize` targets ride the canvas law; `inpaintCrop` rides compile's
+    /// numeric crop mirror (keys, bounds, model-aligned target, product) plus the
+    /// ladder half (the rectangle inside the merged source edges); `inputLayers`
+    /// rides compile's layer numerics (x/y bounded, width/height 1..=8192).
+    #[test]
+    fn the_resize_crop_and_layer_legs_mirror_the_compile_numerics() {
+        // A target off the canvas grid while the pad-equality law still holds
+        // (1020 + 2 + 2 == the merged 1024): the size wall is what refuses.
+        let dials = Dials {
+            width: Some(1024),
+            height: Some(1024),
+            denoise: Some(0.5),
+            ..Dials::default()
+        };
+        let refused = body(
+            fill(
+                "sdxl",
+                "upscale",
+                Some(&dials),
+                &sheet("{}"),
+                Some(&extras(
+                    r#"{"inputImage":"deas-inputs/pic.png","inputResize":{"width":1020,"height":1024,"crop":"disabled","pad":{"left":2,"right":2,"top":0,"bottom":0}},"upscaleModel":"4x-UltraSharp.pth"}"#,
+                )),
+            )
+            .expect_err("1020 is off the canvas grid"),
+        );
+        assert_eq!(refused["reason"], "modeUnsupported", "{refused}");
+        assert!(hint_names(&refused, "inputResize"), "{refused}");
+        assert!(hint_names(&refused, "8..=8192"), "{refused}");
+
+        let mask = sheet(r#"{"families":{"anima":{"denoise":0.8}}}"#);
+        let refused = body(
+            fill(
+                "anima",
+                "inpaint",
+                None,
+                &mask,
+                Some(&extras(
+                    r#"{"inputImage":"deas-inputs/pic.png","inputMask":"deas-masks/00000000-0000-4000-8000-000000000000.png","inpaintCrop":{"x":40,"y":20,"width":1000,"height":800,"targetWidth":1024,"targetHeight":768}}"#,
+                )),
+            )
+            .expect_err("40+1000 crosses the merged 1024 width"),
+        );
+        assert_eq!(refused["reason"], "modeUnsupported");
+        assert!(hint_names(&refused, "source rectangle"), "{refused}");
+        let refused = body(
+            fill(
+                "anima",
+                "inpaint",
+                None,
+                &mask,
+                Some(&extras(
+                    r#"{"inputImage":"deas-inputs/pic.png","inputMask":"deas-masks/00000000-0000-4000-8000-000000000000.png","inpaintCrop":{"x":40,"y":20,"width":100,"height":80,"targetWidth":8200,"targetHeight":768}}"#,
+                )),
+            )
+            .expect_err("an 8200 target edge is off the canvas grid"),
+        );
+        assert_eq!(refused["reason"], "bodyInvalid");
+        assert!(hint_names(&refused, "8..=8192"), "{refused}");
+        let refused = body(
+            fill(
+                "anima",
+                "i2i",
+                None,
+                &mask,
+                Some(&extras(
+                    r#"{"inputImage":"deas-inputs/pic.png","inputLayers":[{"image":"deas-inputs/layer.png","x":0,"y":0,"width":9000,"height":64}]}"#,
+                )),
+            )
+            .expect_err("a 9000-wide layer crosses the 8192 bound"),
+        );
+        assert_eq!(refused["reason"], "bodyInvalid");
+        assert!(hint_names(&refused, "1..=8192"), "{refused}");
+    }
+
+    /// LORA FAMILY ROUTING (owner ruling 2026-11-22): the `loras[]` shape wall must
+    /// let a 12-hex handle and a full 64-hex fingerprint through its format arm -
+    /// those are identity words, not file names, and the extension law cannot see
+    /// them. The door rewrite (`routes::resolve_lora_bag`) turns them into the
+    /// entry's real index name before the spool; a genuine non-safetensors name
+    /// still dies at this wall.
+    #[test]
+    fn a_hex_lora_reference_passes_the_shape_wall_format_arm() {
+        let handle = json!([{"name":"c3d19c1a0def","strength":0.6}]);
+        check_passthrough_shape("loras", &handle).expect("the handle form passes");
+        let digest = json!([{
+            "name": "c3d19c1a0defce6b9005a2c8e1ef5935aaee90cc6ee932d1ed301729af9eca13",
+            "strength": 0.6
+        }]);
+        check_passthrough_shape("loras", &digest).expect("the fingerprint form passes");
+        let gguf = json!([{"name":"loose.gguf","strength":0.6}]);
+        check_passthrough_shape("loras", &gguf).expect_err("a real GGUF name still dies");
     }
 }

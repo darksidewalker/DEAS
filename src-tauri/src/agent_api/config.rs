@@ -4,6 +4,7 @@
 //! brings the plane up. Unknown fields are refused rather than ignored, so a misspelled key
 //! cannot silently change the plane's posture.
 
+use std::collections::BTreeMap;
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
@@ -26,6 +27,15 @@ pub(crate) struct AgentSettings {
     pub(crate) standing_key: Option<String>,
     /// Browser origins allowed to reach the plane; absent means deny all cross-origin.
     pub(crate) origin_allowlist: Vec<String>,
+    /// Operator component overrides (owner ruling 2026-11-22): family id -> slot word
+    /// (`textEncoders` / `vaes` / `audioVaes` / `textProjections`) -> the category-relative
+    /// file name the library index already carries. The resolver accepts an overridden entry
+    /// for that slot WITHOUT the header-verified architecture stamp, because the operator
+    /// asserts the pairing; the stock backend stays the last arbiter — a file it refuses
+    /// fails its row honestly. An override naming an entry absent from the index is still
+    /// the honest `libraryScanRequired` posture. Empty by default: no override is implied.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub(crate) component_overrides: BTreeMap<String, BTreeMap<String, String>>,
 }
 
 impl Default for AgentSettings {
@@ -35,6 +45,7 @@ impl Default for AgentSettings {
             port: DEFAULT_PORT,
             standing_key: None,
             origin_allowlist: Vec::new(),
+            component_overrides: BTreeMap::new(),
         }
     }
 }
@@ -125,6 +136,31 @@ mod tests {
         assert_eq!(settings.port, 9111);
         assert_eq!(settings.standing_key.as_deref(), Some("s3cret"));
         assert_eq!(settings.origin_allowlist, ["http://localhost:1420"]);
+    }
+
+    #[test]
+    fn component_overrides_round_trip_and_default_empty() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        write(
+            dir.path(),
+            r#"{"enabled": true, "componentOverrides": {"qwen-image-2.1": {"textEncoders": "qwen21/qwenImage21TextEncoderOriginal_v10_3241874.safetensors"}}}"#,
+        );
+        let settings = load(dir.path()).expect("valid").expect("enabled");
+        let slot = settings
+            .component_overrides
+            .get("qwen-image-2.1")
+            .expect("family block");
+        assert_eq!(
+            slot.get("textEncoders").map(String::as_str),
+            Some("qwen21/qwenImage21TextEncoderOriginal_v10_3241874.safetensors")
+        );
+        // Absent block stays empty and never serializes noise.
+        let plain_dir = tempfile::tempdir().expect("tempdir");
+        write(plain_dir.path(), r#"{"enabled": true, "port": 8790}"#);
+        let plain = load(plain_dir.path()).expect("valid").expect("enabled");
+        assert!(plain.component_overrides.is_empty());
+        let serialized = serde_json::to_string(&plain).expect("serialize");
+        assert!(!serialized.contains("componentOverrides"));
     }
 
     #[test]

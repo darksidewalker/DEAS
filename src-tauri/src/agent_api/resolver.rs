@@ -27,6 +27,7 @@
 //! Everything below is pure over index data, so the tests drive [`LibraryEntry`] values
 //! directly — no backend, no scan, no GPU.
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use serde_json::{json, Value};
@@ -196,6 +197,13 @@ pub(crate) fn is_handle(reference: &str) -> bool {
     reference.len() == 12 && reference.chars().all(|ch| ch.is_ascii_hexdigit())
 }
 
+/// The full-fingerprint grammar (LORA FAMILY ROUTING, owner ruling 2026-11-22): exactly
+/// 64 hex digits, any case on the wire, the index stores lowercase. A 64-hex reference
+/// matches an entry's stored sha256 EXACTLY (the 12-hex handle law keeps `starts_with`).
+pub(crate) fn is_sha256(reference: &str) -> bool {
+    reference.len() == 64 && reference.chars().all(|ch| ch.is_ascii_hexdigit())
+}
+
 /// Resolves one model reference against the index (API-DESIGN §3 steps 1-2).
 ///
 /// * `reference` — a 12-hex library handle, a ComfyUI-relative model name, or an
@@ -214,10 +222,26 @@ pub(crate) fn is_handle(reference: &str) -> bool {
 /// missing), `familyAmbiguous` (reference matches several entries, family conflicts with
 /// detection, or no family can be established), `bodyInvalid` (reference grammar or a
 /// non-checkpoint category).
+#[cfg(test)]
 pub(crate) fn resolve(
     entries: &[LibraryEntry],
     reference: &str,
     explicit_family: Option<&str>,
+) -> Result<Resolved, ApiError> {
+    resolve_with(entries, reference, explicit_family, &BTreeMap::new())
+}
+
+/// The same resolve law with the operator's component overrides in the picture
+/// (`deas-agent-settings.json` `componentOverrides`, owner ruling 2026-11-22): a family
+/// slot pinned to an indexed file name is accepted WITHOUT the header-verified
+/// architecture stamp - the operator asserts the pairing, and the stock backend stays
+/// the last arbiter: a file it refuses fails its row honestly. An override naming an
+/// entry absent from the index keeps the honest `libraryScanRequired` posture.
+pub(crate) fn resolve_with(
+    entries: &[LibraryEntry],
+    reference: &str,
+    explicit_family: Option<&str>,
+    overrides: &BTreeMap<String, BTreeMap<String, String>>,
 ) -> Result<Resolved, ApiError> {
     let reference = reference.trim();
     if reference.is_empty() {
@@ -272,7 +296,7 @@ pub(crate) fn resolve(
     }
 
     let diffusion = if defaults::builtin_loader(&family) == Some("diffusion") {
-        Some(build_diffusion(entries, &family)?)
+        Some(build_diffusion(entries, &family, overrides)?)
     } else {
         None
     };
@@ -308,10 +332,12 @@ pub(crate) fn matching_entries(
     Ok(matches)
 }
 
-/// The three reference forms of §3 step 1, matched against the index. Names and paths
+/// The reference forms of §3 step 1, matched against the index. Names and paths
 /// are matched exactly (case-insensitively, the way the stock listings compare); a
 /// 12-hex reference tries the handle law first, then falls back to name/path so a real
-/// file literally named `deadbeefcafe.safetensors` stays reachable.
+/// file literally named `deadbeefcafe.safetensors` stays reachable. A 64-hex reference
+/// tries the EXACT sha256 law first — the fingerprint bypass: the file resolves by its
+/// scan-recorded digest regardless of any other stored word (LORA FAMILY ROUTING).
 fn find_entries(entries: &[LibraryEntry], reference: &str) -> Result<Vec<LibraryEntry>, ApiError> {
     let probe = reference.to_ascii_lowercase();
     let by_name = entries.iter().filter(|entry| {
@@ -332,6 +358,21 @@ fn find_entries(entries: &[LibraryEntry], reference: &str) -> Result<Vec<Library
             return Ok(dedup(by_handle));
         }
     }
+    if is_sha256(reference) {
+        let by_sha: Vec<LibraryEntry> = entries
+            .iter()
+            .filter(|entry| {
+                entry
+                    .sha256
+                    .as_deref()
+                    .is_some_and(|sha| sha.to_ascii_lowercase() == probe)
+            })
+            .cloned()
+            .collect();
+        if !by_sha.is_empty() {
+            return Ok(dedup(by_sha));
+        }
+    }
     Ok(dedup(by_name.cloned().collect()))
 }
 
@@ -347,6 +388,51 @@ fn dedup(mut entries: Vec<LibraryEntry>) -> Vec<LibraryEntry> {
         left.path.eq_ignore_ascii_case(&right.path) && left.category == right.category
     });
     entries
+}
+
+/// The LoRA reference law (LORA FAMILY ROUTING, owner ruling 2026-11-22): a queue
+/// `loras[]` reference resolves a `loras`-category index entry by name, path, 12-hex
+/// handle, or the FULL 64-hex sha256 fingerprint. A fingerprint match resolves
+/// REGARDLESS of the entry's family stamp — a wrongly categorized LoRA still runs
+/// (the runtime half of this same law is the `loras` exemption in the stock execution
+/// check, `downloads_models.rs` `field == "loras"`); the fingerprint is the identity,
+/// never the family word. The entry rides on verbatim (name, path, stamp and all): it
+/// is the file's real path/name the door hands to the backend.
+///
+/// # Errors
+///
+/// `libraryScanRequired` (no entry matches), `familyAmbiguous` (several entries match,
+/// or an empty reference), `bodyInvalid` (the matched entry is not a `loras` row).
+// The law's home; the door-side call is `routes::resolve_lora_bag` (queue door and
+// story base, LORA FAMILY ROUTING leg), which rewrites a hex reference to the
+// entry's real name before fill and spool. The shared lookup law (`find_entries`)
+// also gives every model-reference surface the 64-hex arm.
+pub(crate) fn resolve_lora(
+    entries: &[LibraryEntry],
+    reference: &str,
+) -> Result<LibraryEntry, ApiError> {
+    let reference = reference.trim();
+    if reference.is_empty() {
+        return Err(ApiError::new(ErrorKind::BodyInvalid).with_hint(
+            "the lora reference must be a model name, a path, a 12-hex handle or a full 64-hex sha256",
+        ));
+    }
+    let matches = matching_entries(entries, reference)?;
+    let entry = matches
+        .into_iter()
+        .next()
+        .ok_or_else(|| {
+            ApiError::new(ErrorKind::LibraryScanRequired).with_hint(format!(
+                "no lora entry for '{reference}'; the file must appear in the DEAS library index (the scan bridge ships with POST /v1/scan)"
+            ))
+        })?;
+    if entry.category != "loras" {
+        return Err(ApiError::new(ErrorKind::BodyInvalid).with_hint(format!(
+            "'{reference}' is a {} entry; a lora reference must name a loras entry",
+            entry.category
+        )));
+    }
+    Ok(entry)
 }
 
 /// Stock's family precedence, the one home the resolver reads: a declaration (override
@@ -373,15 +459,25 @@ fn family_of(entry: &LibraryEntry) -> Option<String> {
 ///   family accepts (`builtin.json` `components`, checked through the stock
 ///   [`crate::model_families::component_matches`] seam).
 /// * A missing component is a named refusal, never a placeholder.
-fn build_diffusion(entries: &[LibraryEntry], family: &str) -> Result<Value, ApiError> {
+fn build_diffusion(
+    entries: &[LibraryEntry],
+    family: &str,
+    overrides: &BTreeMap<String, BTreeMap<String, String>>,
+) -> Result<Value, ApiError> {
     let clip_type = builtin_field(family, "clipType").ok_or_else(|| {
         ApiError::new(ErrorKind::MaintenanceActive).with_hint(format!(
             "builtin family '{family}' declares loader 'diffusion' but no clipType; family plugin is inconsistent"
         ))
     })?;
-    let text_encoder = find_component(entries, family, "textEncoders", &TEXT_ENCODER_CATEGORIES)
-        .ok_or_else(|| component_missing(family, "textEncoders"))?;
-    let vae = find_component(entries, family, "vaes", &VAE_CATEGORIES)
+    let text_encoder = find_component(
+        entries,
+        family,
+        "textEncoders",
+        &TEXT_ENCODER_CATEGORIES,
+        overrides,
+    )
+    .ok_or_else(|| component_missing(family, "textEncoders"))?;
+    let vae = find_component(entries, family, "vaes", &VAE_CATEGORIES, overrides)
         .ok_or_else(|| component_missing(family, "vaes"))?;
     Ok(json!({
         "textEncoder": text_encoder,
@@ -404,14 +500,27 @@ fn component_missing(family: &str, slot: &str) -> ApiError {
     ))
 }
 
-/// One component slot: the first index entry, in stable name order, whose category can
-/// hold the slot and whose verified architecture the family accepts.
+/// One component slot: an operator override pinned for this family+slot wins when it
+/// names an indexed entry of a loadable category (the operator asserts the pairing; no
+/// architecture stamp is demanded, the backend is the arbiter). Otherwise the first index
+/// entry, in stable name order, whose category can hold the slot and whose verified
+/// architecture the family accepts.
 fn find_component(
     entries: &[LibraryEntry],
     family: &str,
     slot: &str,
     categories: &[&str],
+    overrides: &BTreeMap<String, BTreeMap<String, String>>,
 ) -> Option<String> {
+    if let Some(name) = overrides.get(family).and_then(|slots| slots.get(slot)) {
+        let wanted = name.replace('\\', "/");
+        if let Some(entry) = entries.iter().find(|entry| {
+            categories.contains(&entry.category.as_str()) && entry.name.replace('\\', "/") == wanted
+        }) {
+            // The INDEX's exact name is what ComfyUI loads, so that is what rides on.
+            return Some(entry.name.clone());
+        }
+    }
     let mut candidates: Vec<&LibraryEntry> = entries
         .iter()
         .filter(|entry| categories.contains(&entry.category.as_str()))
@@ -590,6 +699,138 @@ mod tests {
         );
     }
 
+    /// A qwen-image-2.1 model whose component slots hold UNSTAMPED files: refused alone,
+    /// accepted when the operator pins both names in `componentOverrides` (the pairing is
+    /// asserted, the backend stays the arbiter).
+    fn qwen21_unstamped_library() -> Vec<LibraryEntry> {
+        let mut model = entry("diffusion_models", "qwen21-base_fp16.safetensors", None);
+        model.family = Some("qwen-image-2.1".to_owned());
+        let encoder = entry(
+            "text_encoders",
+            "qwen21\\customEncoder_v10.safetensors",
+            None,
+        );
+        let vae = entry("vae", "qwen21\\customVae_v10.safetensors", None);
+        vec![model, encoder, vae]
+    }
+
+    fn qwen21_overrides() -> BTreeMap<String, BTreeMap<String, String>> {
+        let mut slots = BTreeMap::new();
+        slots.insert(
+            "textEncoders".to_owned(),
+            "qwen21/customEncoder_v10.safetensors".to_owned(),
+        );
+        slots.insert(
+            "vaes".to_owned(),
+            "qwen21/customVae_v10.safetensors".to_owned(),
+        );
+        let mut overrides = BTreeMap::new();
+        overrides.insert("qwen-image-2.1".to_owned(), slots);
+        overrides
+    }
+
+    #[test]
+    fn unstamped_components_are_refused_without_an_override() {
+        let error = resolve(
+            &qwen21_unstamped_library(),
+            "qwen21-base_fp16.safetensors",
+            None,
+        )
+        .unwrap_err();
+        assert_eq!(reason(&error), "libraryScanRequired");
+    }
+
+    #[test]
+    fn operator_override_accepts_an_unstamped_component() {
+        let resolved = resolve_with(
+            &qwen21_unstamped_library(),
+            "qwen21-base_fp16.safetensors",
+            None,
+            &qwen21_overrides(),
+        )
+        .expect("override accepted");
+        let diffusion = resolved.diffusion.expect("split loader recipe");
+        assert_eq!(
+            diffusion["textEncoder"],
+            "qwen21\\customEncoder_v10.safetensors"
+        );
+        assert_eq!(diffusion["vae"], "qwen21\\customVae_v10.safetensors");
+    }
+
+    #[test]
+    fn an_override_naming_an_unindexed_entry_keeps_the_scan_posture() {
+        let library = vec![qwen21_unstamped_library().remove(0)];
+        let error = resolve_with(
+            &library,
+            "qwen21-base_fp16.safetensors",
+            None,
+            &qwen21_overrides(),
+        )
+        .unwrap_err();
+        assert_eq!(reason(&error), "libraryScanRequired");
+    }
+
+    /// The override law is family-agnostic: it works for ANY split-loader family and its
+    /// encoders/VAEs, it outranks a stamped auto-match (a user swapping in a custom
+    /// component on a family that already resolves), and a pin set for one family never
+    /// unlocks another.
+    #[test]
+    fn overrides_are_family_agnostic_and_family_scoped() {
+        // krea-2 declares qwen3-vl-4b + wan-2.1-vae; the index carries BOTH encoders -
+        // the stamped one auto-matches, the custom one is unstamped.
+        let mut model = entry("diffusion_models", "krea2-turbo_fp16.safetensors", None);
+        model.family = Some("krea-2".to_owned());
+        let mut stamped = entry(
+            "text_encoders",
+            "clip/Krea2/qwen3vl_4b_bf16.safetensors",
+            None,
+        );
+        stamped.component = Some("qwen3-vl-4b".to_owned());
+        let custom = entry(
+            "text_encoders",
+            "clip/Krea2/myCustomEncoder_v2.safetensors",
+            None,
+        );
+        let mut vae = entry("vae", "vae/Krea2/qwen_image_vae.safetensors", None);
+        vae.component = Some("wan-2.1-vae".to_owned());
+        let library = vec![model, stamped, custom, vae];
+        // (a) no override: the stamped auto-match wins.
+        let auto = resolve(
+            &[library[0].clone(), library[1].clone(), library[3].clone()],
+            "krea2-turbo_fp16.safetensors",
+            None,
+        )
+        .expect("stamped match");
+        assert_eq!(
+            auto.diffusion.expect("recipe")["textEncoder"],
+            "clip/Krea2/qwen3vl_4b_bf16.safetensors"
+        );
+        // (b) the family pins the custom encoder: it outranks the stamped match.
+        let mut slots = BTreeMap::new();
+        slots.insert(
+            "textEncoders".to_owned(),
+            "clip/Krea2/myCustomEncoder_v2.safetensors".to_owned(),
+        );
+        let mut overrides = BTreeMap::new();
+        overrides.insert("krea-2".to_owned(), slots);
+        let picked = resolve_with(&library, "krea2-turbo_fp16.safetensors", None, &overrides)
+            .expect("custom component honored");
+        assert_eq!(
+            picked.diffusion.expect("recipe")["textEncoder"],
+            "clip/Krea2/myCustomEncoder_v2.safetensors"
+        );
+        // (c) a pin under the WRONG family key never unlocks anything: qwen-image-2.1
+        // stays refused when only a krea-2 block is present.
+        let error = resolve_with(
+            &qwen21_unstamped_library(),
+            "qwen21-base_fp16.safetensors",
+            None,
+            &overrides,
+        )
+        .unwrap_err();
+        assert_eq!(reason(&error), "libraryScanRequired");
+    }
+
     #[test]
     fn undetected_family_without_a_word_is_ambiguous() {
         let mut model = entry(
@@ -625,6 +866,55 @@ mod tests {
         )];
         let error = resolve(&library, "1234567890ab", None).unwrap_err();
         assert_eq!(reason(&error), "bodyInvalid");
+    }
+
+    /// LORA FAMILY ROUTING (5): the fingerprint bypass. A lora reference given as the
+    /// file's FULL 64-hex sha256 resolves the scan entry by digest, REGARDLESS of the
+    /// wrong family stamp on it — the owner's escape from a mis-categorized scan. The
+    /// entry rides on verbatim: its real name/path is what the door hands the backend.
+    #[test]
+    fn sha256_reference_resolves_a_wrongly_stamped_lora() {
+        let sha = "0f3e2d1c4b5a6978a7b6c5d4e3f20189abcdef00112233445566778899aabbcc";
+        let mut lora = entry(
+            "loras",
+            "Anima/BallsDeep-Anima-V1F-Re.safetensors",
+            Some(sha),
+        );
+        lora.family = Some("sd15".to_owned());
+        lora.detected_family = Some("sd15".to_owned());
+        let library = vec![lora.clone()];
+        let found = resolve_lora(&library, sha).expect("the digest outranks the wrong stamp");
+        assert_eq!(found.name, "Anima/BallsDeep-Anima-V1F-Re.safetensors");
+        assert_eq!(found.sha256.as_deref(), Some(sha));
+        assert_eq!(found.category, "loras");
+        // Name references work on the same path, and a NON-loras entry is refused.
+        assert_eq!(
+            resolve_lora(&library, "anima/ballsdeep-anima-v1f-re.safetensors")
+                .expect("name form")
+                .name,
+            found.name
+        );
+        let error = resolve_lora(&anima_library(), "a1b2c3d4e5f6").unwrap_err();
+        assert_eq!(reason(&error), "bodyInvalid", "a model is not a lora");
+    }
+
+    /// The shared lookup law extends the full-sha arm to EVERY reference surface
+    /// (queue model reference, identity doors): a checkpoint resolves by its exact
+    /// 64-hex digest too; an unknown 64-hex stays the honest scan posture.
+    #[test]
+    fn full_sha256_resolves_a_checkpoint_reference_too() {
+        let sha = "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90";
+        let mut library = anima_library();
+        library[0].sha256 = Some(sha.to_owned());
+        let resolved = resolve(&library, sha, None).expect("exact digest");
+        assert_eq!(resolved.checkpoint, "anima.safetensors");
+        let error = resolve(
+            &library,
+            "0f3e2d1c4b5a6978a7b6c5d4e3f20189abcdef00112233445566778899aabbcc",
+            None,
+        )
+        .unwrap_err();
+        assert_eq!(reason(&error), "libraryScanRequired");
     }
 
     #[test]

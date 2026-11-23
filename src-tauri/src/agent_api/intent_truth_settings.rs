@@ -15,7 +15,9 @@
 //! Seam map of the settings, from the stock read (PART A grounding):
 //!
 //! * Image canvas — `jobs::compile` numeric table (jobs.rs:857-868): integer
-//!   64..=8192, aligned to 8, pixels ≤ 16,777,216. Graph carrier: every node with
+//!   8..=8192, aligned to 8, pixels ≤ 16,777,216 (the floor is the true latent-grid
+//!   floor, raised from the historical 64 — one latent cell is 8, so no smaller
+//!   canvas can exist). Graph carrier: every node with
 //!   `width`/`height` inputs (EmptyLatentImage "4", the recipe encode node, ImageScale).
 //!   The door now mirrors the law (`fill_plane::check_image_canvas`) — the half-override
 //!   (width-only body) stays legal because the flat intent is per-field stock-side too:
@@ -607,6 +609,28 @@ async fn p2_off_grid_and_oversized_image_canvases_refuse_both_walls() {
         stock.contains("pixel limit"),
         "the stock refusal names the ceiling: {stock}"
     );
+}
+
+/// The raised floor (64 -> 8, the latent-grid truth): 8x8 is legal on BOTH walls —
+/// the door admits it and stock compile compiles it into an 8x8 latent — while 7
+/// (off-grid, under the floor) is refused by both, naming the field and the law.
+#[tokio::test]
+async fn p2_the_latent_grid_floor_eight_lands_on_both_walls() {
+    let kit = Kit::new();
+    let body = image_body("t2i", "sdxl", json!({"width": 8, "height": 8}));
+    let graph = stock_compile(&fill_intent(&kit, &body).await);
+    assert_image_graph_settings(&graph, 8, 8, true, 1, "p2/image/floor");
+    let body = image_body("t2i", "sdxl", json!({"width": 7, "height": 8}));
+    door_refusal(&kit, &body, ErrorKind::BodyInvalid, "width 7").await;
+    let raw = stock_image_with(&[("width", json!(7))]);
+    let stock = crate::jobs::compile(&raw).expect_err("stock refuses the same under-floor width");
+    assert!(
+        stock.contains("width"),
+        "the stock refusal names the field: {stock}"
+    );
+    // The compile-side floor moved with the door's: 8 compiles stock-side alone.
+    let raw = stock_image_with(&[("width", json!(8)), ("height", json!(8))]);
+    crate::jobs::compile(&raw).expect("8x8 compiles through the stock numeric table");
 }
 
 #[tokio::test]

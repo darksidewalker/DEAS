@@ -304,10 +304,20 @@ impl Jobs {
         let model_roots = engine
             .map(|engine| LocalModels::owned(engine, &base_url))
             .unwrap_or_default();
+        // The i2i canvas wall rides the same prepared path as the queue plane, so
+        // the workbench threads the running backend's snapshotted input root too.
+        let input_root = engine.and_then(|engine| engine.backend.status().input_root);
         // Admission owns preparation/submission even when its IPC waiter is cancelled.
         tokio::spawn(async move {
-            jobs.workbench_execute(held, base_url, intent, media_root, model_roots)
-                .await
+            jobs.workbench_execute(
+                held,
+                base_url,
+                intent,
+                media_root,
+                model_roots,
+                input_root.as_deref(),
+            )
+            .await
         })
         .await
         .map_err(|_| "Workbench Run task failed")?
@@ -347,9 +357,10 @@ impl Jobs {
         intent: Value,
         media_root: Option<job_outputs::MediaRoot>,
         model_roots: Vec<std::path::PathBuf>,
+        input_root: Option<&std::path::Path>,
     ) -> Result<Value, String> {
         let plan = match held
-            .prepare_with_models(base_url, intent, model_roots)
+            .prepare_with_models(base_url, intent, model_roots, input_root)
             .await
         {
             Ok(plan) => plan,

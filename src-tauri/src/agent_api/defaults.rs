@@ -674,6 +674,40 @@ pub(crate) fn apply_patch(
             }
         }
     }
+    // The sheet canvas law (P8): guard the MERGED stored pair, so a patch carrying
+    // one edge is measured against the other edge already on the sheet.
+    check_dial_canvas(target)
+}
+
+/// The sheet's share of the canvas law (the resolution-sanity ruling): a stored
+/// width/height becomes the canvas of every dial-free row of its scope, so the
+/// POST door validates it with the SAME numbers the render arms enforce
+/// (`crate::jobs::canvas_edge_ok` / `canvas_pixels_ok`: edge 8..=8192 aligned to
+/// 8, product 16.7M). `null` (clear) and absent (keep) stay legal — this wall
+/// guards stored VALUES only; the three-state merge itself is untouched. Without
+/// it a live-proven `width: 30000` poisoned every dial-free row of its family:mode
+/// scope until an operator cleared the sheet.
+fn check_dial_canvas(target: &Dials) -> Result<(), String> {
+    for key in ["width", "height"] {
+        let stored = if key == "width" {
+            target.width
+        } else {
+            target.height
+        };
+        let Some(value) = stored else { continue };
+        if !crate::jobs::canvas_edge_ok(u64::from(value)) {
+            return Err(format!(
+                "dials.{key} {value} breaks the canvas law: a stored dial dimension must be an integer 8..=8192 aligned to 8 (null clears the dial, omitting it keeps the current value)"
+            ));
+        }
+    }
+    if let (Some(width), Some(height)) = (target.width, target.height) {
+        if !crate::jobs::canvas_pixels_ok(u64::from(width), u64::from(height)) {
+            return Err(format!(
+                "dials.width x dials.height ({width} x {height}) exceeds the 16.7M pixel canvas law (the stock pixel limit the render arms enforce)"
+            ));
+        }
+    }
     Ok(())
 }
 
@@ -1190,6 +1224,58 @@ mod tests {
             problem.contains("steps"),
             "problem names the key: {problem}"
         );
+    }
+
+    /// The sheet canvas law (the defaults-range wall): an out-of-domain width is
+    /// refused naming the key and the canvas law, `null` and the legal pair pass,
+    /// and a legal pair whose PRODUCT crosses 16.7M is refused (both a patch pair
+    /// and a patch merged onto an already-stored edge).
+    #[test]
+    fn patch_refuses_dial_dimensions_crossing_the_canvas_law() {
+        let mut target = Dials::default();
+        let wide: serde_json::Map<String, Value> =
+            serde_json::from_str(r#"{ "width": 30000 }"#).expect("object parses");
+        let problem = apply_patch(&wide, &mut target)
+            .expect_err("30000 poisons the sheet; refused at the door");
+        assert!(problem.contains("dials.width"), "names the key: {problem}");
+        assert!(problem.contains("canvas law"), "names the law: {problem}");
+        // Off-grid and below the latent floor are refused; the floor itself is legal.
+        // (A refused patch still lands in the target — the pre-existing three-state
+        // law — so each case gets a fresh target and names the key it broke.)
+        for bad in [511, 4] {
+            let patch: serde_json::Map<String, Value> =
+                serde_json::from_str(&format!(r#"{{ "height": {bad} }}"#)).expect("parses");
+            let mut fresh = Dials::default();
+            let problem = apply_patch(&patch, &mut fresh).expect_err("{bad} breaks the grid law");
+            assert!(problem.contains("dials.height"), "{bad}: {problem}");
+        }
+        let legal: serde_json::Map<String, Value> =
+            serde_json::from_str(r#"{ "width": 576, "height": 1024 }"#)
+                .expect("the legal pair parses");
+        apply_patch(&legal, &mut target).expect("576x1024 is a shipped-shape pair");
+        assert_eq!(target.width, Some(576));
+        assert_eq!(target.height, Some(1024));
+        // The product wall: legal edges, 25M pixels.
+        let big: serde_json::Map<String, Value> =
+            serde_json::from_str(r#"{ "width": 8192, "height": 4096 }"#).expect("parses");
+        let mut fresh = Dials::default();
+        let problem = apply_patch(&big, &mut fresh).expect_err("8192x4096 is 33.5M");
+        assert!(problem.contains("16.7M"), "names the ceiling: {problem}");
+        // Merged onto a stored edge: the patch carries one dial, the stored other
+        // completes the illegal pair — the MERGED pair is what the wall measures.
+        let one: serde_json::Map<String, Value> =
+            serde_json::from_str(r#"{ "width": 8192 }"#).expect("parses");
+        let mut tall = Dials {
+            height: Some(8192),
+            ..Dials::default()
+        };
+        let problem = apply_patch(&one, &mut tall).expect_err("the merged pair is 67M");
+        assert!(problem.contains("16.7M"), "names the ceiling: {problem}");
+        // null still clears, and clearing cannot be illegal.
+        let clear: serde_json::Map<String, Value> =
+            serde_json::from_str(r#"{ "width": null }"#).expect("parses");
+        apply_patch(&clear, &mut tall).expect("null clears the dial");
+        assert_eq!(tall.width, None);
     }
 
     #[test]

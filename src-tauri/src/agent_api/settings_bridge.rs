@@ -39,7 +39,13 @@ use super::cycle_view::CyclePhase;
 use super::{config, cycle, defaults, guard};
 
 /// The closed writable vocabulary of `deas-agent-settings.json`.
-const SETTINGS_KEYS: [&str; 4] = ["enabled", "port", "standingKey", "originAllowlist"];
+const SETTINGS_KEYS: [&str; 5] = [
+    "enabled",
+    "port",
+    "standingKey",
+    "originAllowlist",
+    "componentOverrides",
+];
 
 /// The closed writable vocabulary of `deas-agent-guard.json` (the watchdog and
 /// caps blocks stay raw: a malformed block costs the watchdog its defaults plus

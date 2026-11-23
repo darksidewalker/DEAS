@@ -445,7 +445,7 @@ pub(crate) const ROUTE_INDEX: [RouteDef; 46] = [
         method: "POST",
         path: "/v1/inputs/bench",
         lane: Lane::Control,
-        purpose: "non-destructive declutter (LEG M17b, ruling E22 BENCH): body {names:[1-100 relative file names under the input root]} MOVES each file into ONE .bench-<UTC stamp> folder under the same root, keeping every full source-relative name (deas-inputs/project1/pic.jpg -> .bench-<stamp>/deas-inputs/project1/pic.jpg); rows answer {old,new} or {old,error} (notFound/targetExists/moveFailed/claimedByQueue - the last names the live queue row that still references that input, LEG AF2-M18c) in request order - partials are honest, nothing is deleted; benched names leave both listings (dot law), stay reachable by name at GET /v1/files/inputs/{name}, and stop being referenceable placement names; un-benching is an owner-UI/future leg",
+        purpose: "whole-root bench sweep (LEG M17b ruling E22 BENCH, restated to whole-root sweeps by the owner ruling 2026-11-22): ZERO-KEY body (empty or {}; any key refuses naming the sweep law) - one call moves EVERY file under the input root, the whole tree (placement names, operator drops, UI-placed files included), into ONE date-time folder inside the .bench parent: .bench/YYYYMMDDTHHMMSSZ/<original relative path> (UTC), keeping every full source-relative name (deas-inputs/project1/pic.jpg -> .bench/<stamp>/deas-inputs/project1/pic.jpg), so the group benched together is one dated folder to find later; the sweep is UNBOUNDED (the old 1..=100 pick-list body and its cap are dead); the stamp folder is LAZY - minted only at the first real move, a call whose every row is refused leaves NOTHING on disk - and an existing folder under the same stamp name is REUSED (two calls in one second share one folder: never an error, never a minted suffix); the walk skips every dot-prefixed entry at every level, so the .bench parent and legacy .bench-<stamp> folders are NEVER re-swept; rows answer {old,new} or {old,error} (notFound/targetExists/moveFailed/claimedByQueue - the last names the LIVE queue row (queued/draining/wedged) that still references that file and the file stays put; TERMINAL rows never claim anything, LEG AF2-M18c + bench-behaviour leg P2; the walk, the claim check and the renames run under the spool write gate - an unreadable spool or an unwalkable root refuses the whole call) in sweep order - partials are honest, nothing is deleted (every move is a same-root rename: after {old,new} the source is gone and the new path holds the same bytes); rows detail carries every refused row plus the first 50 moved rows, rowsTruncated names the cap but the files all moved; benched names leave both listings (dot law), stay reachable by name at GET /v1/files/inputs/{name}, and stop being referenceable placement names; un-benching is an owner action (no door)",
         operation: "inputsBench",
         handler: inputs_bench_route,
     },
@@ -453,7 +453,7 @@ pub(crate) const ROUTE_INDEX: [RouteDef; 46] = [
         method: "POST",
         path: "/v1/outputs/bench",
         lane: Lane::Control,
-        purpose: "non-destructive declutter of the output plane (LEG M17b, ruling E22 BENCH): body {items:[{subfolder?,name}] 1-100} MOVES each output into ONE .bench-<UTC stamp> folder under the output root as .bench-<stamp>/<subfolder>/<name>; the same row law as the inputs bench door; a benched file stays readable at the output byte door under its .bench-<stamp>/ path (the AF2-M29 catch-all grammar)",
+        purpose: "whole-root bench sweep of the output plane (LEG M17b ruling E22 BENCH, restated by the owner ruling 2026-11-22): ZERO-KEY body (empty or {}; any key refuses naming the sweep law) - one call moves EVERY file under the output root, the whole output tree INCLUDING the df_h3_continuity state clutter class (the owner WANTS it swept), into ONE date-time folder inside the .bench parent: .bench/YYYYMMDDTHHMMSSZ/<original relative path> (UTC); the same lazy-folder and stamp-reuse law as the inputs door (refused-only calls leave nothing on disk; an existing same-stamp folder is reused); the walk never re-sweeps any dot-prefixed entry (.bench parent, legacy .bench-<stamp> folders); the same row law and the same rows/rowsTruncated detail cap; the claim mirror rides the same spool write gate (an unreadable spool or an unwalkable root refuses the whole call) but the audited output-referencing carrier set is EMPTY - chain/continuity references resolve clip ids in the stock session ledger, join files arms name INPUT-plane placements, outputPrefix names a destination - so no live row claims an output path today; a benched file stays readable at the output byte door under its .bench/<stamp>/ path (the AF2-M29 catch-all grammar); un-benching is an owner action (no door)",
         operation: "outputsBench",
         handler: outputs_bench_route,
     },
@@ -1335,7 +1335,12 @@ pub(crate) async fn queue_post(
     let mut model_handle: Option<String> = None;
     if let Some(reference) = model.as_deref() {
         let entries = library_entries(&state)?;
-        let resolved = resolver::resolve(&entries, reference, explicit_family.as_deref())?;
+        let resolved = resolver::resolve_with(
+            &entries,
+            reference,
+            explicit_family.as_deref(),
+            state.component_overrides(),
+        )?;
         model_handle = resolved.model_handle().map(str::to_owned);
         // §9: the resolved slots fill only what the request did not state itself.
         if !body.contains_key("checkpoint") {
@@ -1347,6 +1352,16 @@ pub(crate) async fn queue_post(
             }
         }
         family = resolved.family;
+    }
+    // LORA FAMILY ROUTING (owner ruling 2026-11-22): a `loras[]` reference may ride
+    // as a 12-hex library handle or a full 64-hex sha256 fingerprint; the door
+    // rewrites it to the entry's real index name before the fill and the spool, so
+    // the drain receives a file name the backend can load. The entry's family stamp
+    // is never consulted here - the digest is the identity, and a wrongly
+    // categorized LoRA queues and runs (if its family truth breaks the backend, it
+    // dies honestly at the drain, which is the intended posture).
+    if lora_refs_are_hex(&body) {
+        resolve_lora_bag(&mut body, &library_entries(&state)?)?;
     }
     if family.is_empty() && !refmod {
         return Err(ApiError::new(ErrorKind::BodyInvalid).with_hint(
@@ -1442,7 +1457,15 @@ pub(crate) async fn queue_post(
             )));
         }
     }
-    let outcome = fill_plane::fill(&family, &mode, dials.as_ref(), &sheet, Some(&body))?;
+    let input_root = state.input_root();
+    let outcome = fill_plane::fill_at(
+        &family,
+        &mode,
+        dials.as_ref(),
+        &sheet,
+        Some(&body),
+        input_root.as_deref(),
+    )?;
     // Rulings 4/6: the RefmodExport target mints the row through
     // `spool::Spool::append_refmod_row` — NEVER the render plan / `from_plan`
     // path. The helper re-validates the closed envelope shape (its own
@@ -1889,7 +1912,12 @@ pub(crate) async fn video_story(
     let mut family = explicit_family.clone().unwrap_or_default();
     if let Some(reference) = model.as_deref() {
         let entries = library_entries(&state)?;
-        let resolved = resolver::resolve(&entries, reference, explicit_family.as_deref())?;
+        let resolved = resolver::resolve_with(
+            &entries,
+            reference,
+            explicit_family.as_deref(),
+            state.component_overrides(),
+        )?;
         if !base_body.contains_key("checkpoint") {
             base_body.insert("checkpoint".to_owned(), json!(resolved.checkpoint));
         }
@@ -1899,6 +1927,12 @@ pub(crate) async fn video_story(
             }
         }
         family = resolved.family;
+    }
+    // LORA FAMILY ROUTING (owner ruling 2026-11-22): same law as the queue door -
+    // hex LoRA references on the story base rewrite to real index names before the
+    // probe fill and the step expansion.
+    if lora_refs_are_hex(&base_body) {
+        resolve_lora_bag(&mut base_body, &library_entries(&state)?)?;
     }
     if family.is_empty() {
         return Err(invalid(
@@ -1969,15 +2003,17 @@ pub(crate) async fn video_story(
             )));
         }
     }
+    let input_root = state.input_root();
     // PROBE fill: the resolved `frameRate` (whichever tier supplied it) is the
     // multiplicand of the per-step frames law, and a base the fill plane refuses
     // must refuse once, naming the base, before any step is expanded.
-    let probe = fill_plane::fill(
+    let probe = fill_plane::fill_at(
         &family,
         &mode,
         ladder_block.as_ref(),
         &sheet,
         Some(&base_body),
+        input_root.as_deref(),
     )?;
     let probe_plan = match probe {
         fill_plane::FillOutcome::Plan(plan) => plan,
@@ -2016,12 +2052,13 @@ pub(crate) async fn video_story(
             "frames".to_owned(),
             json!(story_frames(step.seconds, frame_rate)),
         );
-        let outcome = fill_plane::fill(
+        let outcome = fill_plane::fill_at(
             &family,
             &mode,
             ladder_block.as_ref(),
             &sheet,
             Some(&step_body),
+            input_root.as_deref(),
         )?;
         let plan = match outcome {
             fill_plane::FillOutcome::Plan(plan) => plan,
@@ -2511,6 +2548,53 @@ pub(crate) async fn fingerprint(
 }
 
 /// The one library read the identity doors share (and the queue door reuses): the
+/// The cheap pre-wall of the rewrite: does the `loras[]` bag carry ANY hex form at
+/// all? A bag of plain names needs no index read (and must not gain one — doors that
+/// never touched the library stay library-free), so the rewrite only spends a
+/// `library_entries` fetch when a handle or fingerprint is actually present.
+fn lora_refs_are_hex(body: &serde_json::Map<String, Value>) -> bool {
+    body.get("loras")
+        .and_then(Value::as_array)
+        .is_some_and(|bag| {
+            bag.iter().any(|item| {
+                item.get("name")
+                    .and_then(|value| value.as_str())
+                    .is_some_and(|name| resolver::is_handle(name) || resolver::is_sha256(name))
+            })
+        })
+}
+
+/// The door-side rewrite of [`resolver::resolve_lora`] (LORA FAMILY ROUTING, owner
+/// ruling 2026-11-22): every `loras[]` entry whose `name` is a 12-hex handle or a
+/// full 64-hex fingerprint resolves against the library index and rides on as the
+/// entry's real index name - the same word `GET /v1/models` shows - so the spooled
+/// row and the compiled graph carry a loadable file name. Plain names and strengths
+/// ride untouched; a hex reference with no index entry is the honest
+/// `libraryScanRequired` naming the scan remedy. The family stamp never gates this.
+fn resolve_lora_bag(
+    body: &mut serde_json::Map<String, Value>,
+    entries: &[resolver::LibraryEntry],
+) -> Result<(), ApiError> {
+    let Some(bag) = body.get_mut("loras").and_then(Value::as_array_mut) else {
+        return Ok(());
+    };
+    for item in bag.iter_mut() {
+        let Some(name) = item
+            .get("name")
+            .and_then(|value| value.as_str())
+            .map(str::to_owned)
+        else {
+            continue;
+        };
+        if !(resolver::is_handle(&name) || resolver::is_sha256(&name)) {
+            continue;
+        }
+        let entry = resolver::resolve_lora(entries, &name)?;
+        item["name"] = json!(entry.name);
+    }
+    Ok(())
+}
+
 /// boot-wired index source, then the `refresh:false` snapshot reader. An absent source or
 /// an unreadable snapshot is the honest `libraryScanRequired` naming the scan remedy —
 /// never an empty-library claim over an unreadable index.
@@ -3024,31 +3108,44 @@ pub(crate) async fn inputs_promote(
     files::promote_copy(&output_root, &input_root, &subfolder, name).map(Json)
 }
 
-/* ---------------- BENCH DOORS (LEG M17b, owner ruling E22 BENCH) ----------------
+/* ---------------- BENCH DOORS (LEG M17b, ruling E22 BENCH; WHOLE-ROOT SWEEP
+restate — owner ruling 2026-11-22, supersedes the pick-list body grammar) ----
 
-The bench law in one line: MOVE, never delete. Each door stamps ONE folder
-(`.bench-<YYYYMMDDTHHMMSSZ>`, UTC) under its own root and renames every named
-file into it, keeping the full source-relative name. The mechanics, refusal
-words and the walk/byte-door consequences live beside
-[`files::bench_move`]; these handlers own only the closed body grammar and the
-root law. A running stock job holds its open output file, so a bench rename of
-a file that job is writing answers the honest per-row `moveFailed` with the OS
-word (Windows sharing violation) — the door takes no job-state lock (doc
-ruling; the row reports the truth).
+The bench law in one line: SWEEP THE WHOLE ROOT, MOVE, never delete. Each door
+takes a ZERO-KEY body (empty or `{}`; any key refuses naming the sweep law) and
+moves EVERY file under its own root — the whole tree, the continuity-state
+clutter class included — into ONE date-time folder inside the `.bench` parent:
+`.bench/YYYYMMDDTHHMMSSZ/<original relative path>` (UTC). One call, one dated
+folder: the group benched together is one stamped folder to find later. The
+folder is LAZY (bench-behaviour leg): minted only at the first real move, so an
+all-refused call leaves nothing on disk, and an existing same-stamp folder is
+REUSED - two calls in one second share one folder, never an error, never a
+minted suffix. The walk itself skips every dot-prefixed entry at every level,
+so the `.bench` parent and the legacy `.bench-<stamp>` folders are NEVER
+re-swept. Files a LIVE queue row (queued/draining/wedged) still references are
+refused per-row as `claimedByQueue` and stay put; TERMINAL rows never claim - a
+sweep never tracks items that were already generated. The mechanics, refusal
+words and the walk/byte-door consequences live beside [`files::bench_move`] and
+[`files::sweep_names`]; these handlers own only the zero-key body law and the
+root law. Both doors walk, claim-check and rename under the spool write gate; a
+running stock job holds its open output file, so a bench rename of a file that
+job is writing answers the honest per-row `moveFailed` with the OS word
+(Windows sharing violation) — the door takes no job-state lock (doc ruling; the
+row reports the truth).
 --------------------------------------------------------------------------- */
 
-/// Upper bound on a bench body: 1..=100 names (each a relative path under the
-/// containment law's reach) or 1..=100 `{subfolder,name}` items; 64 KiB is the
-/// honest envelope for either shape.
+/// Upper bound on a bench body: the sweep takes NO body, so 64 KiB is already a
+/// refusal envelope — it exists only so a hostile client cannot stream an
+/// unbounded body into the parse before the zero-key wall answers.
 const MAX_BENCH_BODY: usize = 64 * 1024;
 
-/// The shared bench body reader: raw bytes under the cap, one JSON object,
-/// exactly one closed top-level field (`names` or `items`); unknown fields
-/// refuse naming the key (the promote door's closed-grammar idiom).
-async fn closed_bench_object(
-    request: Request,
-    field: &str,
-) -> Result<serde_json::Map<String, Value>, ApiError> {
+/// The one bench body reader (both doors): the sweep takes NO body — an empty
+/// body or `{}` is the whole closed grammar (owner ruling 2026-11-22: bench is
+/// a whole-root sweep; the pick-list `names`/`items` grammar and its entry cap
+/// are dead). ANY key refuses by name with the sweep law in the hint, so a
+/// stale client is told exactly what the door does instead of silently
+/// ignoring its list.
+async fn bench_sweep_body(request: Request) -> Result<(), ApiError> {
     let bytes = body::to_bytes(request.into_body(), MAX_BENCH_BODY)
         .await
         .map_err(|error| {
@@ -3056,165 +3153,84 @@ async fn closed_bench_object(
                 "body unreadable or over {MAX_BENCH_BODY} bytes: {error}"
             ))
         })?;
+    if bytes.iter().all(|byte| byte.is_ascii_whitespace()) {
+        return Ok(()); // the empty body is the canonical sweep call
+    }
     let body: Value = serde_json::from_slice(&bytes).map_err(|error| {
-        ApiError::new(ErrorKind::BodyInvalid)
-            .with_hint(format!("body must be a JSON object {{{field}}}: {error}"))
+        ApiError::new(ErrorKind::BodyInvalid).with_hint(format!(
+            "the bench sweep takes no body: one call benches EVERY file under the root except the ones a live queue row holds; the body must be empty or {{}} ({error})"
+        ))
     })?;
     let fields = body.as_object().ok_or_else(|| {
-        ApiError::new(ErrorKind::BodyInvalid)
-            .with_hint(format!("body must be a JSON object {{{field}}}"))
+        ApiError::new(ErrorKind::BodyInvalid).with_hint(
+            "the bench sweep takes no body: one call benches EVERY file under the root except the ones a live queue row holds; the body must be empty or {}".to_owned(),
+        )
     })?;
-    for key in fields.keys() {
-        if key != field {
-            return Err(ApiError::new(ErrorKind::BodyInvalid).with_hint(format!(
-                "unknown bench field '{key}'; the closed grammar is {field}"
-            )));
-        }
-    }
-    Ok(fields.clone())
-}
-
-/// The shared list-size wall: 1..=[`files::MAX_BENCH_ENTRIES`] entries, the
-/// cap named in the refusal.
-fn check_bench_count(count: usize) -> Result<(), ApiError> {
-    if count == 0 || count > files::MAX_BENCH_ENTRIES {
+    if let Some(key) = fields.keys().next() {
         return Err(ApiError::new(ErrorKind::BodyInvalid).with_hint(format!(
-            "the bench list must carry 1..={} entries; the cap is the plane's law, not a client parameter",
-            files::MAX_BENCH_ENTRIES
+            "the bench sweep takes no body: one call benches EVERY file under the root except the ones a live queue row holds; drop the field '{key}'"
         )));
     }
     Ok(())
 }
 
-/// Reads the closed `POST /v1/inputs/bench` body: `{names:[...]}` of non-empty
-/// relative file names, 1..=100, NO name twice — one call moves each name once
-/// and a duplicate is a grammar refusal naming it (an honest refusal beats a
-/// silent second row that could only answer `notFound`).
-async fn bench_names_body(request: Request) -> Result<Vec<String>, ApiError> {
-    let fields = closed_bench_object(request, "names").await?;
-    let items = fields
-        .get("names")
-        .and_then(Value::as_array)
-        .ok_or_else(|| {
-            ApiError::new(ErrorKind::BodyInvalid).with_hint(format!(
-                "the names field must be an array of 1..={} relative file names under the input root",
-                files::MAX_BENCH_ENTRIES
-            ))
-        })?;
-    check_bench_count(items.len())?;
-    let mut names: Vec<String> = Vec::with_capacity(items.len());
-    for item in items {
-        let text = item
-            .as_str()
-            .filter(|text| !text.is_empty())
-            .ok_or_else(|| {
-                ApiError::new(ErrorKind::BodyInvalid)
-                    .with_hint("every names entry must be a non-empty string".to_owned())
-            })?;
-        if names.iter().any(|held| held == text) {
-            return Err(ApiError::new(ErrorKind::BodyInvalid).with_hint(format!(
-                "'{text}' is named twice; one bench call moves each name once"
-            )));
-        }
-        names.push(text.to_owned());
-    }
-    Ok(names)
-}
-
-/// Reads the closed `POST /v1/outputs/bench` body: `{items:[{subfolder?,
-/// name}]}`, 1..=100, the promote door's field walls restated (the bare-name
-/// wall [`uploads::check_name`] on `name`, an optional string `subfolder`),
-/// composed to one relative path per item and refused on a duplicate compose.
-async fn bench_items_body(request: Request) -> Result<Vec<String>, ApiError> {
-    let fields = closed_bench_object(request, "items").await?;
-    let items = fields
-        .get("items")
-        .and_then(Value::as_array)
-        .ok_or_else(|| {
-            ApiError::new(ErrorKind::BodyInvalid).with_hint(format!(
-                "the items field must be an array of 1..={} {{subfolder?,name}} objects",
-                files::MAX_BENCH_ENTRIES
-            ))
-        })?;
-    check_bench_count(items.len())?;
-    let mut composed: Vec<String> = Vec::with_capacity(items.len());
-    for item in items {
-        let entry = item.as_object().ok_or_else(|| {
-            ApiError::new(ErrorKind::BodyInvalid)
-                .with_hint("every items entry must be a {subfolder?, name} object".to_owned())
-        })?;
-        for key in entry.keys() {
-            if !["subfolder", "name"].contains(&key.as_str()) {
-                return Err(ApiError::new(ErrorKind::BodyInvalid).with_hint(format!(
-                    "unknown item field '{key}'; the closed grammar is subfolder, name"
-                )));
-            }
-        }
-        let subfolder = match entry.get("subfolder") {
-            None | Some(Value::Null) => String::new(),
-            Some(Value::String(text)) => text.clone(),
-            Some(_) => {
-                return Err(ApiError::new(ErrorKind::BodyInvalid)
-                    .with_hint("the subfolder field, when present, must be a string".to_owned()))
-            }
-        };
-        let name = entry
-            .get("name")
-            .and_then(Value::as_str)
-            .filter(|text| !text.is_empty())
-            .ok_or_else(|| {
-                ApiError::new(ErrorKind::BodyInvalid)
-                    .with_hint("the name field must be a non-empty bare output filename".to_owned())
-            })?;
-        uploads::check_name(name)?;
-        let rel = if subfolder.is_empty() {
-            name.to_owned()
-        } else {
-            format!("{subfolder}/{name}")
-        };
-        if composed.iter().any(|held| held == &rel) {
-            return Err(ApiError::new(ErrorKind::BodyInvalid).with_hint(format!(
-                "'{rel}' is named twice; one bench call moves each item once"
-            )));
-        }
-        composed.push(rel);
-    }
-    Ok(composed)
-}
-
-/// The shared bench answer: the one folder this call stamped, the honest
-/// moved/refused counts, and the per-row old→new map in request order. Row
-/// words (`notFound`, `targetExists`, `moveFailed`, and since LEG AF2-M18c
-/// `claimedByQueue`) are row states, not taxonomy words — a partial bench is a
-/// 200 truth, and the note carries the law the caller needs next (reach by new
-/// name, retry gets a fresh stamp).
+/// The shared bench answer: the one stamped folder this call targeted, the
+/// honest moved/refused counts over ALL swept rows, and the row detail — every
+/// refused row plus the first 50 moved rows, always in sweep order (the sweep
+/// is unbounded, so a big plane's moved-file DETAILS are capped; the files all
+/// moved either way, and `rowsTruncated` says so). Refused rows are never
+/// truncated: they are the actionable set. Row words (`notFound`,
+/// `targetExists`, `moveFailed`, `claimedByQueue`) are row states, not
+/// taxonomy words — a partial sweep is a 200 truth, and the note carries the
+/// law the caller needs next (reach by new name, dot folders never re-swept).
 fn bench_answer(folder: &str, rows: &[files::BenchRow]) -> Value {
+    const MOVED_ROWS_DETAIL: usize = 50;
     let moved = rows
         .iter()
         .filter(|row| matches!(row.outcome, files::BenchOutcome::Moved { .. }))
         .count();
+    let mut seen_moved = 0usize;
+    let detail: Vec<Value> = rows
+        .iter()
+        .filter_map(|row| match &row.outcome {
+            files::BenchOutcome::Moved { .. } => {
+                if seen_moved >= MOVED_ROWS_DETAIL {
+                    None
+                } else {
+                    seen_moved += 1;
+                    Some(row.row_json())
+                }
+            }
+            _ => Some(row.row_json()),
+        })
+        .collect();
     json!({
         "ok": true,
         "folder": folder,
         "moved": moved,
         "refused": rows.len() - moved,
-        "rows": rows
-            .iter()
-            .map(files::BenchRow::row_json)
-            .collect::<Vec<Value>>(),
-        "note": "non-destructive declutter (ruling E22): every move is a rename under the same root into one .bench-<UTC stamp> folder; benched names leave both listings (dot law) and stay reachable by their new name through the byte doors; a refused row changed nothing and a retry gets a fresh stamp; an input name a live queue row still references answers claimedByQueue with that row's id and stays put (LEG AF2-M18c); un-benching is an owner-UI/future leg (no door this leg)",
+        "rows": detail,
+        "rowsTruncated": moved > MOVED_ROWS_DETAIL,
+        "note": "whole-root sweep (owner ruling 2026-11-22): the door takes NO body — one call moves EVERY file under the root into ONE date-time folder inside the .bench parent (.bench/YYYYMMDDTHHMMSSZ/<original relative path>), keeping each full source-relative name; the folder is minted lazily at the first real move and REUSED when it already exists, so a call that moved nothing leaves no folder on disk and a retry inside the same stamp-second lands in the SAME folder; the .bench parent and any dot-prefixed folder (including legacy .bench-<stamp> folders) are never re-swept; benched names leave both listings (dot law) and stay reachable by their new name through the byte doors; a refused row changed nothing; a file a LIVE queue row still references (queued/draining/wedged, never a terminal row — terminal rows never track) answers claimedByQueue with that row's id and stays put; moved-file DETAILS in rows are capped at 50 (rowsTruncated names it) but the files all moved; un-benching is an owner action (no door)",
     })
 }
 
-/// `POST /v1/inputs/bench` — the input-plane declutter door (ruling E22). The
-/// source wall is the shared containment law ([`files::contained`]), NOT the
-/// placement grammar: E20-AMENDED sanctions moves within the input root for
-/// whatever is there, operator drops and UI-placed files included. Grammar and
-/// symlink violations hoist to the call as `bodyInvalid` before any rename;
-/// a missing source is a per-row `notFound`. The consequence law (doc ruling):
-/// a benched name (`<folder>/<old>`) is not placement-form — the existence law
-/// never collects it and the listings never show it — so benched means hidden
-/// from NEW references; the byte door still serves it by explicit name.
+/// `POST /v1/inputs/bench` — the input-plane whole-root SWEEP door (owner
+/// ruling 2026-11-22): a ZERO-KEY body, then every file the walk reaches under
+/// the input root rides one `.bench/<stamp>` folder. The source wall is the
+/// shared containment law ([`files::contained`]), NOT the placement grammar:
+/// E20-AMENDED sanctions moves within the input root for whatever is there,
+/// operator drops and UI-placed files included. The walk ([`files::sweep_names`])
+/// skips every dot-prefixed entry at every level — the `.bench` parent and the
+/// legacy `.bench-<stamp>` folders are never re-swept — and collects regular
+/// files only; an unwalkable root refuses the WHOLE call as `maintenanceActive`
+/// (a sweep that cannot see the plane will not half-sweep it). Grammar and
+/// symlink violations still hoist to the call as `bodyInvalid` before any
+/// rename; a file that vanished between walk and rename is a per-row `notFound`.
+/// The consequence law (doc ruling): a benched name
+/// (`.bench/<stamp>/<old>`) is not placement-form — the existence law never
+/// collects it and the listings never show it — so benched means hidden from
+/// NEW references; the byte door still serves it by explicit name.
 ///
 /// THE CLAIM GUARD (LEG AF2-M18c, the bench-vs-spool TOCTOU): the existence law
 /// stats an input at queue time, the drain reads it at drain time, so a QUEUED
@@ -3222,18 +3238,24 @@ fn bench_answer(folder: &str, rows: &[files::BenchRow]) -> Value {
 /// rename this door collects the existence-law names of every LIVE spool row
 /// ([`inputs::queued_input_claims`], the same collector `queue_post` runs, so the
 /// two doors can never disagree about what an input reference is) and refuses a
-/// matching name per-row as `claimedByQueue` naming the claiming row. The check
+/// matching name per-row as `claimedByQueue` naming the claiming row — the file
+/// stays exactly where the drain will look for it. TERMINAL rows never claim:
+/// the sweep does not track items that were already generated. The check
 /// rides the existing validate-all-then-move-all pass, so a claimed name never
-/// half-moves a call: the other rows move as they always did. The OUTPUTS bench
-/// carries no guard — an output-plane file is never an input reference.
-/// rename, and the claim check plus the renames run inside the spool's own write
+/// half-moves a sweep: the other rows move as they always did. The OUTPUTS bench
+/// runs the MIRROR ([`inputs::queued_output_claims`], bench-behaviour leg P2)
+/// under the same window; its audited carrier set is empty today, so the mirror
+/// claims nothing yet while the window and the unreadable-spool refusal stand.
+/// The walk, the claim check and the renames run inside the spool's own write
 /// gate ([`spool::Spool::with_bench_window`], W3-13), so no concurrent queue append
 /// can pass the existence law for a name this call is moving.
 pub(crate) async fn inputs_bench(
     State(state): State<PlaneState>,
     request: Request,
 ) -> Result<Json<Value>, ApiError> {
-    let names = bench_names_body(request).await?;
+    // The zero-key body law first (the sweep takes no list), then the root law:
+    // both walls stand BEFORE any walk or rename touches the disk.
+    bench_sweep_body(request).await?;
     let Some(root) = state.input_root() else {
         return Err(ApiError::new(ErrorKind::MaintenanceActive).with_hint(
             "no input root is derivable: bench moves within the approved DEAS environment's own input folder, so open the environment first",
@@ -3242,13 +3264,23 @@ pub(crate) async fn inputs_bench(
     // An unreadable spool refuses the WHOLE call (LEG AF2-M18c): a door that
     // cannot see which rows still need their inputs cannot promise it moved none
     // of them, and `maintenanceActive` is the plane's word for a spool it will
-    // not guess about (the same word `GET /v1/queue` answers). The claim set and
-    // the renames run UNDER the spool write gate (W3-13, LEG AF2-M21b): the check
-    // the door makes is the check the queue door's append is serialized against.
+    // not guess about (the same word `GET /v1/queue` answers). The walk, the
+    // claim set and the renames run UNDER the spool write gate (W3-13,
+    // LEG AF2-M21b): the check the door makes is the check the queue door's
+    // append is serialized against, and the swept name set is frozen while the
+    // gate is held.
     let folder = files::bench_folder_name(super::spool::now_ms());
     let rows = state
         .spool
         .with_bench_window(|spooled| {
+            let names = match files::sweep_names(&root) {
+                Ok(names) => names,
+                Err(problem) => {
+                    return Err(ApiError::new(ErrorKind::MaintenanceActive).with_hint(format!(
+                        "the input root cannot be walked: {problem}"
+                    )))
+                }
+            };
             let claims = inputs::queued_input_claims(spooled);
             files::bench_move(&root, &names, &folder, &claims)
         })
@@ -3260,26 +3292,58 @@ pub(crate) async fn inputs_bench(
     Ok(Json(bench_answer(&folder, &rows)))
 }
 
-/// `POST /v1/outputs/bench` — the output-plane declutter door (ruling E22):
-/// the promoted `{subfolder?,name}` locate grammar, the same containment wall,
-/// one stamp folder under the OUTPUT root, `.bench-<stamp>/<subfolder>/<name>`
-/// targets. Running-job caution (doc only): a file a stock job still holds
-/// open answers the honest per-row `moveFailed` with the OS word — the row
-/// reports the truth, the door invents no lock.
+/// `POST /v1/outputs/bench` — the output-plane whole-root SWEEP door (owner
+/// ruling 2026-11-22): the MIRROR of the inputs door — a zero-key body, the
+/// whole output tree swept (the `df_h3_continuity` state clutter class
+/// included: the owner WANTS the clutter swept) into one `.bench/<stamp>`
+/// folder under the OUTPUT root, and the same lazy-folder/stamp-reuse law
+/// (bench-behaviour leg P1). Running-job caution (doc only): a file a stock job
+/// still holds open answers the honest per-row `moveFailed` with the OS word —
+/// the row reports the truth, the door invents no lock. The claim mirror
+/// (leg P2): the walk, the claim check and the renames run under the spool
+/// write gate against [`inputs::queued_output_claims`]; the audited set is
+/// empty today (chain references resolve clip ids in the stock session ledger,
+/// join `files` arms name INPUT-plane placements), so the mirror claims nothing
+/// yet — but an unreadable spool or an unwalkable root refuses the whole call,
+/// the same honest word both doors answer when they cannot see their claims.
 pub(crate) async fn outputs_bench(
     State(state): State<PlaneState>,
     request: Request,
 ) -> Result<Json<Value>, ApiError> {
-    let items = bench_items_body(request).await?;
+    // The zero-key body law first, then the root law — both walls stand before
+    // any walk or rename touches the disk.
+    bench_sweep_body(request).await?;
     let Some(root) = state.output_root() else {
         return Err(ApiError::new(ErrorKind::MaintenanceActive).with_hint(
             "no output root is derivable: bench moves within the approved DEAS environment's own output folder, so open the environment first",
         ));
     };
     let folder = files::bench_folder_name(super::spool::now_ms());
-    // No claim set on the output plane: an output file is never an input
-    // reference, so the spool holds no claim on it (LEG AF2-M18c, by ruling).
-    let rows = files::bench_move(&root, &items, &folder, &[])?;
+    // OUTPUT-PLANE CLAIM LAW (bench-behaviour leg P2): the mirror collector runs
+    // over the live rows under the SAME write gate the inputs door uses, and the
+    // set rides the same bench_move pass. The audited carrier set is empty today
+    // (see the audit beside the collector), so nothing is claimed yet — the law
+    // and the serialization stand so a future output-referencing carrier lands
+    // guarded, and so both doors refuse a spool they cannot read.
+    let rows = state
+        .spool
+        .with_bench_window(|spooled| {
+            let names = match files::sweep_names(&root) {
+                Ok(names) => names,
+                Err(problem) => {
+                    return Err(ApiError::new(ErrorKind::MaintenanceActive).with_hint(format!(
+                        "the output root cannot be walked: {problem}"
+                    )))
+                }
+            };
+            let claims = inputs::queued_output_claims(spooled);
+            files::bench_move(&root, &names, &folder, &claims)
+        })
+        .map_err(|problem| {
+            ApiError::new(ErrorKind::MaintenanceActive).with_hint(format!(
+                "the queue spool is unreadable, and the output bench door will not move a file it cannot check against the queued rows: {problem}"
+            ))
+        })??;
     Ok(Json(bench_answer(&folder, &rows)))
 }
 
@@ -3414,6 +3478,12 @@ pub(crate) async fn uploads_write(
             "kind '{}' does not match the body: the bytes are {sniffed_kind} ({extension})",
             kind.word()
         )));
+    }
+    // The image pixel law (the resolution-sanity ruling): a placed image can become
+    // a canvas (i2i encodes at the input's own dims), so PNG/WebP header dims
+    // crossing the canvas law are refused here, before the seam writes a byte.
+    if matches!(kind, UploadKind::Image | UploadKind::Mask) {
+        uploads::check_pixels(head)?;
     }
     let placed_len = bytes.len();
     let placed = state
@@ -3899,6 +3969,69 @@ pub(crate) async fn method_mismatch(method: Method, uri: OriginalUri) -> ApiErro
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// LORA FAMILY ROUTING (owner ruling 2026-11-22): the door rewrite. The entry
+    /// carries a WRONG family stamp on purpose - the digest must resolve it anyway.
+    fn wrongly_stamped_lora_entry() -> resolver::LibraryEntry {
+        resolver::LibraryEntry {
+            category: "loras".to_owned(),
+            name: "Anima\\MeMaAni_V1_x1792.safetensors".to_owned(),
+            path: "loras/Anima/MeMaAni_V1_x1792.safetensors".to_owned(),
+            sha256: Some(
+                "c3d19c1a0defce6b9005a2c8e1ef5935aaee90cc6ee932d1ed301729af9eca13".to_owned(),
+            ),
+            family: Some("sd15".to_owned()),
+            detected_family: None,
+            family_override: None,
+            component: None,
+            trigger_words: None,
+        }
+    }
+
+    #[test]
+    fn a_hex_lora_reference_rewrites_to_the_entry_name_at_the_door() {
+        let entries = vec![wrongly_stamped_lora_entry()];
+        let mut body = json!({"loras":[
+            {"name":"c3d19c1a0def","strength":0.6},
+            {"name":"c3d19c1a0defce6b9005a2c8e1ef5935aaee90cc6ee932d1ed301729af9eca13","strength":0.4},
+            {"name":"Anima/honest-name.safetensors","strength":1.0},
+        ]})
+        .as_object()
+        .expect("object")
+        .clone();
+        resolve_lora_bag(&mut body, &entries).expect("both hex forms rewrite through the stamp");
+        let bag = body["loras"].as_array().expect("bag");
+        assert_eq!(bag[0]["name"], "Anima\\MeMaAni_V1_x1792.safetensors");
+        assert_eq!(bag[1]["name"], "Anima\\MeMaAni_V1_x1792.safetensors");
+        assert_eq!(
+            bag[2]["name"], "Anima/honest-name.safetensors",
+            "a plain name rides untouched"
+        );
+        assert_eq!(bag[0]["strength"], 0.6, "strength rides untouched");
+    }
+
+    #[test]
+    fn an_unmatched_hex_lora_reference_refuses_with_the_scan_remedy() {
+        let entries = vec![wrongly_stamped_lora_entry()];
+        let mut body = json!({"loras":[{"name":"deadbeefcafe","strength":0.5}]})
+            .as_object()
+            .expect("object")
+            .clone();
+        let verdict = resolve_lora_bag(&mut body, &entries)
+            .expect_err("an unknown digest must refuse, never queue a dead name")
+            .body_json();
+        assert_eq!(verdict["error"], "LIBRARY_SCAN_REQUIRED");
+    }
+
+    #[test]
+    fn a_body_without_loras_skips_the_rewrite_untouched() {
+        let mut body = json!({"checkpoint":"x.safetensors"})
+            .as_object()
+            .expect("object")
+            .clone();
+        resolve_lora_bag(&mut body, &[]).expect("no bag, no work");
+        assert_eq!(body["checkpoint"], "x.safetensors");
+    }
 
     #[test]
     fn the_spool_cap_answer_names_the_cap_and_both_remedies() {

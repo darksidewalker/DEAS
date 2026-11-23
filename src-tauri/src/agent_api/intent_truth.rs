@@ -197,6 +197,8 @@ impl Kit {
                 port: 8790,
                 standing_key: None,
                 origin_allowlist: vec!["http://localhost:1420".to_owned()],
+
+                component_overrides: Default::default(),
             },
             app_data: app.path().to_path_buf(),
             lanes: Arc::new(Lanes::new()),

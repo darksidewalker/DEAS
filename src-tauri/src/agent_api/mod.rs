@@ -128,6 +128,15 @@ pub(crate) struct PlaneState {
 }
 
 impl PlaneState {
+    /// The operator's component overrides, straight from the settings file read at boot
+    /// (`config::AgentSettings::component_overrides`; owner ruling 2026-11-22). The
+    /// resolver applies them; the stock backend remains the last arbiter.
+    pub(crate) fn component_overrides(
+        &self,
+    ) -> &std::collections::BTreeMap<String, std::collections::BTreeMap<String, String>> {
+        &self.settings.component_overrides
+    }
+
     /// The resolver's live index source: the injected one when set, else the boot
     /// wiring recomputed from the app handle per request (settings and approved
     /// environment are read lazily, the same pattern as the cycle view's guard read).

@@ -328,7 +328,7 @@ bench doors is computed from the drain's own reconstruction (`spool::flat_intent
 which merges the fill plane's validated extras — so a key the fill plane MINTS is
 invisible to the collector unless it appears in one of the arms below. The audit
 against the three compile arms (`jobs.rs`, `jobs_video.rs`, `jobs_music.rs` + the
-`fill_plane` passthrough tables) lands on exactly ten carriers:
+`fill_plane` passthrough tables) lands on exactly eleven carriers:
 
 | key                    | arm                      | compile consumer                                   |
 |------------------------|--------------------------|----------------------------------------------------|
@@ -347,6 +347,11 @@ against the three compile arms (`jobs.rs`, `jobs_video.rs`, `jobs_music.rs` + th
 | h3 / ltx / wan blocks  | recipe-block walk        | REF2VA media bags (`h3.media[].file`, minted),     |
 |                        |                          | H3 still refs (`h3.references[].image`, minted),   |
 |                        |                          | LTX keyframes — placement strings ride the block   |
+| media[].file           | RefMod export arm (E28)  | `jobs_refmod::compile` media items — the same      |
+|                        |                          | deas-inputs/ file contract as a REF2VA run; the    |
+|                        |                          | W3-1 audit predates AF2-M24, the bench-behaviour   |
+|                        |                          | leg closed this carrier (export rows claimed       |
+|                        |                          | NOTHING before: the same W3-1 failure mode)        |
 
 Nothing else in the folded namespace names an input file: model slots (`checkpoint`,
 `diffusion{}`, `upscaleModel`, `audioEncoder`, `visionModel`) resolve against the
@@ -440,6 +445,20 @@ pub(crate) fn referenced_placement_names(body: &Map<String, Value>) -> Vec<Strin
             }
         }
     }
+    // RefMod export rows (E28, AF2-M24c): the flat intent's top-level `media`
+    // array carries the SAME H3 media item contract as a REF2VA run — `file` is
+    // an input-plane placement name (`jobs_refmod::compile` forwards it to the
+    // Director media slots), so a queued export row legitimately holds it until
+    // the drain. Render rows carry their media INSIDE the recipe block (already
+    // walked below); a top-level `media` reaches only the export arm — the
+    // is_placement_form gate keeps prompt/library strings out either way.
+    if let Some(items) = body.get("media").and_then(Value::as_array) {
+        for item in items {
+            if let Some(text) = item.get("file").and_then(Value::as_str) {
+                push(text);
+            }
+        }
+    }
     for key in RECIPE_BLOCK_KEYS {
         if let Some(block) = body.get(key) {
             collect_block_names(block, &mut push);
@@ -496,8 +515,11 @@ The existence law stats every named input at QUEUE time; the drain reads it at D
 time. A row can therefore sit in the spool with a reference that was on disk when it
 queued, and `POST /v1/inputs/bench` can move that file away before the drain ever reads
 it — the row then dies on an input the door already promised. The guard closes the
-window at the bench INPUT door ONLY (an output-plane file is never an input reference,
-so the outputs bench carries no guard), and it reuses the EXISTENCE-LAW collector
+window at the bench INPUT door, and since the bench-behaviour leg (owner ruling
+2026-11-22) the OUTPUTS bench runs the MIRROR ([`queued_output_claims`]) under the same
+spool write window; the mirror's audited carrier set is empty today, so the outputs
+door claims nothing yet but can never bypass the law when a future leg names an
+output-plane reference. The guard reuses the EXISTENCE-LAW collector
 ([`referenced_placement_names`]) rather than a second grammar that could drift.
 ------------------------------------------------------------------------------- */
 
@@ -547,6 +569,64 @@ pub(crate) fn queued_input_claims(rows: &[QueueRow]) -> Vec<InputClaim> {
                 name,
                 row: row.id.clone(),
             });
+        }
+    }
+    claims
+}
+
+/* --------------- OUTPUTS-BENCH CLAIM MIRROR (bench-behaviour leg P2) ---------------
+
+The outputs door runs its renames under the SAME spool write window as the inputs
+door, against the set [`queued_output_claims`] returns. The carrier audit over what a
+live spool row actually resolves at drain time lands on ZERO output-plane paths:
+
+* `h3.continuity.sourceId`, `h3.join.chain[]` and `StoryLink` carry CLIP ids and
+  prepared-source hashes the drain resolves against the stock session LEDGER
+  (`cycle.rs`, the AF2-M32 resolution legs) — never against output-root files.
+  Benching an output-plane file cannot take a clip a chain still needs.
+* The `h3.join` `files` arm names INPUT-plane placed files (the join door's own
+  law: "clip ids or placed input files"), already claimed at the inputs door.
+* `outputPrefix`/`output` name a DESTINATION the drain writes, never a source it
+  reads, and the write never renames onto an existing path.
+
+The law and the wiring exist while the set is empty so a future output-referencing
+carrier must extend THIS collector, not bypass the window — and an unreadable spool
+answers both doors the same honest `maintenanceActive` word. The set rides as data
+(`OUTPUT_REFERENCE_KEYS`) so the audit is re-runnable, exactly like the input audit's
+pin test. Raw `extras` are deliberately NOT walked: an intent string outside an
+audited key can be prompt prose, and prose must never claim a file.
+------------------------------------------------------------------------------- */
+
+/// The audited output-referencing intent keys — EMPTY by the law above, kept as
+/// data so a future carrier lands here (and on the audit test) instead of
+/// growing a second ad-hoc check beside the outputs door.
+const OUTPUT_REFERENCE_KEYS: [&str; 0] = [];
+
+/// The claim set for one OUTPUTS bench call: the live-row walk of the audited
+/// output carriers (audit block above). Same live/terminal law as
+/// [`queued_input_claims`] — terminal rows claim nothing — and the same
+/// `(name, row)` shape, so the door's per-row refusal names any future claiming
+/// row verbatim.
+#[must_use]
+pub(crate) fn queued_output_claims(rows: &[QueueRow]) -> Vec<InputClaim> {
+    let mut claims: Vec<InputClaim> = Vec::new();
+    for row in rows {
+        if !row_is_live(row.status) {
+            continue;
+        }
+        let Ok(Value::Object(fields)) = super::spool::flat_intent(row) else {
+            // An un-drainable row keeps no OUTPUT claim under the audit: only
+            // the drain's own reconstruction can name a resolved reference, and
+            // raw passthrough strings (prompt prose included) never claim.
+            continue;
+        };
+        for key in OUTPUT_REFERENCE_KEYS {
+            if let Some(Value::String(name)) = fields.get(key) {
+                claims.push(InputClaim {
+                    name: name.clone(),
+                    row: row.id.clone(),
+                });
+            }
         }
     }
     claims
@@ -901,6 +981,7 @@ mod tests {
                           {"type":"audio","file":"deas-inputs/bag.wav","slot":0}],
                         "references":[{"slot":0,"image":"deas-inputs/stillref.png"}]},
                 "ltx":{"keyframes":[{"image":"deas-inputs/key.png","frame":48,"strength":0.6}]},
+                "media":[{"type":"video","file":"deas-inputs/export-bag.mp4","slot":0,"description":"grain"}],
                 "wan":{"lowModel":"WAN22/low.safetensors"}}"#,
         )
         .expect("audit body parses");
@@ -922,6 +1003,7 @@ mod tests {
             "deas-inputs/bag.wav",
             "deas-inputs/stillref.png",
             "deas-inputs/key.png",
+            "deas-inputs/export-bag.mp4",
         ] {
             assert!(
                 names.iter().any(|name| name == expected),
@@ -930,9 +1012,121 @@ mod tests {
         }
         assert_eq!(
             names.len(),
-            16,
+            17,
             "the audit table is exactly this set: {names:?}"
         );
+    }
+
+    /// The export-row half of the carrier table (bench-behaviour leg P2): a
+    /// RefMod export spool row (E28) hands `jobs_refmod::compile` a `media[]`
+    /// array of INPUT-plane files — the same W3-1 failure mode the cover row
+    /// was: before this leg the export row claimed NOTHING to the bench guard.
+    /// Hand-built row, drain's own reconstruction, unit level (no live plane).
+    #[test]
+    fn a_refmod_export_row_claims_its_media_files_to_the_bench_guard() {
+        let row = QueueRow {
+            id: "row-export".to_owned(),
+            created_at: 0,
+            status: RowStatus::Queued,
+            envelope: serde_json::json!({
+                "recipe": { "recipeId": super::super::fill_plane::REFMOD_RECIPE_ID, "version": 1 },
+                "fields": [
+                    { "field": "media", "value": [
+                        { "type": "video", "file": "deas-inputs/bag.mp4", "slot": 0, "description": "grain" },
+                        { "type": "image", "file": "library/not-an-input.png", "slot": 1 }
+                    ]},
+                    { "field": "refmods", "value": ["some saved refmod"] }
+                ]
+            }),
+            slots: super::super::fill_plane::Slots::default(),
+            extras: Map::new(),
+            job_id: None,
+            story_link: None,
+        };
+        let claims = queued_input_claims(&[row]);
+        let names: Vec<&str> = claims.iter().map(|claim| claim.name.as_str()).collect();
+        assert_eq!(
+            names,
+            vec!["deas-inputs/bag.mp4"],
+            "the media file is claimed, the placement gate refuses the non-input, and the row is named"
+        );
+        assert_eq!(claims[0].row, "row-export");
+    }
+
+    /// The mirror audit (bench-behaviour leg P2): chain and continuity carriers
+    /// name CLIP ids and prepared hashes resolved in the stock session ledger,
+    /// never output-root files — a queued join row with a `chain` arm claims
+    /// NOTHING to the outputs door. The same row's INPUT collector claims
+    /// nothing either (clip ids are not placement-form), while the join FILES
+    /// arm names an input placement and IS claimed there: the audit is about
+    /// the plane the reference resolves on, not about refusing to look.
+    #[test]
+    fn chain_and_continuity_carriers_claim_nothing_to_the_output_bench() {
+        let join_segments = QueueRow {
+            id: "row-join-segments".to_owned(),
+            created_at: 0,
+            status: RowStatus::Draining,
+            envelope: serde_json::json!({
+                "recipe": { "recipeId": "h3-join", "version": 1 },
+                "fields": [{ "field": "h3", "value": { "join": {
+                    "kind": "segments",
+                    "session": "story-1",
+                    "chain": ["c-0", "c-1"],
+                    "copyVideo": false
+                }}}]
+            }),
+            slots: super::super::fill_plane::Slots::default(),
+            extras: Map::new(),
+            job_id: None,
+            story_link: None,
+        };
+        assert!(
+            queued_output_claims(std::slice::from_ref(&join_segments)).is_empty(),
+            "clip ids are session-ledger references, not output-plane claims"
+        );
+        assert!(
+            queued_input_claims(&[join_segments]).is_empty(),
+            "and they are not input placements either"
+        );
+        let join_files = QueueRow {
+            id: "row-join-files".to_owned(),
+            envelope: serde_json::json!({
+                "recipe": { "recipeId": "h3-join", "version": 1 },
+                "fields": [{ "field": "h3", "value": { "join": {
+                    "kind": "files",
+                    "files": [{ "filename": "deas-inputs/clip.mp4", "trimStart": 0.0 }]
+                }}}]
+            }),
+            ..join_files_base()
+        };
+        let claims = queued_input_claims(std::slice::from_ref(&join_files));
+        assert_eq!(
+            claims
+                .iter()
+                .map(|claim| claim.name.as_str())
+                .collect::<Vec<&str>>(),
+            vec!["deas-inputs/clip.mp4"],
+            "the join files arm names the INPUT plane — claimed there, not at the outputs door"
+        );
+        assert!(
+            queued_output_claims(&[join_files]).is_empty(),
+            "the outputs mirror audits it as an input carrier"
+        );
+    }
+
+    /// The `join_files` fixture tail: an otherwise-default row is enough for
+    /// the two fields this test varies.
+    fn join_files_base() -> QueueRow {
+        QueueRow {
+            id: String::new(),
+            created_at: 0,
+            status: RowStatus::Queued,
+            envelope: Value::Null,
+            slots: super::super::fill_plane::Slots::default(),
+            extras: Map::new(),
+            job_id: None,
+            story_link: None,
+        }
     }
 
     /// The named-arm half of the audit pinned as a const: `sourceAudio` — the key the
