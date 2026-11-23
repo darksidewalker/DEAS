@@ -116,19 +116,138 @@ fn reference_array(body: &Map<String, Value>, key: &str) -> Result<Vec<String>, 
         .collect()
 }
 
-/// Validates every canonical array is an array of non-empty strings.
+/// One `videos`/`audio` entry as the folded body carries it: the untouched JSON
+/// value plus the placement name it carries (a plain string, or the object's
+/// `file`). Images never ride this shape — they stay string-only; the trim
+/// objects decorate only the video recipe's video/audio lanes.
+struct RawEntry {
+    value: Value,
+    name: String,
+}
+
+/// The array-shape refusal for one canonical key: `images` stays string-only;
+/// the trimmable lanes admit the entry object. Braces ride the wire verbatim.
+fn array_shape_hint(key: &str) -> String {
+    if key == "images" {
+        format!("'{key}' must be an array of reference strings")
+    } else {
+        format!("'{key}' must be an array of reference strings or {{file, trimStart?, trimEnd?}} objects")
+    }
+}
+
+/// The per-entry refusal for one canonical key, mirroring [`array_shape_hint`]'s split.
+fn entry_shape_hint(key: &str) -> String {
+    if key == "images" {
+        format!("every '{key}' entry must be a non-empty reference string")
+    } else {
+        format!("every '{key}' entry must be a non-empty reference string or {{file, trimStart?, trimEnd?}} object")
+    }
+}
+
+/// The trim-number wall, mirroring the `validate_h3_media` shape arm (stock
+/// jobs_video.rs 1147–1153): every present trim is a finite number of seconds in
+/// `0..=3600`, and `trimStart < trimEnd` when both sit. The 2–15 s clip-duration
+/// wall deliberately stays stock-side at prepare, where it counts the TRIMMED
+/// span — the door never duplicates it. Unknown entry keys are NOT refused here;
+/// the fill plane's closed-set refusal owns that word.
+fn check_trim_shape(obj: &Map<String, Value>) -> Result<(), ApiError> {
+    let bounded = ["trimStart", "trimEnd"].iter().all(|key| {
+        obj.get(*key).is_none_or(|value| {
+            value
+                .as_f64()
+                .is_some_and(|n| n.is_finite() && (0.0..=3600.0).contains(&n))
+        })
+    });
+    let ordered = match (
+        obj.get("trimStart").and_then(Value::as_f64),
+        obj.get("trimEnd").and_then(Value::as_f64),
+    ) {
+        (Some(start), Some(end)) => start < end,
+        _ => true,
+    };
+    if bounded && ordered {
+        return Ok(());
+    }
+    Err(invalid(
+        "trimStart/trimEnd must be finite seconds in 0..=3600 with trimStart before trimEnd (the stock h3.media trim law)"
+            .to_owned(),
+    ))
+}
+
+/// Reads one trimmable reference array (`videos`/`audio`) into raw entries: a
+/// non-empty reference string, or a `{file, trimStart?, trimEnd?}` object with a
+/// non-empty string `file`. Entry objects pass with their trim decorations
+/// intact; the fill plane re-reads the same law at its own wall.
+fn reference_entries(body: &Map<String, Value>, key: &str) -> Result<Vec<RawEntry>, ApiError> {
+    let Some(value) = body.get(key) else {
+        return Ok(Vec::new());
+    };
+    let items = value
+        .as_array()
+        .ok_or_else(|| invalid(array_shape_hint(key)))?;
+    items
+        .iter()
+        .map(|item| {
+            if let Some(text) = item.as_str() {
+                if text.trim().is_empty() {
+                    return Err(invalid(entry_shape_hint(key)));
+                }
+                return Ok(RawEntry {
+                    value: item.clone(),
+                    name: text.to_owned(),
+                });
+            }
+            let obj = item
+                .as_object()
+                .ok_or_else(|| invalid(entry_shape_hint(key)))?;
+            let name = obj
+                .get("file")
+                .and_then(Value::as_str)
+                .filter(|text| !text.trim().is_empty())
+                .ok_or_else(|| {
+                    invalid(format!(
+                        "a '{key}' entry object needs a non-empty \"file\" placement name"
+                    ))
+                })?
+                .to_owned();
+            check_trim_shape(obj)?;
+            Ok(RawEntry {
+                value: item.clone(),
+                name,
+            })
+        })
+        .collect()
+}
+
+/// Validates every canonical array's entry grammar: `images` stays string-only,
+/// `videos`/`audio` also admit the `{file, trimStart?, trimEnd?}` entry objects.
 fn check_reference_arrays(body: &Map<String, Value>) -> Result<(), ApiError> {
     for (key, _) in REFERENCE_KEYS {
-        reference_array(body, key)?;
+        if key == "images" {
+            reference_array(body, key)?;
+        } else {
+            reference_entries(body, key)?;
+        }
     }
     Ok(())
 }
 
-/// The caps wall (§12.1-1): the refusal names the matrix and its numbers.
+/// Raw length of one canonical array (absent = 0); a non-array value is the
+/// array-shape refusal even here, so no count is ever quoted for a malformed body.
+fn reference_len(body: &Map<String, Value>, key: &str) -> Result<usize, ApiError> {
+    match body.get(key) {
+        None => Ok(0),
+        Some(Value::Array(items)) => Ok(items.len()),
+        Some(_) => Err(invalid(array_shape_hint(key))),
+    }
+}
+
+/// The caps wall (§12.1-1): raw entry counts per key — a string and an entry
+/// object occupy one lane slot alike. The refusal names the matrix and its numbers.
 fn check_caps(body: &Map<String, Value>) -> Result<(), ApiError> {
-    let images = reference_array(body, "images")?.len();
-    let videos = reference_array(body, "videos")?.len();
-    let audio = reference_array(body, "audio")?.len();
+    let images = reference_len(body, "images")?;
+    let videos = reference_len(body, "videos")?;
+    let audio = reference_len(body, "audio")?;
     let over_cap = images > MAX_IMAGES
         || videos > MAX_VIDEOS
         || audio > MAX_AUDIO
@@ -225,12 +344,18 @@ fn fold_aliases(body: &mut Map<String, Value>) -> Result<(), ApiError> {
                     alias.key
                 ))
             })?;
-        let mut items = reference_array(body, alias.feeds)?;
-        items.push(text.to_owned());
-        body.insert(
-            alias.feeds.to_owned(),
-            Value::Array(items.into_iter().map(Value::String).collect()),
-        );
+        // APPEND to the RAW array (LEG audio-trim): rebuilding through
+        // `reference_array` would destroy the `{file, trimStart?, trimEnd?}` entry
+        // objects an already-valid body carries. Entry grammar is `check_reference_arrays`
+        // (next in `fold`) and the fill plane's wall; only a non-array value is
+        // refused here, so nothing is ever silently replaced.
+        let mut items: Vec<Value> = match body.get(alias.feeds) {
+            None => Vec::new(),
+            Some(Value::Array(items)) => items.clone(),
+            Some(_) => return Err(invalid(array_shape_hint(alias.feeds))),
+        };
+        items.push(Value::String(text.to_owned()));
+        body.insert(alias.feeds.to_owned(), Value::Array(items));
     }
     Ok(())
 }
@@ -653,11 +778,47 @@ fn classify_reference(
     }
 }
 
+/// One reference under the E24 placement law — the arm logic both entry shapes
+/// ride, so the string lane and the entry objects share one placement home.
+fn place_one(
+    reference: String,
+    input_root: Option<&Path>,
+    output_root: Option<&Path>,
+) -> Result<String, ApiError> {
+    if is_handle(&reference) || is_placed_name(&reference) {
+        return Ok(reference);
+    }
+    let name = match classify_reference(&reference, input_root, output_root)? {
+        // ARM 2: inside the input plane already — the name is the placement, the
+        // bytes never move, no seam, no cap.
+        ServedPlacement::Input(name) => name,
+        // ARM 3: the output plane — the promote door's server-side copy, the same
+        // uuid-minted placement grammar, no cap (a local agent could have moved
+        // it here; the door copies it instead, which costs the same).
+        ServedPlacement::Output(source) => {
+            let Some(input_root) = input_root else {
+                return Err(root_undecidable(
+                    &reference,
+                    "no input root is derivable to copy it into",
+                ));
+            };
+            files::copy_into_inputs(&source, input_root)?.name
+        }
+    };
+    // The rewritten name must be a reference the stock compiler counts (the
+    // 255-byte whole-identifier law): surfaced here, where the caller named the
+    // path, rather than at the compiler one step later.
+    uploads::check_placement(&name)?;
+    Ok(name)
+}
+
 /// Places every local-path reference under the E24 containment law and rewrites the
 /// array in place. Handles and already-placed names pass through untouched; a relative
 /// reference is normalized to the canonical placement form. The roots are the engine's
 /// own homes — stock default or UI-set saved path — read per request by the calling
-/// door through [`super::PlaneState`], the same law the byte doors use.
+/// door through [`super::PlaneState`], the same law the byte doors use. Entry objects
+/// (`{file, trimStart?, trimEnd?}`) place through the same arms: only their `"file"`
+/// is rewritten, the trim decorations ride through to the fill plane's wall.
 ///
 /// # Errors
 ///
@@ -672,43 +833,42 @@ pub(crate) fn place_references(
     output_root: Option<&Path>,
 ) -> Result<(), ApiError> {
     for (key, _) in REFERENCE_KEYS {
-        let references = reference_array(body, key)?;
-        if references.is_empty() {
-            continue;
-        }
-        let mut placed = Vec::with_capacity(references.len());
-        for reference in references {
-            if is_handle(&reference) || is_placed_name(&reference) {
-                placed.push(reference);
+        if key == "images" {
+            let references = reference_array(body, key)?;
+            if references.is_empty() {
                 continue;
             }
-            let name = match classify_reference(&reference, input_root, output_root)? {
-                // ARM 2: inside the input plane already — the name is the placement, the
-                // bytes never move, no seam, no cap.
-                ServedPlacement::Input(name) => name,
-                // ARM 3: the output plane — the promote door's server-side copy, the same
-                // uuid-minted placement grammar, no cap (a local agent could have moved
-                // it here; the door copies it instead, which costs the same).
-                ServedPlacement::Output(source) => {
-                    let Some(input_root) = input_root else {
-                        return Err(root_undecidable(
-                            &reference,
-                            "no input root is derivable to copy it into",
-                        ));
-                    };
-                    files::copy_into_inputs(&source, input_root)?.name
-                }
-            };
-            // The rewritten name must be a reference the stock compiler counts (the
-            // 255-byte whole-identifier law): surfaced here, where the caller named the
-            // path, rather than at the compiler one step later.
-            uploads::check_placement(&name)?;
-            placed.push(name);
+            let placed = references
+                .into_iter()
+                .map(|reference| place_one(reference, input_root, output_root))
+                .collect::<Result<Vec<_>, ApiError>>()?;
+            body.insert(
+                key.to_owned(),
+                Value::Array(placed.into_iter().map(Value::String).collect()),
+            );
+            continue;
         }
-        body.insert(
-            key.to_owned(),
-            Value::Array(placed.into_iter().map(Value::String).collect()),
-        );
+        let entries = reference_entries(body, key)?;
+        if entries.is_empty() {
+            continue;
+        }
+        let mut placed = Vec::with_capacity(entries.len());
+        for entry in entries {
+            let name = place_one(entry.name, input_root, output_root)?;
+            let value = match entry.value {
+                // An entry object rewrites IN PLACE: only "file" moves; the trim
+                // decorations ride through untouched to the fill plane's wall.
+                // `reference_entries` validated every entry as string-or-object,
+                // so the remaining arm is exactly the plain string entry.
+                Value::Object(mut object) => {
+                    object.insert("file".to_owned(), Value::String(name));
+                    Value::Object(object)
+                }
+                _ => Value::String(name),
+            };
+            placed.push(value);
+        }
+        body.insert(key.to_owned(), Value::Array(placed));
     }
     Ok(())
 }
@@ -949,6 +1109,86 @@ mod tests {
     fn a_non_string_reference_refuses_naming_its_array() {
         let error = refusal(fold(&mut body(r#"{"images":[{"a":1}]}"#)).expect_err("strings only"));
         assert!(error["hint"].as_str().expect("hint").contains("images"));
+    }
+
+    /* ---- THE AUDIO-TRIM ENTRY-OBJECT law (LEG: trim for agent-plane video refs) ---- */
+
+    #[test]
+    fn trim_entry_objects_pass_the_door_and_land_untouched() {
+        // The fold seam must not eat trim objects: entry grammar passes
+        // `check_reference_arrays` and the raw array lands byte-equal — the fill
+        // plane re-reads the same law at its own wall.
+        let mut request = body(
+            r#"{"videos":[{"file":"deas-input-v1.mp4","trimStart":1.0,"trimEnd":9.0}],
+                "audio":[{"file":"deas-inputs/a.mp3"}]}"#,
+        );
+        fold(&mut request).expect("entry objects pass the arrays and the caps wall");
+        assert_eq!(
+            request["videos"],
+            json!([{"file": "deas-input-v1.mp4", "trimStart": 1.0, "trimEnd": 9.0}]),
+            "the fold wrote nothing to a valid entry object"
+        );
+        assert_eq!(request["audio"], json!([{"file": "deas-inputs/a.mp3"}]));
+    }
+
+    #[test]
+    fn the_caps_wall_counts_entry_objects_as_lane_entries() {
+        let four: Vec<Value> = (0..4)
+            .map(|n| json!({"file": format!("deas-input-v{n}.mp4")}))
+            .collect();
+        let error = refusal(
+            fold(&mut body(&json!({"videos": four}).to_string()))
+                .expect_err("four entry objects breach the 3-lane"),
+        );
+        assert_eq!(error["reason"], "bodyInvalid");
+        let hint = error["hint"].as_str().expect("hint");
+        assert!(
+            hint.contains("got 0 images, 4 videos, 0 audio"),
+            "the raw counts ride, objects counted as lane entries: {hint}"
+        );
+    }
+
+    #[test]
+    fn an_alias_appends_to_the_raw_array_and_keeps_the_entry_objects() {
+        // Rebuilding the array through the string reader would destroy the entry
+        // object; the fold appends the alias as a raw string instead.
+        let mut request = body(
+            r#"{"videos":[{"file":"deas-input-v1.mp4","trimStart":1.0,"trimEnd":9.0}],"video2":"deas-input-v2.mp4"}"#,
+        );
+        fold(&mut request).expect("the alias folds onto the raw array");
+        assert_eq!(
+            request["videos"][0],
+            json!({"file": "deas-input-v1.mp4", "trimStart": 1.0, "trimEnd": 9.0}),
+            "the entry object survived the fold"
+        );
+        assert_eq!(
+            request["videos"][1], "deas-input-v2.mp4",
+            "the alias appended"
+        );
+    }
+
+    #[test]
+    fn a_trim_entry_object_places_its_file_and_keeps_the_trims() {
+        let input = tempfile::tempdir().expect("input root");
+        let output = tempfile::tempdir().expect("output root");
+        let nested = write_under(input.path(), "deas-inputs/clip.mp4", b"video bytes");
+        let mut request = body(
+            &json!({
+                "videos": [{
+                    "file": nested.to_str().expect("utf-8"),
+                    "trimStart": 2.5,
+                    "trimEnd": 12.5
+                }]
+            })
+            .to_string(),
+        );
+        place_references(&mut request, Some(input.path()), Some(output.path()))
+            .expect("the entry object places like a string");
+        assert_eq!(
+            request["videos"],
+            json!([{"file": "deas-inputs/clip.mp4", "trimStart": 2.5, "trimEnd": 12.5}]),
+            "only \"file\" moved; the trims ride through to the fill plane"
+        );
     }
 
     #[test]

@@ -910,9 +910,18 @@ pub(crate) fn fold_saved_refmods(body: &Map<String, Value>) -> Result<Vec<String
 /// the reference arrays and the saved bag empty.
 pub(crate) fn build_refmod_export(body: &Map<String, Value>) -> Result<Value, ApiError> {
     let saved = fold_saved_refmods(body)?;
+    // The refmod door keeps STRING-only reference arrays (owner ruling): an
+    // entry object refuses at `reference_names`. The plain names become plain
+    // entries so both doors share the one `lane_media_items` row home.
     let images = reference_names(body, "images")?;
-    let videos = reference_names(body, "videos")?;
-    let audio = reference_names(body, "audio")?;
+    let videos: Vec<fill_plane::RefEntry> = reference_names(body, "videos")?
+        .into_iter()
+        .map(fill_plane::plain_entry)
+        .collect();
+    let audio: Vec<fill_plane::RefEntry> = reference_names(body, "audio")?
+        .into_iter()
+        .map(fill_plane::plain_entry)
+        .collect();
     let media = fill_plane::lane_media_items(&images, &videos, &audio)?;
     if saved.is_empty() && images.is_empty() && videos.is_empty() && audio.is_empty() {
         return Err(ApiError::new(ErrorKind::BodyInvalid).with_hint(

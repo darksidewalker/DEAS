@@ -407,6 +407,10 @@ pub(crate) fn referenced_placement_names(body: &Map<String, Value>) -> Vec<Strin
             for item in items {
                 if let Some(text) = item.as_str() {
                     push(text);
+                } else if let Some(file) = item.get("file").and_then(Value::as_str) {
+                    // A `{file, trimStart?, trimEnd?}` entry object rides the
+                    // same existence law through its placement name.
+                    push(file);
                 }
             }
         }
@@ -954,6 +958,27 @@ mod tests {
                 "deas-masks/m.png",
             ],
             "deduped and sorted; nested placement forms ride the prefix law; the prompt mention is prose, not a reference"
+        );
+    }
+
+    #[test]
+    fn a_trim_entry_object_reference_rides_the_existence_law() {
+        // The LEG audio-trim law: a `{file, trimStart?, trimEnd?}` entry object
+        // in the canonical arrays names its placement like a plain string, so
+        // the stat gate sees the file before drain, never after.
+        let body: Map<String, Value> = serde_json::from_str(
+            r#"{"videos":[{"file":"deas-inputs/clip.mp4","trimStart":2.0,"trimEnd":9.0}],
+                "audio":["deas-inputs/song.mp3",{"file":"deas-inputs/second.flac"}]}"#,
+        )
+        .expect("body parses");
+        assert_eq!(
+            referenced_placement_names(&body),
+            vec![
+                "deas-inputs/clip.mp4".to_owned(),
+                "deas-inputs/second.flac".to_owned(),
+                "deas-inputs/song.mp3".to_owned(),
+            ],
+            "object entries and strings land in one deduped sorted row"
         );
     }
 

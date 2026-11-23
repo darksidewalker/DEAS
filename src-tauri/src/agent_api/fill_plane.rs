@@ -1409,8 +1409,31 @@ fn check_video_family(family: &str, spec: &ModeSpec) -> Result<(), ApiError> {
 #[derive(Default)]
 struct ReferenceArrays {
     images: Vec<String>,
-    videos: Vec<String>,
-    audio: Vec<String>,
+    videos: Vec<RefEntry>,
+    audio: Vec<RefEntry>,
+}
+
+/// One reference-lane entry as the video door reads it: a placement name, optionally
+/// decorated with the stock `h3.media` trim pair (`trimStart`/`trimEnd`, seconds,
+/// finite `0..=3600`, `trimStart < trimEnd` — the `validate_h3_media` law mirrored at
+/// the door; the 2–15 s clip-duration wall deliberately stays stock-side at prepare,
+/// where it counts the TRIMMED span). Plain reference strings ride the same lane
+/// undecorated; the music and refmod arms keep `read_reference_array` (string-only).
+#[derive(Clone)]
+pub(crate) struct RefEntry {
+    file: String,
+    trim_start: Option<f64>,
+    trim_end: Option<f64>,
+}
+
+/// A plain (undecorated) reference entry — the shape the string-only lanes and
+/// the refmod door hand to [`lane_media_items`].
+pub(crate) fn plain_entry(file: String) -> RefEntry {
+    RefEntry {
+        file,
+        trim_start: None,
+        trim_end: None,
+    }
 }
 
 /// The stock compiler's private `grid(family)` law mirrored as data: canvas
@@ -1512,8 +1535,8 @@ fn fill_video(
             }
             "seed" => seed_request = Some(value),
             "images" => references.images = read_reference_array(key, value)?,
-            "videos" => references.videos = read_reference_array(key, value)?,
-            "audio" => references.audio = read_reference_array(key, value)?,
+            "videos" => references.videos = read_reference_entries(key, value)?,
+            "audio" => references.audio = read_reference_entries(key, value)?,
             "refmods" => request_refmods = Some(value.clone()),
             "frames" => push_integer_field(&mut fields, "frames", value, Tier::Request.word())?,
             "frameRate" => {
@@ -1631,21 +1654,104 @@ fn block_shape_hint(family: &str) -> &'static str {
 }
 
 fn read_reference_array(key: &str, value: &Value) -> Result<Vec<String>, ApiError> {
+    // String-only lanes (images everywhere, all three arrays on the music
+    // recipes): an entry OBJECT is refused here, whatever it carries — the
+    // object shape decorates only the video recipe's videos/audio lanes.
+    if let Some(items) = value.as_array() {
+        if let Some(obj) = items.iter().find(|item| !item.is_string()) {
+            let decorated = obj.get("trimStart").is_some() || obj.get("trimEnd").is_some();
+            return Err(ApiError::new(ErrorKind::BodyInvalid).with_hint(if decorated {
+                format!(
+                    "'{key}' references are plain placement names; trimStart/trimEnd decorate only the video recipe's videos/audio lanes"
+                )
+            } else {
+                format!(
+                    "'{key}' references are plain placement names; {{file, trimStart?, trimEnd?}} entry objects decorate only the video recipe's videos/audio lanes"
+                )
+            }));
+        }
+    }
+    read_reference_entries(key, value)?
+        .into_iter()
+        .map(|entry| Ok(entry.file))
+        .collect()
+}
+
+/// The video-lane reader: entries are a placement name OR the decorated object
+/// `{file, trimStart?, trimEnd?}`; every file passes the same placement grammar as a
+/// plain string. Trim numbers mirror the stock `validate_h3_media` wall verbatim
+/// (finite, `0..=3600`, `trimStart < trimEnd`); the mediaMode word stays UI-only.
+fn read_reference_entries(key: &str, value: &Value) -> Result<Vec<RefEntry>, ApiError> {
     let items = value.as_array().ok_or_else(|| {
         ApiError::new(ErrorKind::BodyInvalid)
-            .with_hint(format!("'{key}' must be an array of reference strings"))
+            .with_hint(format!("'{key}' must be an array of reference strings or {{file, trimStart?, trimEnd?}} objects"))
     })?;
     items
         .iter()
         .map(|item| {
-            item.as_str()
+            if let Some(text) = item.as_str() {
+                if text.trim().is_empty() {
+                    return Err(ApiError::new(ErrorKind::BodyInvalid).with_hint(format!(
+                        "every '{key}' entry must be a non-empty reference string or {{file, trimStart?, trimEnd?}} object"
+                    )));
+                }
+                return Ok(RefEntry {
+                    file: text.to_owned(),
+                    trim_start: None,
+                    trim_end: None,
+                });
+            }
+            let obj = item.as_object().ok_or_else(|| {
+                ApiError::new(ErrorKind::BodyInvalid).with_hint(format!(
+                    "every '{key}' entry must be a non-empty reference string or {{file, trimStart?, trimEnd?}} object"
+                ))
+            })?;
+            let unknown = obj
+                .keys()
+                .find(|k| !["file", "trimStart", "trimEnd"].contains(&k.as_str()))
+                .cloned();
+            if let Some(k) = unknown {
+                return Err(ApiError::new(ErrorKind::BodyInvalid).with_hint(format!(
+                    "'{k}' is not a reference-entry key; the closed set is file, trimStart?, trimEnd? (seconds, 0..=3600, trimStart < trimEnd - the stock trim law)"
+                )));
+            }
+            let file = obj
+                .get("file")
+                .and_then(Value::as_str)
                 .filter(|text| !text.trim().is_empty())
-                .map(str::to_owned)
                 .ok_or_else(|| {
                     ApiError::new(ErrorKind::BodyInvalid).with_hint(format!(
-                        "every '{key}' entry must be a non-empty reference string"
+                        "a '{key}' entry object needs a non-empty \"file\" placement name"
                     ))
-                })
+                })?;
+            let trim = |name: &str| -> Result<Option<f64>, ApiError> {
+                match obj.get(name) {
+                    None | Some(Value::Null) => Ok(None),
+                    Some(v) => v
+                        .as_f64()
+                        .filter(|n| n.is_finite() && (0.0..=3600.0).contains(n))
+                        .map(Some)
+                        .ok_or_else(|| {
+                            ApiError::new(ErrorKind::BodyInvalid).with_hint(format!(
+                                "'{name}' must be a finite number of seconds in 0..=3600 (the stock trim law)"
+                            ))
+                        }),
+                }
+            };
+            let trim_start = trim("trimStart")?;
+            let trim_end = trim("trimEnd")?;
+            if let (Some(a), Some(b)) = (trim_start, trim_end) {
+                if a >= b {
+                    return Err(ApiError::new(ErrorKind::BodyInvalid).with_hint(
+                        "trimStart must come before trimEnd (the stock trim law)".to_owned(),
+                    ));
+                }
+            }
+            Ok(RefEntry {
+                file: file.to_owned(),
+                trim_start,
+                trim_end,
+            })
         })
         .collect()
 }
@@ -2190,15 +2296,29 @@ fn build_media(
 /// stock `validate_h3_media` law. Every file must already be a placed input name.
 pub(crate) fn lane_media_items(
     images: &[String],
-    videos: &[String],
-    audio: &[String],
+    videos: &[RefEntry],
+    audio: &[RefEntry],
 ) -> Result<Value, ApiError> {
     let mut items = Vec::new();
-    for (lane, files) in [("image", images), ("video", videos), ("audio", audio)] {
-        for (slot, file) in files.iter().enumerate() {
-            reference_file_grammar(lane, file)?;
+    for (slot, file) in images.iter().enumerate() {
+        reference_file_grammar("image", file)?;
+        #[allow(clippy::cast_possible_truncation)]
+        items.push(json!({"type": "image", "file": file, "slot": slot as u64}));
+    }
+    for (lane, entries) in [("video", videos), ("audio", audio)] {
+        for (slot, entry) in entries.iter().enumerate() {
+            reference_file_grammar(lane, &entry.file)?;
             #[allow(clippy::cast_possible_truncation)]
-            items.push(json!({"type": lane, "file": file, "slot": slot as u64}));
+            let mut item = json!({"type": lane, "file": entry.file, "slot": slot as u64});
+            if let (Some(a), Some(b)) = (entry.trim_start, entry.trim_end) {
+                item["trimStart"] = json!(a);
+                item["trimEnd"] = json!(b);
+            } else if let Some(a) = entry.trim_start {
+                item["trimStart"] = json!(a);
+            } else if let Some(b) = entry.trim_end {
+                item["trimEnd"] = json!(b);
+            }
+            items.push(item);
         }
     }
     Ok(Value::Array(items))
@@ -2411,7 +2531,12 @@ fn fill_music_yue2(
     let mut extras = Map::new();
     let mut slots = Slots::default();
     let mut seed_request: Option<&Value> = None;
-    let mut references = ReferenceArrays::default();
+    // The music arms keep STRING-only references (`read_reference_array` refuses
+    // trim-decorated entries with its own hint): the trim objects ride only the
+    // video recipe's lanes, so these ride locals, never `ReferenceArrays`.
+    let mut music_images: Vec<String> = Vec::new();
+    let mut music_videos: Vec<String> = Vec::new();
+    let mut music_audio: Vec<String> = Vec::new();
     let mut request_planning: Option<String> = None;
 
     for (key, value) in request_extras.into_iter().flatten() {
@@ -2431,9 +2556,9 @@ fn fill_music_yue2(
                 read_slot(key, value, &mut slots)?;
             }
             "seed" => seed_request = Some(value),
-            "images" => references.images = read_reference_array(key, value)?,
-            "videos" => references.videos = read_reference_array(key, value)?,
-            "audio" => references.audio = read_reference_array(key, value)?,
+            "images" => music_images = read_reference_array(key, value)?,
+            "videos" => music_videos = read_reference_array(key, value)?,
+            "audio" => music_audio = read_reference_array(key, value)?,
             "style" => push_text_field(&mut fields, "style", value, Tier::Request.word())?,
             "lyrics" => push_text_field(&mut fields, "lyrics", value, Tier::Request.word())?,
             "planning" => {
@@ -2487,21 +2612,21 @@ fn fill_music_yue2(
 
     // The music recipe has no image or video lane; only sound becomes an intent field
     // (the cover row's `sourceAudio`), so a stray reference is refused by the cause.
-    if !references.images.is_empty() || !references.videos.is_empty() {
+    if !music_images.is_empty() || !music_videos.is_empty() {
         return Err(ApiError::new(ErrorKind::ModeUnsupported).with_hint(
             "the music recipe has no image or video lane: only an audio reference (audio[]/audioN) reaches an intent field, as the cover row's sourceAudio".to_owned(),
         ));
     }
-    if references.audio.len() > MUSIC_MAX_AUDIO {
+    if music_audio.len() > MUSIC_MAX_AUDIO {
         return Err(invalid(format!(
             "a music cover carries at most {MUSIC_MAX_AUDIO} audio reference (the stock sourceAudio field is one file); the request carries {}",
-            references.audio.len()
+            music_audio.len()
         )));
     }
 
     // The combination law, read the way stock `validate` reads it: one of three rows,
     // each named in its own refusal.
-    let cover = !references.audio.is_empty();
+    let cover = !music_audio.is_empty();
     let planning = match request_planning.as_deref() {
         Some(word) if cover && word != "melody" => {
             return Err(invalid(format!(
@@ -2564,7 +2689,7 @@ fn fill_music_yue2(
 
     // The cover row's source: the placed input name, never the request's raw path (the
     // door's placement law already ran). Stock refuses an output-side name outright.
-    if let Some(source) = references.audio.first() {
+    if let Some(source) = music_audio.first() {
         reference_file_grammar("audio", source)?;
         if source.ends_with(" [output]") {
             return Err(invalid(format!(
@@ -2674,7 +2799,12 @@ fn fill_music_ace(
     let mut fields = defaults::resolve(Some(family), Some(spec.mode), request_dials, sheet);
     let mut slots = Slots::default();
     let mut seed_request: Option<&Value> = None;
-    let mut references = ReferenceArrays::default();
+    // The music arms keep STRING-only references (`read_reference_array` refuses
+    // trim-decorated entries with its own hint): the trim objects ride only the
+    // video recipe's lanes, so these ride locals, never `ReferenceArrays`.
+    let mut music_images: Vec<String> = Vec::new();
+    let mut music_videos: Vec<String> = Vec::new();
+    let mut music_audio: Vec<String> = Vec::new();
     let mut request_planning = false;
 
     for (key, value) in request_extras.into_iter().flatten() {
@@ -2698,9 +2828,9 @@ fn fill_music_ace(
                 slots.diffusion = Some(value.clone());
             }
             "seed" => seed_request = Some(value),
-            "images" => references.images = read_reference_array(key, value)?,
-            "videos" => references.videos = read_reference_array(key, value)?,
-            "audio" => references.audio = read_reference_array(key, value)?,
+            "images" => music_images = read_reference_array(key, value)?,
+            "videos" => music_videos = read_reference_array(key, value)?,
+            "audio" => music_audio = read_reference_array(key, value)?,
             "style" => push_text_field(&mut fields, "style", value, Tier::Request.word())?,
             "lyrics" => push_text_field(&mut fields, "lyrics", value, Tier::Request.word())?,
             "planning" => {
@@ -2747,12 +2877,12 @@ fn fill_music_ace(
         }
     }
 
-    if !references.images.is_empty() || !references.videos.is_empty() {
+    if !music_images.is_empty() || !music_videos.is_empty() {
         return Err(ApiError::new(ErrorKind::ModeUnsupported).with_hint(
             "the ACE-Step music recipe counts no image or video reference key at all (deny_unknown_fields): there is no lane to fold into".to_owned(),
         ));
     }
-    if !references.audio.is_empty() {
+    if !music_audio.is_empty() {
         return Err(ApiError::new(ErrorKind::ModeUnsupported).with_hint(
             "the ACE-Step arm runs no cover row: its stock gate is mode t2m only (jobs_music_ace::validate), so an audio reference has nothing to fold into — the cover row belongs to the YuE2 arm".to_owned(),
         ));
@@ -5001,6 +5131,130 @@ mod tests {
             assert!(
                 !intent.as_object().expect("object").contains_key(stray),
                 "{stray} leaked"
+            );
+        }
+    }
+
+    #[test]
+    fn a_trim_decorated_audio_entry_lands_the_stock_trim_pair_on_its_media_row() {
+        // The audio-trim law at the door: `validate_h3_media`'s trim SHAPE is
+        // mirrored (finite seconds 0..=3600, trimStart < trimEnd) and the pair
+        // lands on the lane row verbatim; the 2–15 s clip wall stays stock-side
+        // at prepare, where it counts the TRIMMED span.
+        let plan = ref2va(
+            "minimax-h3",
+            r#"{"audio":[{"file":"deas-inputs/a.mp3","trimStart":3.43,"trimEnd":15.14}]}"#,
+        )
+        .expect("a decorated audio reference fills");
+        let intent = plan.complete_or_refuse().expect("complete");
+        let media = intent["h3"]["media"].as_array().expect("media");
+        assert_eq!(media.len(), 1);
+        assert_eq!(
+            media[0],
+            json!({
+                "type": "audio",
+                "file": "deas-inputs/a.mp3",
+                "slot": 0,
+                "trimStart": 3.43,
+                "trimEnd": 15.14
+            }),
+            "the trim pair rides the row byte-equal"
+        );
+    }
+
+    #[test]
+    fn a_trim_start_only_entry_emits_trim_start_without_trim_end() {
+        let plan = ref2va(
+            "minimax-h3",
+            r#"{"videos":[{"file":"deas-input-v1.mp4","trimStart":2.0}]}"#,
+        )
+        .expect("a trimStart-only entry fills");
+        let intent = plan.complete_or_refuse().expect("complete");
+        let row = &intent["h3"]["media"][0];
+        assert_eq!(row["type"], "video");
+        assert_eq!(row["trimStart"], json!(2.0));
+        assert!(row.get("trimEnd").is_none(), "no trimEnd key is minted");
+    }
+
+    #[test]
+    fn a_trim_end_not_after_trim_start_refuses_naming_the_stock_order_law() {
+        for pair in [
+            r#""trimStart":15.0,"trimEnd":15.0"#,
+            r#""trimStart":15.14,"trimEnd":3.43"#,
+        ] {
+            let error = body(
+                ref2va(
+                    "minimax-h3",
+                    &format!(r#"{{"audio":[{{"file":"deas-inputs/a.mp3",{pair}}}]}}"#),
+                )
+                .expect_err("trimStart must precede trimEnd"),
+            );
+            assert_eq!(error["reason"], "bodyInvalid", "{pair}");
+            assert!(
+                hint_names(&error, "trimStart must come before trimEnd"),
+                "the hint names the stock order law: {error}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_trim_beyond_3600_refuses_naming_the_stock_range_law() {
+        let error = body(
+            ref2va(
+                "minimax-h3",
+                r#"{"audio":[{"file":"deas-inputs/a.mp3","trimStart":3601.0}]}"#,
+            )
+            .expect_err("the stock trim range"),
+        );
+        assert_eq!(error["reason"], "bodyInvalid");
+        assert!(
+            hint_names(&error, "0..=3600"),
+            "the hint names the range: {error}"
+        );
+    }
+
+    #[test]
+    fn an_entry_object_with_a_foreign_key_refuses_naming_the_closed_set() {
+        // `mediaMode` is a real stock h3.media word but a UI-only one: the door's
+        // entry closed set is file, trimStart?, trimEnd? (the stock trim law).
+        let error = body(
+            ref2va(
+                "minimax-h3",
+                r#"{"videos":[{"file":"deas-input-v1.mp4","mediaMode":"audio"}]}"#,
+            )
+            .expect_err("the closed entry set"),
+        );
+        assert_eq!(error["reason"], "bodyInvalid");
+        let hint = error["hint"].as_str().expect("hint");
+        assert!(
+            hint.contains("mediaMode"),
+            "the refusal names the key: {hint}"
+        );
+        assert!(
+            hint.contains("closed set"),
+            "the refusal names the closed set: {hint}"
+        );
+    }
+
+    #[test]
+    fn the_images_lane_refuses_entry_objects_naming_the_string_law() {
+        for entry in [
+            r#"{"file":"deas-inputs/a.png","trimStart":1.0,"trimEnd":5.0}"#,
+            r#"{"file":"deas-inputs/a.png"}"#,
+        ] {
+            let error = body(
+                ref2va("minimax-h3", &format!(r#"{{"images":[{entry}]}}"#))
+                    .expect_err("images stay string-only"),
+            );
+            assert_eq!(error["reason"], "bodyInvalid", "{entry}");
+            let hint = error["hint"].as_str().expect("hint");
+            assert!(
+                hint.contains("images"),
+                "the refusal names the lane: {hint}"
+            );
+            assert!(
+                hint.contains("plain placement names"),
+                "the refusal names the string law: {hint}"
             );
         }
     }
