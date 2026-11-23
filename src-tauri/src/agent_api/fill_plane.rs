@@ -3758,6 +3758,22 @@ fn check_image_canvas(plan: &IntentPlan) -> Result<(), ApiError> {
             )));
         }
     }
+    // The family half of the law (PLAN D-15), over the SAME grid compile consults: the
+    // model's own canvas grid from the family plugin. An anima (16-grid) width of 24
+    // clears the 8-cell alignment and would be padded inside the model at the drain, so
+    // the door refuses it here — the row never reaches the spool.
+    let grid = crate::model_families::canvas_grid(Some(plan.family.as_str()));
+    if grid > crate::jobs::LATENT_GRID {
+        for (index, field) in ["width", "height"].into_iter().enumerate() {
+            if let Some(problem) = edges[index].and_then(|edge| {
+                crate::jobs::family_grid_refusal(field, edge, grid, &plan.family)
+            }) {
+                return Err(invalid(format!(
+                    "{problem}; the dials block or the defaults sheet must name a {grid}-multiple for this family"
+                )));
+            }
+        }
+    }
     let (width, height) = (
         edges[0].expect("gated above"),
         edges[1].expect("gated above"),
@@ -3819,6 +3835,30 @@ fn check_latent_upscale_canvas(
         return Err(invalid(format!(
             "latentUpscale produces an {width}x{height} effective canvas; edges must stay 8..=8192 and the product at or under 16.7M pixels (the stock latentUpscale canvas law)"
         )));
+    }
+    Ok(())
+}
+
+/// The door mirror of the family canvas grid (PLAN D-15): the same eight canvas fields
+/// `jobs::compile` walks (`jobs::canvas_fields`), the same grid from the same family
+/// plugin, and the same refusal word — reached here for the canvas values that arrive as
+/// extras (the refine pass's own canvas, an explicit input resize, an inpaint crop
+/// target), while the dial pair is gated by [`check_image_canvas`]. A family declaring no
+/// grid (music/SAM) answers the latent floor and the walk is inert: never an invented
+/// constraint.
+fn check_family_grid(family: &str, extras: &Map<String, Value>) -> Result<(), ApiError> {
+    let grid = crate::model_families::canvas_grid(Some(family));
+    if grid <= crate::jobs::LATENT_GRID {
+        return Ok(());
+    }
+    let probe = Value::Object(extras.clone());
+    for (field, edge) in crate::jobs::canvas_fields(&probe) {
+        if let Some(problem) =
+            edge.and_then(|edge| crate::jobs::family_grid_refusal(field, edge, grid, family))
+        {
+            return Err(ApiError::new(ErrorKind::BodyInvalid)
+                .with_hint(format!("{problem} (the family canvas grid)")));
+        }
     }
     Ok(())
 }
@@ -4076,6 +4116,13 @@ fn check_pairing_laws(
             plan.family
         )));
     }
+    // LAST, and most specific: the family canvas grid (PLAN D-15) over the extras that
+    // name a canvas — the refine pass's own render canvas, an explicit input resize, an
+    // inpaint crop target. The generic stock laws above answer first (their reason words
+    // are family-independent); what is left is the grid only the family plugin knows, and
+    // what `jobs::compile` refuses there, this door refuses before the row can reach the
+    // spool and burn the poison-row guard as a `prepareRefused`.
+    check_family_grid(&plan.family, extras)?;
     Ok(())
 }
 
@@ -6944,12 +6991,16 @@ mod tests {
     /// edge from below) is refused naming the new law.
     #[test]
     fn the_image_canvas_floor_is_eight_and_refuses_the_edge_below_it() {
+        // The generic floor is one latent cell (8). It is proven on a family whose OWN
+        // grid is 8 — sd15 — because the family grid is a separate, stricter law (see
+        // `the_family_grid_refuses_an_off_grid_canvas_at_the_door`): sdxl's 8x8 clears
+        // the floor and is still refused for sitting off its 64 grid.
         let dials = Dials {
             width: Some(8),
             height: Some(8),
             ..Dials::default()
         };
-        let plan = fill("sdxl", "t2i", Some(&dials), &sheet("{}"), None)
+        let plan = fill("sd15", "t2i", Some(&dials), &sheet("{}"), None)
             .expect("8x8 is the latent-grid floor")
             .plan();
         assert_eq!(dial_value(&plan.fields, "width"), Some(json!(8)));
@@ -6965,6 +7016,70 @@ mod tests {
         assert_eq!(refused["reason"], "bodyInvalid");
         assert!(hint_names(&refused, "width 0"), "{refused}");
         assert!(hint_names(&refused, "8..=8192"), "{refused}");
+    }
+
+    /// The family half of the canvas law (PLAN D-15): the family plugin's `multiple` is
+    /// the grid that model's latents sit on, and the door refuses an edge off it naming
+    /// the grid — the same law `jobs::compile` applies, so the row never reaches the
+    /// spool to die there as a `prepareRefused`.
+    #[test]
+    fn the_family_grid_refuses_an_off_grid_canvas_at_the_door() {
+        // anima's grid is 16: 24x24 clears the generic 8-cell alignment and would be
+        // padded inside the model at the drain.
+        let dials = Dials {
+            width: Some(24),
+            height: Some(24),
+            ..Dials::default()
+        };
+        let refused = body(
+            fill("anima", "t2i", Some(&dials), &sheet("{}"), None)
+                .expect_err("24 is off anima's 16 grid"),
+        );
+        assert_eq!(refused["reason"], "bodyInvalid", "{refused}");
+        assert!(hint_names(&refused, "Invalid width 24"), "{refused}");
+        assert!(hint_names(&refused, "16-pixel canvas grid"), "{refused}");
+        // On the grid: the same shape resolves. SDXL's grid is 64, and 760 clears %8
+        // (and %16) while sitting off its buckets — the only law that can see it.
+        let dials = Dials {
+            width: Some(512),
+            height: Some(768),
+            ..Dials::default()
+        };
+        fill("anima", "t2i", Some(&dials), &sheet("{}"), None)
+            .expect("512x768 sits on anima's 16 grid");
+        let off_sdxl = Dials {
+            width: Some(512),
+            height: Some(760),
+            ..Dials::default()
+        };
+        let refused = body(
+            fill("sdxl", "t2i", Some(&off_sdxl), &sheet("{}"), None)
+                .expect_err("760 is off SDXL's 64 grid"),
+        );
+        assert!(hint_names(&refused, "Invalid height 760"), "{refused}");
+        assert!(hint_names(&refused, "64-pixel canvas grid"), "{refused}");
+
+        // The extras that name a canvas obey the same grid at the door: the refine pass's
+        // own render canvas (1000 clears %8 and the 16.7M ceiling, but not anima's 16).
+        let refused = body(
+            fill(
+                "anima",
+                "refine",
+                None,
+                &sheet("{}"),
+                Some(&extras(
+                    r#"{"refine":{"width":1000,"height":1024,"denoise":0.4}}"#,
+                )),
+            )
+            .expect_err("a 1000 refine edge is off anima's 16 grid"),
+        );
+        assert_eq!(refused["reason"], "bodyInvalid", "{refused}");
+        assert!(hint_names(&refused, "refine.width 1000"), "{refused}");
+        assert!(hint_names(&refused, "16-pixel canvas grid"), "{refused}");
+        // A family declaring no grid is never invented one: the refusal word appears only
+        // for families whose plugin names a `multiple` (checked above); the grid-less
+        // families (music, SAM) have no picture canvas at all, so the walk is inert —
+        // proven by the whole music suite staying green under this law.
     }
 
     /// The video arm's floor moved with the image arm's: an under-floor width is

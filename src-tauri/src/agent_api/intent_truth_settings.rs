@@ -614,23 +614,69 @@ async fn p2_off_grid_and_oversized_image_canvases_refuse_both_walls() {
 /// The raised floor (64 -> 8, the latent-grid truth): 8x8 is legal on BOTH walls —
 /// the door admits it and stock compile compiles it into an 8x8 latent — while 7
 /// (off-grid, under the floor) is refused by both, naming the field and the law.
+/// The floor is proven on a family whose OWN grid is 8 (sd15): the family grid is a
+/// separate, stricter law (`p2_the_image_family_grid_law_refuses_both_walls_per_family`),
+/// and SDXL's 64 grid refusing 8x8 is that law, not the floor moving back.
 #[tokio::test]
 async fn p2_the_latent_grid_floor_eight_lands_on_both_walls() {
     let kit = Kit::new();
-    let body = image_body("t2i", "sdxl", json!({"width": 8, "height": 8}));
+    let body = image_body("t2i", "sd15", json!({"width": 8, "height": 8}));
     let graph = stock_compile(&fill_intent(&kit, &body).await);
     assert_image_graph_settings(&graph, 8, 8, true, 1, "p2/image/floor");
-    let body = image_body("t2i", "sdxl", json!({"width": 7, "height": 8}));
+    let body = image_body("t2i", "sd15", json!({"width": 7, "height": 8}));
     door_refusal(&kit, &body, ErrorKind::BodyInvalid, "width 7").await;
-    let raw = stock_image_with(&[("width", json!(7))]);
+    let raw = stock_image_with(&[
+        ("family", json!("sd15")),
+        ("width", json!(7)),
+        ("height", json!(8)),
+    ]);
     let stock = crate::jobs::compile(&raw).expect_err("stock refuses the same under-floor width");
     assert!(
         stock.contains("width"),
         "the stock refusal names the field: {stock}"
     );
     // The compile-side floor moved with the door's: 8 compiles stock-side alone.
-    let raw = stock_image_with(&[("width", json!(8)), ("height", json!(8))]);
+    let raw = stock_image_with(&[
+        ("family", json!("sd15")),
+        ("width", json!(8)),
+        ("height", json!(8)),
+    ]);
     crate::jobs::compile(&raw).expect("8x8 compiles through the stock numeric table");
+}
+
+/// The FAMILY half of the image canvas law (PLAN D-15), proven on both walls like the
+/// video arm's grid law above: the generic table aligns an edge to one latent cell, the
+/// family plugin (`multiple` in `src/families/builtin.json`) names the grid that model's
+/// latents sit on. An off-grid picture canvas used to pass the door and compile, and the
+/// model then padded/rounded it internally — the failure class DEAS names instead of
+/// shipping.
+#[tokio::test]
+async fn p2_the_image_family_grid_law_refuses_both_walls_per_family() {
+    let kit = Kit::new();
+    // anima /16: 24x24 clears the 8-cell alignment, so only the family law can see it.
+    let mut body = image_body("t2i", "anima", json!({"width": 24, "height": 24}));
+    door_refusal(&kit, &body, ErrorKind::BodyInvalid, "16-pixel canvas grid").await;
+    let stock = crate::jobs::compile(&stock_image_with(&[
+        ("family", json!("anima")),
+        ("width", json!(24)),
+        ("height", json!(24)),
+    ]))
+    .expect_err("stock refuses the same off-grid anima canvas");
+    assert!(stock.contains("16-pixel canvas grid"), "{stock}");
+    // sdxl /64: an edge that clears %8 and even %16 is still off its buckets.
+    body = image_body("t2i", "sdxl", json!({"width": 1000, "height": 1024}));
+    door_refusal(&kit, &body, ErrorKind::BodyInvalid, "64-pixel canvas grid").await;
+    let stock = crate::jobs::compile(&stock_image_with(&[
+        ("family", json!("sdxl")),
+        ("width", json!(1000)),
+        ("height", json!(1024)),
+    ]))
+    .expect_err("stock refuses the same off-grid SDXL canvas");
+    assert!(stock.contains("64-pixel canvas grid"), "{stock}");
+    // sd15 /8 keeps the low canvas: the family grid, never a generic 64, bounds an edge.
+    let body = image_body("t2i", "sd15", json!({"width": 56, "height": 56}));
+    let graph = stock_compile(&fill_intent(&kit, &body).await);
+    assert_image_graph_settings(&graph, 56, 56, true, 1, "p2/image/family-grid");
 }
 
 #[tokio::test]

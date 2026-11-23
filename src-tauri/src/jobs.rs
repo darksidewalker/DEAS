@@ -980,6 +980,24 @@ pub(crate) fn compile(i: &Value) -> Result<Value, String> {
                 .into(),
         );
     }
+    // The family half of the canvas law (PLAN D-15): the generic numeric table already
+    // aligned every edge to one latent cell, but the family plugin names the grid THAT
+    // model's latents sit on. Without this arm an anima (16-grid) 24x24 row compiles and
+    // the model pads/rounds it internally — the failure class DEAS names instead of
+    // shipping. Unnamed family, unknown family or a family declaring no grid: the generic
+    // 8-cell law stays the whole law (no invented constraint).
+    let named_family = family
+        .and_then(Value::as_str)
+        .or_else(|| diffusion.and_then(|d| d.get("family")).and_then(Value::as_str));
+    let grid = crate::model_families::canvas_grid(named_family);
+    if grid > LATENT_GRID {
+        let family_word = named_family.unwrap_or("this family");
+        for (field, edge) in canvas_fields(i) {
+            if let Some(problem) = edge.and_then(|edge| family_grid_refusal(field, edge, grid, family_word)) {
+                return Err(problem);
+            }
+        }
+    }
     let mut graph = json!({
         "1":{"class_type":"CheckpointLoaderSimple","inputs":{"ckpt_name":i["checkpoint"]}},
         "2":{"class_type":"CLIPTextEncode","inputs":{"text":i["positivePrompt"],"clip":["1",1]}},
@@ -2905,13 +2923,17 @@ pub async fn native_mask_upload(base_url: String, png: Vec<u8>) -> Result<String
 
 const INPUT_FOLDER: &str = "deas-inputs";
 
+/// One latent-grid cell: `VAEEncode`/`EmptyLatentImage` divide pixels by 8, so nothing
+/// below 8 can exist on the grid. The generic floor and the fallback when no family
+/// names its own grid (PLAN D-15).
+pub(crate) const LATENT_GRID: u64 = 8;
 /// The canvas floor both arms enforce: 8 is the true floor — one latent-grid cell
 /// (`VAEEncode`/`EmptyLatentImage` divide pixels by 8, so a 1x1 canvas cannot exist
 /// on the grid). Raised from the historical 64 by the resolution-sanity ruling: the
 /// 64 floor was habit, not a law, and every wall (door, compile, refine, crop target,
 /// upload) now carries 8 while the %8 alignment, the 8192 edge and the 16.7M product
 /// stay exactly where they were.
-pub(crate) const CANVAS_MIN: u64 = 8;
+pub(crate) const CANVAS_MIN: u64 = LATENT_GRID;
 /// The canvas edge ceiling (both arms, both walls): 8192 px.
 pub(crate) const MAX_CANVAS_EDGE: u64 = 8192;
 /// The canvas pixel-product ceiling (both arms, both walls): 16,777,216 px.
@@ -2925,6 +2947,65 @@ pub(crate) fn canvas_edge_ok(edge: u64) -> bool {
 /// The canvas product law as one predicate.
 pub(crate) fn canvas_pixels_ok(width: u64, height: u64) -> bool {
     width.saturating_mul(height) <= MAX_CANVAS_PIXELS
+}
+
+/// The family half of the canvas law (PLAN D-15). The generic wall refuses an edge that
+/// is not aligned to one latent cell; the FAMILY plugin (`multiple`) names the grid that
+/// model's latents actually sit on — 16 for anima and 22 more, 32 for MiniMax H3 and
+/// LTX-2, 64 for SDXL. An anima canvas of 24x24 passes the generic 8-alignment and the
+/// model then pads/rounds it internally, which is the class DEAS refuses instead of
+/// shipping. `grid` comes from [`crate::model_families::canvas_grid`], so an unnamed or
+/// grid-less family answers [`LATENT_GRID`] and this predicate is inert for it — no
+/// invented constraint, ever.
+///
+/// Answers the refusal word naming the field, the offending value and the family grid;
+/// `None` when the edge sits on the grid.
+pub(crate) fn family_grid_refusal(field: &str, edge: u64, grid: u64, family: &str) -> Option<String> {
+    (grid > LATENT_GRID && !edge.is_multiple_of(grid)).then(|| {
+        format!(
+            "Invalid {field} {edge}: {family} pictures sit on a {grid}-pixel canvas grid, so {field} must be a multiple of {grid}"
+        )
+    })
+}
+
+/// Every value an intent turns into a picture canvas, so both walls walk the SAME set:
+/// the latent itself, the refine pass's own canvas, an explicit input resize (the dims
+/// `VAEEncode` will encode), and an inpaint crop target.
+pub(crate) fn canvas_fields(object: &Value) -> [(&'static str, Option<u64>); 8] {
+    let edge = |key: &str| object[key].as_u64();
+    [
+        ("width", edge("width")),
+        ("height", edge("height")),
+        ("refine.width", object.get("refine").and_then(|r| r["width"].as_u64())),
+        (
+            "refine.height",
+            object.get("refine").and_then(|r| r["height"].as_u64()),
+        ),
+        (
+            "inputResize.width",
+            object
+                .get("inputResize")
+                .and_then(|r| r["width"].as_u64()),
+        ),
+        (
+            "inputResize.height",
+            object
+                .get("inputResize")
+                .and_then(|r| r["height"].as_u64()),
+        ),
+        (
+            "inpaintCrop.targetWidth",
+            object
+                .get("inpaintCrop")
+                .and_then(|c| c["targetWidth"].as_u64()),
+        ),
+        (
+            "inpaintCrop.targetHeight",
+            object
+                .get("inpaintCrop")
+                .and_then(|c| c["targetHeight"].as_u64()),
+        ),
+    ]
 }
 
 /// The header dims of a PNG or WebP, read from a small head window (no decode):

@@ -907,6 +907,8 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
  const modelSize=family?.defaults??{width:1024,height:1024};
  // Canvas edges snap to the family's latent/patch multiple (SDXL: 64 buckets, H3/LTX: 32); unknown models use the safe 16.
  const grid=qwenRefs?32:family?.multiple??16;
+ // PLAN D-15 (mirror of the native wall `jobs::family_grid_refusal`): the ACCEPTED canvas must sit on the family's own grid, not merely on the generic 8-cell latent grid. An unknown family keeps the latent floor — the native law invents no constraint either; the Director's multi-reference law stays 32 (its own native arm).
+ const requiredCanvasGrid=qwenRefs?32:(family?.multiple??8);
  // Multi-reference Auto follows the Director: the first picture or video by slot, never whatever the preview shows.
  const firstRef=pipeline==='ref2v'?firstVisualRef(refs):undefined;
  const firstRefSrc=firstRef?.item.src;const firstRefMedia=firstRef?.item.media;
@@ -952,7 +954,7 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
  const sizeErrorFor=(continuing=false)=>isMusic?needsInput:inpaint&&source&&(!validCanvas(source)||source.width%grid!==0||source.height%grid!==0)?'studio.editor.sourceSize'
   :needsInput&&!continuing?needsInput
   :moss&&pipeline==='i2i'&&source&&!scaled?.resize&&(source.width%grid!==0||source.height%grid!==0)?'studio.run.moss.resize'
-  :(!validCanvas(outputSize)||((moss||qwenRefs)&&(outputSize.width%grid!==0||outputSize.height%grid!==0)))?'studio.run.resolution.invalid'
+  :(!validCanvas(outputSize)||(outputSize.width%requiredCanvasGrid!==0||outputSize.height%requiredCanvasGrid!==0))?'studio.run.resolution.invalid'
   :(pipeline==='i2i'||pipeline==='i2v'||pipeline==='v2v')&&!source&&!(isVideo&&resolution==='fixed')&&!(continuing&&resolution==='fixed')?'studio.run.resolution.waiting'
   :mediaPipeline&&aspect==='auto'&&resolution!=='fixed'&&(firstRef||(pipeline!=='ref2v'&&inputPreview&&inputPreview.media!=='audio'))&&!autoSource?'studio.run.resolution.waiting':'';
  const sizeError=sizeErrorFor();
@@ -971,7 +973,6 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
  ]:[];
  // Forge reads this actual authoring calculation. It never guesses from saved
  // preferences or changes the source/model/scaling path to accept a canvas.
- const requiredCanvasGrid=(isVideo||moss||qwenRefs||inpaint)?grid:8;
  const acceptsForgeCanvas=(requested:Size)=>{
   if(!model||!validCanvas(requested)||requested.width%requiredCanvasGrid!==0||requested.height%requiredCanvasGrid!==0)return false;
   let produced=requested;

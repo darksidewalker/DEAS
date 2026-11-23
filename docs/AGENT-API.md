@@ -90,7 +90,14 @@ integer `0..=100` (see §3.3).
 ### Canvas law [ALL]
 
 RULE: `width`/`height` are 8..8192 aligned to 8 (8 is the latent-grid floor; 1216×836 is
-refused naming the law), product under 16,777,216 pixels. The law guards every path —
+refused naming the law), product under 16,777,216 pixels. On top of that generic wall sits
+the **family grid**: the model family's own `multiple` from the family plugin (8 — sd15,
+pixart, hunyuan-dit; 16 — anima, moss-image and 21 more; 32 — minimax-h3, ltx-2; 64 — sdxl)
+must divide every canvas edge. A 24×24 picture on anima clears the generic wall and would be
+padded inside the model, so it is refused naming that grid (`Invalid width 24: anima pictures
+sit on a 16-pixel canvas grid…`). The same grid gates `refine`, `inputResize` and `inpaintCrop`
+targets. A family declaring no grid (music, SAM) has no picture canvas, so only the generic
+wall applies to it. The law guards every path —
 uploads are measured (PNG/WebP headers) and refused oversize at the upload door; `i2i`
 whose INPUT breaks it is refused at the queue door naming the input dims; `refine`,
 `latentUpscale`, `inputResize`, `inpaintCrop` targets are gated the same way. A film adds

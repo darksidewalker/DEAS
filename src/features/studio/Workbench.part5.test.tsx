@@ -304,7 +304,11 @@ test('history authoring uses active project autosave and keeps failed-save unsav
 });
 
 test('history text-to-image keeps native-valid 1000 square canvas without family-preset snapping',async()=>{
- const original=recentHistoryRecord({...historicalImage,width:1000,height:1000});
+ // 1088 is a 17x64 square: valid on SDXL's own 64 grid (PLAN D-15: the family plugin's
+ // `multiple` is the canvas law, so a 1000 square is refused instead of padded inside the
+ // model) and outside every preset bucket, which is what this test is about — an applied
+ // history record keeps its EXACT canvas instead of snapping to the nearest preset.
+ const original=recentHistoryRecord({...historicalImage,width:1088,height:1088});
  vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'a.safetensors',family:'sdxl',path:'/m/a',size:1,info:null}]);
  vi.mocked(checkRecipePrerequisites).mockResolvedValue(evidence);
  vi.mocked(invoke).mockImplementation(async c=>c==='native_jobs_history'?{schemaVersion:1,records:[original],readOnly:false,error:null}:{entries:[],truncated:false});
@@ -316,11 +320,14 @@ test('history text-to-image keeps native-valid 1000 square canvas without family
  expect(document.querySelector<HTMLButtonElement>('[data-run]')!.disabled).toBe(false);
  fireEvent.click(document.querySelector('[data-run]')!);
  await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(1));
- expect(vi.mocked(runWorkbenchJob).mock.calls[0][1]).toMatchObject({width:1000,height:1000,seed:historicalImage.seed});
+ expect(vi.mocked(runWorkbenchJob).mock.calls[0][1]).toMatchObject({width:1088,height:1088,seed:historicalImage.seed});
 });
 
 test('Forge canvas handoff uses effective fixed dimensions and preserves immutable jobs until explicit Run',async()=>{
- for(const [key,value] of Object.entries({resolution:'fixed',width:1000,height:1000,seed:73,seedMode:'fixed',positive:'original draft',negative:'kept negative'}))localStorage.setItem('deas.pref.studio.run.'+key,JSON.stringify(value));
+ // 1088/1216 are both SDXL 64-grid edges (PLAN D-15 `requiredCanvasGrid`): the fixed
+ // canvas survives the handoff verbatim, and the published context names the grid the
+ // canvas must sit on.
+ for(const [key,value] of Object.entries({resolution:'fixed',width:1088,height:1088,seed:73,seedMode:'fixed',positive:'original draft',negative:'kept negative'}))localStorage.setItem('deas.pref.studio.run.'+key,JSON.stringify(value));
  const held={...heldJob('before-forge','failed'),intent:{...historicalImage,positivePrompt:'immutable job'}};
  const before=JSON.stringify(held);vi.mocked(readCurrentWorkbench).mockResolvedValue(collection([held]));
  vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'a.safetensors',family:'sdxl',path:'/m/a',size:1,info:null}]);
@@ -328,8 +335,11 @@ test('Forge canvas handoff uses effective fixed dimensions and preserves immutab
  const publish=vi.fn<(context:ForgeCanvasContext|undefined)=>void>();
  const props={endpoint:evidence.baseUrl,roots:{models:'/m'},onCanvasContext:publish};
  const view=render(<I18nProvider><Workbench {...props}/></I18nProvider>);
- const context=await waitFor(()=>{const value=publish.mock.calls.at(-1)?.[0];expect(value?.effective).toEqual({width:1000,height:1000});return value!;});
- expect(context.requiredGrid).toBe(8);expect(context.grid).toBe(64);expect(context.acceptsCanvas?.({width:1000,height:1000})).toBe(true);
+ const context=await waitFor(()=>{const value=publish.mock.calls.at(-1)?.[0];expect(value?.effective).toEqual({width:1088,height:1088});return value!;});
+ expect(context.requiredGrid).toBe(64);expect(context.grid).toBe(64);expect(context.acceptsCanvas?.({width:1088,height:1088})).toBe(true);
+ // A canvas off the family grid is refused, not silently padded: 1000 clears the generic
+ // 8-cell wall and SDXL's UNet would pad the latent inside the model.
+ expect(context.acceptsCanvas?.({width:1000,height:1000})).toBe(false);
  const probes=vi.mocked(checkRecipePrerequisites).mock.calls.length;
  // Publishing a read-only context never changes authoring or starts work.
  expect((screen.getByLabelText('Prompt') as HTMLTextAreaElement).value).toBe('original draft');

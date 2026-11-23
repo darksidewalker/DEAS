@@ -6155,3 +6155,98 @@ fn the_canvas_floor_eight_and_the_header_dims_and_the_input_canvas_wall() {
     check_input_canvas(None, &json!({"inputImage": "deas-inputs/big.png"}))
         .expect("no root: the wall is inert");
 }
+
+#[test]
+fn the_family_grid_refuses_an_off_grid_canvas_and_names_the_family_grid() {
+    // PLAN D-15: the generic wall aligns an edge to one latent cell (8); the FAMILY
+    // plugin names the grid that model's latents actually sit on. Both must hold, and
+    // the refusal says which grid refused — an invisible 16 would be undiagnosable.
+    let mut anima = intent();
+    anima["width"] = json!(24);
+    anima["height"] = json!(24);
+    anima["diffusion"] = json!({
+        "family": "anima",
+        "textEncoder": "clip.safetensors",
+        "clipType": "stable_diffusion",
+        "vae": "vae.safetensors"
+    });
+    let problem = compile(&anima).unwrap_err();
+    assert!(problem.contains("Invalid width 24"), "{problem}");
+    assert!(problem.contains("anima pictures sit on a 16-pixel canvas grid"), "{problem}");
+
+    // On the grid: the same shape compiles, so the law refuses the edge and not the run.
+    anima["width"] = json!(512);
+    anima["height"] = json!(768);
+    compile(&anima).expect("512x768 sits on anima's 16-grid");
+
+    // The second-pass canvas obeys the same grid (the refine pass renders its own latent).
+    anima["refine"] = json!({"width": 1000, "height": 1024, "denoise": 0.4});
+    let problem = compile(&anima).unwrap_err();
+    assert!(problem.contains("Invalid refine.width 1000"), "{problem}");
+    anima["refine"] = json!({"width": 1024, "height": 1536, "denoise": 0.4});
+    compile(&anima).expect("a refine canvas on the grid compiles");
+
+    // An explicit input resize names the dims VAEEncode will encode: same law. The
+    // resize + pad pair must match the output dims (the stock crop law), so the off-grid
+    // edge rides a canvas that is itself on the grid — the resize arm has to be the one
+    // that refuses.
+    anima
+        .as_object_mut()
+        .unwrap()
+        .remove("refine");
+    anima["width"] = json!(1024);
+    anima["height"] = json!(1536);
+    anima["inputImage"] = json!("deas-inputs/pic.png");
+    anima["denoise"] = json!(0.6);
+    anima["inputResize"] = json!({
+        "width": 1000,
+        "height": 1536,
+        "crop": "disabled",
+        "pad": {"left": 16, "right": 8, "top": 0, "bottom": 0}
+    });
+    let problem = compile(&anima).unwrap_err();
+    assert!(problem.contains("Invalid inputResize.width 1000"), "{problem}");
+
+    // An inpaint crop target is a canvas too.
+    anima
+        .as_object_mut()
+        .unwrap()
+        .remove("inputResize");
+    anima["inputMask"] = json!("deas-masks/2f1c6a1e-1a2b-3c4d-5e6f-778899aabbcc.png");
+    anima["inpaintCrop"] = json!({
+        "x": 0,
+        "y": 0,
+        "width": 512,
+        "height": 512,
+        "targetWidth": 1000,
+        "targetHeight": 1024
+    });
+    let problem = compile(&anima).unwrap_err();
+    assert!(
+        problem.contains("Invalid inpaintCrop.targetWidth 1000"),
+        "{problem}"
+    );
+
+    // SDXL's grid is 64: a size that clears %8 and even %16 is still off its buckets.
+    let mut xl = intent();
+    xl["family"] = json!("sdxl");
+    xl["width"] = json!(1000);
+    compile(&xl).expect_err("1000 is not a 64-multiple");
+    xl["width"] = json!(1024);
+    compile(&xl).expect("1024x768 is SDXL's own default grid");
+
+    // An 8-grid family keeps the low canvas the resolution ruling opened (PLAN: the
+    // family grid, not a generic 64, is what bounds an edge).
+    let mut sd15 = intent();
+    sd15["family"] = json!("sd15");
+    sd15["width"] = json!(56);
+    sd15["height"] = json!(56);
+    compile(&sd15).expect("56x56 renders on an 8-grid family");
+
+    // No family named, or a family declaring no grid: the generic 8-cell law stays the
+    // whole law. Never an invented constraint.
+    let mut bare = intent();
+    bare["width"] = json!(24);
+    bare["height"] = json!(24);
+    compile(&bare).expect("an unnamed family keeps the latent-grid floor");
+}

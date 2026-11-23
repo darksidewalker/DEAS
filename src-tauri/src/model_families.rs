@@ -132,6 +132,22 @@ pub(crate) fn image_recipe_by_id(id: &str) -> Option<ImageRecipe> {
     families().iter().find(|f| f.id == id).map(recipe_of)
 }
 
+/// The canvas grid a family's pictures sit on: its `multiple` in the bundled family
+/// plugin (PLAN D-15). Every picture- and video-facing family declares one — 8 (sd15,
+/// pixart, hunyuan-dit), 16 (anima and 22 more), 32 (MiniMax H3, LTX-2), 64 (SDXL) —
+/// and only the music/SAM families, which have no picture canvas at all, declare none.
+///
+/// Resolved from the EXPLICIT family id only, never from a CLIP type: families share
+/// CLIP types while their grids differ, and an invented constraint is worse than none.
+/// No family named, unknown family, or a family declaring no grid all answer the plain
+/// latent-grid floor, which is the generic wall's own law and never an extra demand.
+pub(crate) fn canvas_grid(family_id: Option<&str>) -> u64 {
+    family_id
+        .and_then(|id| families().iter().find(|f| f.id == id))
+        .and_then(|f| f.multiple)
+        .unwrap_or(crate::jobs::LATENT_GRID)
+}
+
 fn recipe_of(f: &'static Family) -> ImageRecipe {
     ImageRecipe {
         skip_layer_count: f.skip_layer_count,

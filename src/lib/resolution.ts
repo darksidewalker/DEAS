@@ -21,7 +21,13 @@ export function canvasSize(aspect:string,resolution:string,customAspect:Size,mp:
  const side=Math.sqrt(pixels)/512,ref=swarmRefs[aspect]??{width:512*Math.sqrt(r),height:512/Math.sqrt(r)};
  return {width:snap(ref.width*side,grid),height:snap(ref.height*side,grid)};
 }
-export const validCanvas=({width,height}:Size)=>[width,height].every(n=>Number.isInteger(n)&&n>=64&&n<=8192&&n%8===0)&&width*height<=16_777_216;
+// The generic canvas wall, mirrored from the native law (`jobs::CANVAS_MIN` = one
+// latent-grid cell, 8; `%8`, the 8192 edge and the 16.7M product). The family's own grid
+// (`family.multiple` in the family plugin) is a SEPARATE, stricter law — the Workbench
+// applies it as `requiredCanvasGrid`, and `jobs::family_grid_refusal`/the Agent API door
+// refuse off-grid edges naming the family grid. The floor used to be 64, which was one
+// family's grid mistaken for a universal law.
+export const validCanvas=({width,height}:Size)=>[width,height].every(n=>Number.isInteger(n)&&n>=8&&n<=8192&&n%8===0)&&width*height<=16_777_216;
 /** Fit can produce a smaller canvas; crop/pad fill it. Auto only downsizes inputs over the 2048px short-edge cap. Sizes snap down to the model grid. */
 export function scaleInput(mode:ScalingMode,source:Size,target:Size,grid=16):{size:Size;resize?:InputResize}{
  const down=(n:number)=>Math.max(grid,Math.floor(n/grid)*grid);
