@@ -176,6 +176,7 @@ An item is only as accepted as its strongest evidence. Keep the levels separate.
 | [D-12](#d-12--temporal-latent-tiled-refine) | Temporal-latent tiled refine | ACCEPT | GPU | §4.11 |
 | [D-13](#d-13--saver-compatibility-exception--platformlifecycle-limits) | Saver compatibility exception — platform/lifecycle limits | ACCEPT | WIN | §4.11 |
 | [D-14](#d-14--windows-output-publication-fix) | Windows output publication fix | ACCEPT | WIN, OWNER | §4.11 |
+| [D-15](#d-15--canvas-law-the-family-grid-is-not-a-wall-yet) | Canvas law: the family grid is not a wall yet | SLICE | CPU, GPU | §4.11 |
 | [A-01](#a-01--automatic-audio-enhanced-output-naming) | Automatic audio-enhanced output naming | ACCEPT | NATIVE, WIN | §4.12 |
 | [A-02](#a-02--audio-modelengine-install-freeze) | Audio model/engine Install freeze | DEFECT | NATIVE, WIN, OWNER | §4.12 |
 | [A-03](#a-03--audio-enhancement-for-studio-post-processing-and-tve) | Audio enhancement for Studio post-processing and TVE | ACCEPT | GPU, OWNER, WIN | §4.12 |
@@ -1383,6 +1384,15 @@ Implementation and audit evidence for the completed portions is in [verification
 The DEAS naming adapter has tested Windows no-overwrite rename publication and
 multi-file rollback. Real exFAT generation after an owned-backend restart remains
 user acceptance; no live generation is started during implementation.
+
+#### D-15 · Canvas law: the family grid is not a wall yet
+
+**Type:** SLICE · **Needs:** CPU, GPU
+
+0.3.23 ([#53](https://github.com/darksidewalker/DEAS/pull/53)) lowered the generic native canvas floor from 64 to 8 (`jobs::CANVAS_MIN`). That part is right: 8 is one latent-grid cell (`VAEEncode`/`EmptyLatentImage` divide by 8), while 64 was SDXL's number wearing a generic costume — an 8-grid family like sd15 renders 56×56 fine. The wall is still half-open on the other side, though: for pictures it checks only `%8`, `8..=8192` and the 16.7 M product, while `src/families/builtin.json` already carries each family's real canvas grid in `multiple` — 8 (sd15, pixart, hunyuan-dit), 16 (anima, moss-image and 21 more), 32 (minimax-h3, ltx-2), 64 (sdxl). Natively that grid is enforced only for MOSS-Image (`model_families::image_multiple`), and the agent door enforces it for video families only (`fill_plane::video_grid`). So an anima picture at 24×24 now passes the wall although anima's grid is 16 — precisely the "ComfyUI silently pads/rounds it" class the project rules close. The old 64 wall caught that case by accident while refusing valid smaller grids.
+- [ ] Picture canvas floor and alignment become `max(8, family.multiple)` / `% family.multiple` at both walls from family data — `jobs::compile` + the prepare mirror and the door mirror in `agent_api/fill_plane.rs`. No per-family numbers in code.
+- [ ] Studio offers only multiples of the chosen family's grid (`src/lib/resolution.ts::validCanvas` still floors at 64), and a refused direct intent names the family grid instead of the generic 8.
+- [ ] GPU (one approved session, one canvas per grid class — an 8-grid, a 16-grid, sdxl): the smallest admitted canvas renders with no internal padding or rounding; Auto Refine's `crop_target` keeps its 64 floor (it mirrors `lib/resolution.ts::canvasSize`) until it is measured on its own.
 
 ### 4.12 Audio enhance across audio pipelines
 

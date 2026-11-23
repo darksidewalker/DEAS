@@ -5710,4 +5710,79 @@ mod tests {
         assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
         assert!(hint(&body).contains("continuity"), "{body}");
     }
+
+    /// The plane as it actually runs on a real machine: `mod.rs` binds
+    /// `127.0.0.1:<port>` and serves this router, so here the walls, the doors and the
+    /// taxonomy are proven over a REAL loopback TCP socket instead of only through
+    /// `Service::call`. A browser-shaped request with no allowlisted Origin is refused
+    /// before any door runs; the same door answers once the Origin is allowlisted; and a
+    /// foreign `Host` is refused at the socket even though the connection itself came
+    /// from loopback (the DNS-rebinding wall is the header, not the route).
+    #[tokio::test]
+    async fn a_served_plane_answers_over_a_loopback_socket_and_its_walls_hold_there() {
+        use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
+            .await
+            .expect("the same loopback bind mod.rs performs");
+        let addr = listener.local_addr().expect("the bound address");
+        assert_eq!(
+            addr.ip(),
+            std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
+            "the plane's bind form is loopback, never a wildcard"
+        );
+        let server = tokio::spawn(async move {
+            let _ = axum::serve(listener, router(plane_with_app_data(dir.path()))).await;
+        });
+        let client = reqwest::Client::new();
+
+        // Wall 1 on the wire: no Origin and no standing key configured => refused before
+        // any door runs, in the closed taxonomy shape.
+        let anonymous = client
+            .get(format!("http://{addr}/v1/health"))
+            .send()
+            .await
+            .expect("served");
+        assert_eq!(anonymous.status(), StatusCode::FORBIDDEN);
+        let anonymous: Value = anonymous.json().await.expect("json answer");
+        assert_eq!(anonymous["reason"], "originDenied", "{anonymous}");
+
+        // The same socket, the same door, an allowlisted Origin: the plane answers.
+        let allowed = client
+            .get(format!("http://{addr}/v1/health"))
+            .header("origin", "http://localhost:1420")
+            .send()
+            .await
+            .expect("served")
+            .error_for_status()
+            .expect("200");
+        let health: Value = allowed.json().await.expect("json answer");
+        assert_eq!(health["ok"], true, "{health}");
+        assert_eq!(health["plane"], "deas-agent-api");
+
+        // Wall 2 on the wire: a hand-written request from the same loopback connection
+        // naming a foreign Host never reaches a door (`Connection: close` lets axum end
+        // the keep-alive so the read terminates).
+        let mut stream = tokio::net::TcpStream::connect(addr)
+            .await
+            .expect("connectable");
+        stream
+            .write_all(
+                b"GET /v1/health HTTP/1.1\r\nHost: deas.example.com\r\nOrigin: http://localhost:1420\r\nConnection: close\r\n\r\n",
+            )
+            .await
+            .expect("request written");
+        let mut raw = Vec::new();
+        stream
+            .read_to_end(&mut raw)
+            .await
+            .expect("answer readable");
+        let raw = String::from_utf8_lossy(&raw).into_owned();
+        assert!(raw.contains(" 400 "), "foreign Host is refused: {raw}");
+        assert!(raw.contains("hostDenied"), "the named wall answers: {raw}");
+        assert!(raw.contains("loopback form"), "the remedy is named: {raw}");
+
+        server.abort();
+    }
 }
