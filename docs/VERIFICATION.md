@@ -1,5 +1,45 @@
 # DEAS verification — native baseline, optional capabilities and languages
 
+## Release 0.3.23 (published)
+
+Published 2026-11-23 at tag `v0.3.23` → commit `f4f01aa02be5abb01ce7db59a1dbd055ac0778bd` (tree `7704b74da4e3362d470757aad77fdc57167f4801`): <https://github.com/darksidewalker/DEAS/releases/tag/v0.3.23>. Contents: the opt-in Agent API plane from PR #53 plus its merge fixes, the LoRA-family-from-trainer correction, the held-row deadlock/recursion fixes, and the family canvas-grid law (PLAN D-15 CPU half, commits `0bec5321` and `7744e4ff`).
+
+### Provenance
+
+The repository's `Verify DEAS` and `Release DEAS` workflows are paused (`disabled_manually`), so this release carries **no CI evidence**: it is a disclosed local build, unsigned, from this host. Nothing was re-enabled.
+
+- Toolchain: `rustc 1.97.0 (2d8144b78 2026-07-07)`, node `v22.23.5`; targets `x86_64-unknown-linux-gnu` and `x86_64-pc-windows-msvc` (cargo-xwin cross-build, `--locked`).
+- Linux direct glibc floor measured from the binary: **2.39** (`objdump -T | grep -o GLIBC_* | sort -uV | tail -1`). This is *not* the ubuntu-22.04 / 2.35 CI baseline; a rolling-release host built it. `ldd` reports zero missing libraries on the build host.
+- Both binaries embed the current frontend chunk `dist/assets/index-C44saE3m.js` (byte-search proof, not a timestamp argument).
+- `deas.exe`: PE32+ GUI x86-64, **no external `WebView2Loader.dll` import** (`objdump -p` → 0 matches). Cross-compiled only — it has never run on a Windows machine, so the first real launch is its acceptance test.
+- Bundles omitted in this round: no NSIS installer or portable ZIP (needs `makensis`), no `.deb`/AppImage (needs `patchelf`). The established four-asset set was published instead.
+
+### Gates, run fresh on the tagged commit
+
+- `cargo fmt --check`: clean (the twelve hunks it flagged were this cycle's own, fixed in `f4f01aa0`).
+- `cargo clippy --locked --release --lib --bins -- -D warnings`: clean. `cargo xwin check` and `cargo xwin clippy --locked --all-targets --target x86_64-pc-windows-msvc -- -D warnings`: clean, so the PR's Windows-only `cmd /C`/`raw_arg` bat transport and the fence legs compile on the Windows target (compiling is not running).
+- `cargo test --locked -- --test-threads=1` in a private `TMPDIR` (`~/.deas-gate-tmp`, mode 700): **2034 passed / 2 failed / 82 ignored**. The two failures are `backend::tests::no_console_python_shutdown_pipe_wakes_asyncio_and_runs_finally` and `backend::tests::stop_allows_python_finally_and_drains_shutdown_output_before_restarting` ("bootstrap did not stop"). Adjudicated by A/B, not assumption: the same module run on the already-released `v0.3.22` worktree fails the **same pair** on this host today (34 passed / 2 failed), both pass alone and pass together in isolation, and this cycle touched `backend.rs` only by plumbing `input_root` into the status snapshot — no grace or shutdown-timing change. Host state at the time: 57 of 61 GB resident, `earlyoom` active.
+- `npm run typecheck`: clean. `npm run test:core`: **179/179**. Vitest UI: **2466/2467** — the single failure is `Workbench.part4 > IPC fixture: MiniMax H3 … REF2VA timeline media`, a 5 s timeout that passes 88/88 in the same file alone and reproduces on clean `main` under load (its solo duration measured 3.2 s both with and without this release's changes).
+- The 0.3.23 canvas-law additions carry their own tests: `jobs::tests::the_family_grid_refuses_an_off_grid_canvas_and_names_the_family_grid`, `agent_api::intent_truth_settings::p2_the_image_family_grid_law_refuses_both_walls_per_family` (door **and** stock compile per grid class), `fill_plane::tests::the_family_grid_refuses_an_off_grid_canvas_at_the_door`, `tests/execution.test.ts`, `tests/resolution.test.ts`.
+
+### Assets (re-downloaded from the release and re-hashed; `sha256sum -c SHA256SUMS` → all OK)
+
+```
+29859ab038bfbc7c5ebc9c65d9c455ad2216065893bfa0149cadb9130a483d8e  deas-linux-amd64
+4128e63d5f800f9fd081f9a72594f2133fbf8e4b914ab4c99ec90ff8bbbf630a  deas.exe
+342b1aaecd530da4cb7161ee9cf0a2d541fb11ad8fa99a27d099589172dc41f7  SHA256SUMS
+22c73b9f1e70c247a90391afd93c834a42300c75e22b2f5f8fa9cbf2d76a51da  BUILD-MANIFEST.json
+```
+
+`artifacts/deas-linux-amd64` (the loose path the launcher starts) was restaged by `build-linux.sh --release` and hashes identically to the published Linux asset.
+
+### Not verified by this release
+
+- The Agent API's live GPU battery — four image families, H3 t2v/i2v/ref2va, RefMod export, one-cycle continuity, the VRAM handoff legs and the watchdog — is **author-reported** from PR #53 and was not repeated here; no GPU session was approved for it.
+- Any Windows runtime behaviour (the bat transport, `taskkill /T /F /PID` fence, WebView2): compiled for the target, never executed.
+- PLAN D-15's last box: the smallest admitted canvas per grid class rendering with no internal padding or rounding on a real card.
+- The Agent API panel inside a shipped binary is now buildable and staged, but nobody has clicked through it in this build yet.
+
 ## Release 0.3.22 (published)
 
 Published 2026-11-22 as `v0.3.22` (Latest, not a prerelease): https://github.com/darksidewalker/DEAS/releases/tag/v0.3.22.
