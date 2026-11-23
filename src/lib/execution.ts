@@ -188,6 +188,21 @@ function validateIntent(input: unknown): DiagnosticImageIntentV1 {
   const invalid = (field: string, message: string, remedy: string): never => {
     throw new RecipeCompileError('INVALID_INPUT', field, message, remedy);
   };
+  // PLAN D-15 (mirror of `jobs::canvas_fields` and `jobs::family_grid_refusal`): the family
+  // plugin's `multiple` is the grid that family's pictures sit on, and it must divide every
+  // canvas edge — the canvas itself, a refine pass, an input resize, an inpaint crop target.
+  // Only an EXPLICIT family id resolves it (families share CLIP types whose grids differ),
+  // and an unnamed, unknown or grid-less family keeps the 8-cell latent floor: the native
+  // law invents no constraint, so neither does this one.
+  const familyGrid = (() => {
+    const id = typeof input.family === 'string'
+      ? input.family
+      : isRecord(input.diffusion) && typeof input.diffusion.family === 'string'
+        ? input.diffusion.family
+        : undefined;
+    return (families as { id?: string; multiple?: number }[])
+      .find(f => f.id === id)?.multiple ?? 8;
+  })();
   for (const key of Object.keys(input)) {
     if (!fields.includes(key) && !['lyingSigma', 'animaLoraRemap', 'loras', 'inputImage', 'denoise', 'diffusion', 'family', 'inputResize', 'inputMask', 'maskBlur', 'inpaintCrop', 'inputLayers', 'options', 'sigmas', 'wildcard', 'upscaleModel', 'refine', 'imageFormat', 'imageCompression', 'imageReference', 'nativeImageReference', 'skipLayers'].includes(key)) invalid(key, 'Unknown domain intent field.', 'Remove unsupported fields; do not pass widget or canvas state.');
   }
@@ -211,7 +226,7 @@ function validateIntent(input: unknown): DiagnosticImageIntentV1 {
     const c=input.inpaintCrop;
     if (!input.inputMask || !isRecord(c) || Object.keys(c).length!==6 || !['x','y','width','height','targetWidth','targetHeight'].every(k=>Number.isSafeInteger(c[k]) && (c[k] as number)>=(['x','y'].includes(k)?0:1) && (c[k] as number)<=8192)
       || (c.x as number)+(c.width as number)>(input.width as number) || (c.y as number)+(c.height as number)>(input.height as number)
-      || !['targetWidth','targetHeight'].every(k=>(c[k] as number)>=64 && (c[k] as number)%8===0) || (c.targetWidth as number)*(c.targetHeight as number)>16_777_216) invalid('inpaintCrop','Invalid inpaint crop.','Use a bounded source rectangle and model-aligned target dimensions with inputMask.');
+      || !['targetWidth','targetHeight'].every(k=>(c[k] as number)>=8 && (c[k] as number)%familyGrid===0) || (c.targetWidth as number)*(c.targetHeight as number)>16_777_216) invalid('inpaintCrop','Invalid inpaint crop.','Use a bounded source rectangle and a target on the model family\'s canvas grid, with inputMask.');
   }
   const layers = input.inputLayers;
   if (Object.hasOwn(input, 'inputLayers') && (!Object.hasOwn(input, 'inputImage') || !Array.isArray(layers) || layers.length < 1 || layers.length > 4
@@ -223,9 +238,12 @@ function validateIntent(input: unknown): DiagnosticImageIntentV1 {
     && typeof l.strength === 'number' && Number.isFinite(l.strength) && Math.abs(l.strength) <= 10)) {
     invalid('loras', 'Invalid LoRA list.', 'Supply at most 8 verified {name, strength in [-10, 10]} entries.');
   }
+  // The generic canvas wall (PLAN D-15): the latent-grid floor 8, the 8192 edge, the 16.7M
+  // product, one-latent-cell alignment. The floor used to read 64, which was one family's
+  // grid wearing a generic number; the family's own grid is applied below.
   for (const [field, min, max, integer, alignment] of [
     ['seed', 0, Number.MAX_SAFE_INTEGER, true, 1],
-    ['width', 64, 8192, true, 8], ['height', 64, 8192, true, 8],
+    ['width', 8, 8192, true, 8], ['height', 8, 8192, true, 8],
     ['steps', 1, 150, true, 1], ['cfg', 0, 30, false, 1],
   ] as const) {
     const value = input[field];
@@ -235,13 +253,17 @@ function validateIntent(input: unknown): DiagnosticImageIntentV1 {
     }
   }
   if ((input.width as number) * (input.height as number) > 16_777_216) invalid('width', 'Pixel limit exceeded.', 'Use at most 16,777,216 output pixels.');
+  for (const field of ['width', 'height'] as const) {
+    const value = input[field] as number;
+    if (familyGrid > 8 && Number.isSafeInteger(value) && value % familyGrid !== 0) invalid(field, 'Canvas edge is off the model family grid.', `Supply a multiple of ${familyGrid} for this family: ${value} would be padded inside the model.`);
+  }
   if (Object.hasOwn(input, 'inputResize')) {
     const r = input.inputResize;
-    const aligned = (v: unknown, min: number) => typeof v === 'number' && Number.isSafeInteger(v) && v >= min && v <= 8192 && v % 8 === 0;
+    const aligned = (v: unknown, min: number) => typeof v === 'number' && Number.isSafeInteger(v) && v >= min && v <= 8192 && v % familyGrid === 0;
     if (!Object.hasOwn(input, 'inputImage') || !isRecord(r) || ![3, 4].includes(Object.keys(r).length)
       || Object.keys(r).some(k => !['width', 'height', 'crop', 'pad'].includes(k)) || !['width', 'height', 'crop'].every(k => Object.hasOwn(r, k))
       || !aligned(r.width, 8) || !aligned(r.height, 8) || !['disabled', 'center'].includes(r.crop as string)) {
-      invalid('inputResize', 'Invalid image resize.', 'Supply inputImage + denoise and {width, height, crop} with positive dimensions aligned to 8.');
+      invalid('inputResize', 'Invalid image resize.', 'Supply inputImage + denoise and {width, height, crop} with positive dimensions on the model family\'s canvas grid.');
     }
     const resize = r as Record<string, unknown>;
     const pad = resize.pad;
@@ -307,7 +329,7 @@ function validateIntent(input: unknown): DiagnosticImageIntentV1 {
   if (Object.hasOwn(input, 'upscaleModel') && (!Object.hasOwn(input, 'inputResize') || !safeComfyModel(input.upscaleModel))) invalid('upscaleModel', 'Invalid upscale model.', 'Use a listed upscale model together with inputResize.');
   if (Object.hasOwn(input, 'refine')) {
     const r = input.refine;
-    const edge = (v: unknown) => Number.isSafeInteger(v) && (v as number) >= 64 && (v as number) <= 8192 && (v as number) % 8 === 0;
+    const edge = (v: unknown) => Number.isSafeInteger(v) && (v as number) >= 8 && (v as number) <= 8192 && (v as number) % familyGrid === 0;
     const tiledOK = (v: unknown) => isRecord(v) && Object.keys(v).length === 3 && edge(v.tileWidth) && edge(v.tileHeight) && Number.isSafeInteger(v.overlap) && (v.overlap as number) >= 0 && (v.overlap as number) % 8 === 0 && (v.overlap as number) < Math.min(v.tileWidth as number, v.tileHeight as number);
     if (!isRecord(r) || Object.keys(r).some(k => !['width', 'height', 'denoise', 'upscaleModel', 'sigmas', 'tiled'].includes(k)) || !edge(r.width) || !edge(r.height) || (Object.hasOwn(r, 'tiled') && !tiledOK(r.tiled))
       || (r.width as number) * (r.height as number) > 16_777_216 || !(typeof r.denoise === 'number' && r.denoise > 0 && r.denoise <= 1)

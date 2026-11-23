@@ -584,3 +584,36 @@ test('imageReference validates vision model, pictures, count and split loaders',
   rejects({ ...intent, diffusion: { textEncoder: 'clip', clipType: 'sdxl', vae: 'vae' }, imageReference: revisionRef }, { ...revisionLists, nodes: [...revisionLists.nodes, 'UNETLoader', 'CLIPLoader', 'VAELoader'] }, 'INVALID_INPUT', 'imageReference');
   for (const strength of [1.5, -0.1, Number.NaN, '0.5']) rejects({ ...intent, imageReference: { visionModel: revisionRef.visionModel, images: [{ image: 'deas-inputs/ref.png', strength }] } }, revisionLists, 'INVALID_INPUT', 'imageReference');
 });
+
+test('the family canvas grid is the intent wall, not a generic 64 (PLAN D-15)', () => {
+  const anima = (width: number, height: number, extra: Record<string, unknown> = {}) => ({
+    ...intent, width, height, family: 'anima',
+    diffusion: { family: 'anima', textEncoder: 'clip.safetensors', clipType: 'stable_diffusion', vae: 'vae.safetensors' },
+    ...extra,
+  });
+  const animaLists: RecipeAllowlist = {
+    ...allowlist,
+    nodes: [...allowlist.nodes, 'UNETLoader', 'CLIPLoader', 'VAELoader'],
+    diffusionModels: [intent.checkpoint], textEncoders: ['clip.safetensors'],
+    clipTypes: ['stable_diffusion'], vaes: ['vae.safetensors'],
+  };
+  // anima's grid is 16: 24x24 clears the generic 8-cell alignment and would be padded
+  // inside the model, so the intent wall refuses it and names the grid in the remedy.
+  for (const [w, h] of [[24, 24], [1000, 1024]]) rejects(anima(w, h), animaLists, 'INVALID_INPUT', 'width');
+  assert.doesNotThrow(() => compileRecipe(anima(512, 768), animaLists));
+  // The same values on an 8-grid family are legal: the grid is family data, not a number.
+  assert.doesNotThrow(() => compileRecipe({ ...intent, family: 'sd15', width: 56, height: 56 }, allowlist));
+  // SDXL's grid is 64, so a 1000 square is refused there too - and an 8x8 SDXL canvas is
+  // refused for sitting off the 64 grid, not for breaking the floor.
+  rejects({ ...intent, family: 'sdxl', width: 1000, height: 1000 }, allowlist, 'INVALID_INPUT', 'width');
+  assert.doesNotThrow(() => compileRecipe({ ...intent, family: 'sdxl', width: 1024, height: 1024 }, allowlist));
+  // The family grid reaches every value that becomes a canvas.
+  const mask = 'deas-masks/2f1c6a1e-1a2b-3c4d-5e6f-778899aabbcc.png';
+  rejects(anima(1024, 1024, { refine: { width: 1000, height: 1024, denoise: 0.4 } }), animaLists, 'INVALID_INPUT', 'refine');
+  rejects(anima(1024, 1024, {
+    inputImage: 'deas-inputs/pic.png', denoise: 0.6, inputMask: mask,
+    inpaintCrop: { x: 0, y: 0, width: 512, height: 512, targetWidth: 1000, targetHeight: 1024 },
+  }), animaLists, 'INVALID_INPUT', 'inpaintCrop');
+  // An intent naming no family keeps the latent floor: 24x24 is its whole law.
+  assert.doesNotThrow(() => compileRecipe({ ...intent, width: 24, height: 24 }, allowlist));
+});

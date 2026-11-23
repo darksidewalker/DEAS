@@ -146,8 +146,14 @@ fn mask_bounds(pixels: &Pixels, margin: u32) -> Option<(u32, u32, u32, u32)> {
 
 fn crop_target(width: u32, height: u32, area: u64, grid: u64) -> Result<(u64, u64), String> {
     // Same area-exact custom-aspect math and final grid snap as lib/resolution.ts canvasSize.
+    // The floor is ONE CELL OF THE FAMILY GRID (`grid` is the family's `multiple`, never
+    // below the 8-cell latent floor), not a hardcoded 64: 64 was SDXL's grid wearing a
+    // generic number again, and it quietly moved a legal 16-grid or 8-grid target to a
+    // size the family never asked for. The native canvas limits stay the ceiling, and
+    // whatever this returns is re-measured by `jobs::compile` (canvas + family grid) when
+    // the pass is queued, so a degenerate target cannot reach the backend.
     let ratio = f64::from(width) / f64::from(height);
-    let snap = |n: f64| ((n / grid as f64).round() as u64 * grid).max(64_u64.div_ceil(grid) * grid);
+    let snap = |n: f64| ((n / grid as f64).round() as u64 * grid).max(grid);
     let w = snap((area as f64 * ratio).sqrt());
     let h = snap((area as f64 / ratio).sqrt());
     if w > 8192 || h > 8192 || w * h > 16_777_216 {
@@ -1328,6 +1334,25 @@ mod tests {
         assert_eq!(crop_target(1, 1, 512 * 512, 8).unwrap(), (512, 512));
         assert!(crop_target(8192, 1, 1024 * 1024, 16).is_err());
         assert_eq!(model_canvas(&json!({"family":"sd15"})), (512 * 512, 8));
+        // The floor is one cell of the FAMILY grid, not a generic 64: this extreme mask
+        // ratio wants a 32 short edge, and a 16-grid family renders 32 exactly. The old
+        // 64 clamp moved it to a size the family never asked for (32 -> 64), which is the
+        // same costume the canvas floor wore before PLAN D-15.
+        assert_eq!(crop_target(256, 1, 512 * 512, 16).unwrap(), (8192, 32));
+        // An SDXL (64-grid) target keeps its 64 floor by being on its own grid.
+        assert_eq!(crop_target(128, 1, 512 * 512, 64).unwrap(), (5824, 64));
+        // Every target this returns sits on the grid the queue wall will demand, so the
+        // pass cannot be refused after the crop was already paid for.
+        for (ratio_w, ratio_h, area, grid) in [
+            (1_u32, 1_u32, 1024 * 1024_u64, 64_u64),
+            (3, 4, 512 * 512, 16),
+            (1000, 1, 512 * 512, 8),
+            (9, 21, 2048 * 2048, 32),
+        ] {
+            if let Ok((w, h)) = crop_target(ratio_w, ratio_h, area, grid) {
+                assert_eq!((w % grid, h % grid), (0, 0), "{ratio_w}:{ratio_h} /{grid}");
+            }
+        }
     }
 
     #[test]

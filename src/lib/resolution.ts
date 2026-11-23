@@ -36,7 +36,9 @@ export function scaleInput(mode:ScalingMode,source:Size,target:Size,grid=16):{si
  if(mode==='auto'){
   const scale=Math.min(1,2048/Math.min(source.width,source.height));
   if(scale===1)return scaleInput('off',source,target,grid);
-  width=Math.max(64,down(source.width*scale));height=Math.max(64,down(source.height*scale));
+  // The auto-downscale floor is one cell of the model's grid (PLAN D-15), not a hardcoded
+  // 64: `down` already snaps to the grid, and 64 was one family's grid again.
+  width=Math.max(grid,down(source.width*scale));height=Math.max(grid,down(source.height*scale));
  }else if(mode==='fit'||mode==='pad'){
   const scale=Math.min(width/source.width,height/source.height);
   width=Math.min(target.width,down(source.width*scale));height=Math.min(target.height,down(source.height*scale));

@@ -45,3 +45,18 @@ test('input scaling resolves concrete resize/crop/pad and actual downstream dime
  assert.deepEqual(scaleInput('fit',wide,square),{size:{width:1024,height:576},resize:{width:1024,height:576,crop:'disabled'}});
  assert.deepEqual(scaleInput('pad',wide,square),{size:square,resize:{width:1024,height:576,crop:'disabled',pad:{left:0,right:0,top:224,bottom:224}}});
 });
+test('the generic canvas wall floors at one latent cell; the family grid is a separate law (PLAN D-15)',()=>{
+ // 8 is one latent-grid cell (`VAEEncode`/`EmptyLatentImage` divide by 8); the old 64 floor
+ // was SDXL's grid mistaken for a universal law. What bounds an edge now is the family's own
+ // `multiple`, applied by the Workbench (`requiredCanvasGrid`) and natively
+ // (`jobs::family_grid_refusal`) - this wall cannot see the family, so it stays generic.
+ assert.ok(validCanvas({width:8,height:8}));
+ assert.ok(validCanvas({width:56,height:56}));
+ assert.ok(validCanvas({width:24,height:24}));
+ assert.equal(validCanvas({width:7,height:8}),false);
+ assert.equal(validCanvas({width:8200,height:64}),false);
+ // Input scaling floors at the model grid, not a hardcoded 64: an 8-grid family keeps a
+ // small input's own size instead of having it inflated to another family's grid.
+ assert.deepEqual(scaleInput('off',{width:60,height:24},{width:1024,height:1024},8),{size:{width:56,height:24}});
+ assert.deepEqual(scaleInput('off',{width:60,height:24},{width:1024,height:1024},16),{size:{width:48,height:16}});
+});
