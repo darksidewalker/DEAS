@@ -1,4 +1,4 @@
-import { evidence, heldJob, referenceModels, referenceNodes, refsEvidence, collection } from './Workbench.testHarness';
+import { evidence, heldJob, ltxModels, referenceModels, referenceNodes, refsEvidence, collection, videoEvidence } from './Workbench.testHarness';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { expect, test, vi } from 'vitest';
 import { Workbench } from './Workbench';
@@ -306,4 +306,80 @@ test('Beginner keeps the wizard CFG over its model-change starting values', asyn
   // Beginner's model-change reset ran after the hand-over; the draft's CFG is still the wizard's.
   await waitFor(() => expect((document.querySelector('[data-beginner-resolution]') as HTMLSelectElement).value).toBe('fixed'));
   expect((document.querySelector('input[data-num="cfg"]') as HTMLInputElement | null)?.value).toBe('4');
+});
+
+const h3Set = [
+  { category: 'diffusion_models', name: 'h3.safetensors', path: '/m/h3', family: 'minimax-h3', size: 1, info: null },
+  { category: 'text_encoders', name: 'minimax_h3_encoder.safetensors', path: '/m/t', size: 1, info: null },
+  { category: 'vae', name: 'h3_video_vae.safetensors', path: '/m/hv', size: 1, info: null },
+  { category: 'vae', name: 'h3_audio_vae.safetensors', path: '/m/ha', size: 1, info: null }];
+const editedFrame = { name: 'edit.png', path: '/out/raw/edit.png', src: 'asset://localhost//out/raw/edit.png' };
+const clipItem = { name: 'street.mp4', path: '/clips/street.mp4', src: 'asset://localhost//clips/street.mp4' };
+async function videoWorkbench(beginner = false) {
+  const ms = [...ltxModels, ...h3Set];
+  vi.mocked(scanModels).mockResolvedValue(ms as never);
+  vi.mocked(checkRecipePrerequisites).mockResolvedValue({ ...videoEvidence, allowlist: { ...videoEvidence.allowlist, nodes: [...videoEvidence.allowlist.nodes, 'UNETLoader', 'CLIPLoader', 'DualCLIPLoader', 'VAELoader'],
+    diffusionModels: ms.filter(m => 'family' in m && m.family).map(m => m.name), textEncoders: ms.filter(m => m.category === 'text_encoders').map(m => m.name), vaes: ms.filter(m => m.category === 'vae').map(m => m.name), clipTypes: ['ltxv', 'minimax'] } });
+  vi.mocked(uploadInput).mockImplementation(async (_base, path) => `deas-inputs/${path.split('/').at(-1)}`);
+  vi.mocked(runWorkbenchJob).mockImplementation(async (base, intent) => ({ ...heldJob('wizard-video', 'running', base), intent }));
+  const applied = vi.fn(), props = { endpoint: evidence.baseUrl, roots: { models: '/m', output: '/out' }, onWizardApplied: applied, beginner };
+  const view = render(<I18nProvider><Workbench {...props}/></I18nProvider>);
+  if (beginner) await waitFor(() => expect(scanModels).toHaveBeenCalled());
+  else await waitFor(() => expect(document.querySelector('[data-model-picker]')?.textContent).toMatch(/ltx|h3/));
+  return { applied, props, view };
+}
+
+test('a Replace video step "Edit video" runs LTX video-to-video with the clip as guide and the edited frame as first frame', async () => {
+  const { applied, props, view } = await videoWorkbench();
+  const handoff: WizardHandoff = { n: 21, wizard: 'replace', strategy: 'edit', pipeline: 'v2v', source: 'video', model: { name: 'LTX2/ltx.safetensors', path: '/m/unet/LTX2/ltx.safetensors' },
+    picture: editedFrame, sourceVideo: clipItem, sourceStrength: 0.2, seconds: 5, size: { width: 1280, height: 704 }, positive: 'The same shot with a red apple.', run: true };
+  view.rerender(<I18nProvider><Workbench {...props} wizard={handoff}/></I18nProvider>);
+  await waitFor(() => expect(applied).toHaveBeenCalledWith(21, undefined, expect.objectContaining({ state: 'running' })), { timeout: 4000 });
+  const intent = vi.mocked(runWorkbenchJob).mock.calls.at(-1)![1] as unknown as Record<string, any>;
+  expect(intent).toMatchObject({ recipeId: 'video-generation', family: 'ltx-2', model: 'LTX2/ltx.safetensors', positivePrompt: 'The same shot with a red apple.', width: 1280, height: 704, frames: 121,
+    sourceVideo: 'deas-inputs/street.mp4', firstFrame: 'raw/edit.png [output]' }); // the edited frame is used in place from the output folder
+  expect(intent.ltx.sourceStrength).toBe(0.2);
+});
+
+test('a Replace video step "Re-animate" runs H3 image-to-video from the edited frame without the clip', async () => {
+  const { applied, props, view } = await videoWorkbench();
+  const handoff: WizardHandoff = { n: 22, wizard: 'replace', strategy: 'reanimate', pipeline: 'i2v', source: 'video', model: { name: 'h3.safetensors', path: '/m/h3' },
+    picture: editedFrame, seconds: 5, size: { width: 1216, height: 672 }, positive: 'A red apple stays in the scene.', run: true };
+  view.rerender(<I18nProvider><Workbench {...props} wizard={handoff}/></I18nProvider>);
+  await waitFor(() => expect(applied).toHaveBeenCalledWith(22, undefined, expect.objectContaining({ state: 'running' })), { timeout: 4000 });
+  const intent = vi.mocked(runWorkbenchJob).mock.calls.at(-1)![1] as unknown as Record<string, any>;
+  expect(intent).toMatchObject({ family: 'minimax-h3', model: 'h3.safetensors', width: 1216, height: 672, frames: 124, positivePrompt: 'A red apple stays in the scene.' });
+  expect(intent.h3).toMatchObject({ mode: 'I2VA', references: [{ slot: 0, image: 'deas-inputs/edit.png' }] });
+  expect(intent.sourceVideo).toBeUndefined();
+});
+
+test('a wizard video run reports its video file, not the first-frame picture of that job', async () => {
+  const { applied, props, view } = await videoWorkbench();
+  const handoff: WizardHandoff = { n: 23, wizard: 'replace', strategy: 'reanimate', pipeline: 'i2v', source: 'video', model: { name: 'h3.safetensors', path: '/m/h3' },
+    picture: editedFrame, seconds: 5, size: { width: 1216, height: 672 }, positive: 'apple', run: true };
+  vi.mocked(pollWorkbench).mockResolvedValue(collection([{ ...heldJob('wizard-video', 'succeeded', evidence.baseUrl), outputRoot: '/out',
+    outputs: [{ filename: 'replace_00001-first-frame.png', subfolder: 'video', type: 'output' as const }, { filename: 'replace_00001.mp4', subfolder: 'video', type: 'output' as const, format: 'video/h264-mp4' }] }]));
+  view.rerender(<I18nProvider><Workbench {...props} wizard={handoff}/></I18nProvider>);
+  await waitFor(() => expect(applied).toHaveBeenCalledWith(23, undefined, expect.objectContaining({ state: 'succeeded', picture: expect.objectContaining({ path: '/out/video/replace_00001.mp4', video: true, checkpoint: 'h3.safetensors' }) })), { timeout: 8000 });
+});
+
+test('Beginner runs the Replace re-animate step at the wizard length and keeps that length for the next Run', async () => {
+  const { applied, props, view } = await videoWorkbench(true);
+  const handoff: WizardHandoff = { n: 24, wizard: 'replace', strategy: 'reanimate', pipeline: 'i2v', source: 'video', model: { name: 'h3.safetensors', path: '/m/h3' },
+    picture: editedFrame, seconds: 4.2, size: { width: 1216, height: 672 }, positive: 'apple', run: true };
+  view.rerender(<I18nProvider><Workbench {...props} wizard={handoff}/></I18nProvider>);
+  await waitFor(() => expect(applied).toHaveBeenCalledWith(24, undefined, expect.anything()), { timeout: 4000 });
+  const reply = applied.mock.calls.find(c => c[0] === 24)!;
+  expect(reply[2]).toMatchObject({ state: 'running' });
+  expect(vi.mocked(runWorkbenchJob).mock.calls.at(-1)![1]).toMatchObject({ family: 'minimax-h3', width: 1216, height: 672, h3: { mode: 'I2VA' } });
+  // H3 frames follow 17k+5 at 24 fps; 4.2 s maps to the grid, not to a family default.
+  const frames = (vi.mocked(runWorkbenchJob).mock.calls.at(-1)![1] as unknown as { frames: number }).frames;
+  expect((frames - 5) % 17).toBe(0); expect(frames).toBeGreaterThan(80); expect(frames).toBeLessThan(124);
+  // The draft keeps the wizard's length for the next Run.
+  vi.mocked(runWorkbenchJob).mockImplementation(async (base, intent) => ({ ...heldJob('again', 'failed', base), intent }));
+  const runButton = document.querySelector('[data-run]') as HTMLButtonElement;
+  await waitFor(() => expect(runButton.disabled).toBe(false), { timeout: 4000 });
+  fireEvent.click(runButton);
+  await waitFor(() => expect(vi.mocked(runWorkbenchJob).mock.calls.length).toBeGreaterThan(1));
+  expect((vi.mocked(runWorkbenchJob).mock.calls.at(-1)![1] as unknown as { frames: number }).frames).toBe(frames);
 });

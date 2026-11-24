@@ -1,15 +1,18 @@
 import { useEffect, useRef, useState } from 'react';
-import { convertFileSrc, isTauri } from '@tauri-apps/api/core';
+import { convertFileSrc, invoke, isTauri } from '@tauri-apps/api/core';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { useI18n } from '../../i18n/I18nProvider';
-import { pickMedia } from '../../lib/analysis';
+import { clipFrame, openClip, pickMedia } from '../../lib/analysis';
 import { describeMedia, dropCssPoint, itemFromEntry, pastedPaths, pastedPictures, pasteToInput, saveDerived } from '../../lib/media';
 import { stopWorkbenchJob } from '../../lib/jobs';
 import { scanModels } from '../../lib/models';
-import { builtinWizards, editGrid, findInLibrary, gridCopyName, gridCrop, preferredChoice, strategyCfg, wizardTargets, strategyPrompt, usesObject, wizardCanvas, wizardChoices, wizardReady, type WizardField, type WizardHandoff, type WizardModel, type WizardPicture, type WizardRun } from '../../lib/wizards';
+import { builtinWizards, editGrid, findInLibrary, gridCopyName, gridCrop, preferredChoice, strategyCfg, wizardTargets, strategyPrompt, usesObject, videoPrompt, videoSeconds, wizardCanvas, wizardChoices, wizardReady, wizardVideoChoices, type WizardField, type WizardHandoff, type WizardModel, type WizardPicture, type WizardRun } from '../../lib/wizards';
 import './darkWizards.css';
 
 const IMAGE = /\.(png|jpe?g|webp)$/i;
+const VIDEO = /\.(mp4|mov|webm|mkv)$/i;
+/** A clip as the picture to change: its first frame is what the image step edits. */
+type WizardClip = WizardPicture & { width: number; height: number; seconds: number };
 /** PNG of a rectangle of the picture; read through a blob so the asset protocol never taints the canvas. */
 async function cropPicture(src: string, r: { x: number; y: number; width: number; height: number }): Promise<Blob> {
   const response = await fetch(src); if (!response.ok) throw new Error(`Image load failed: ${response.status}`);
@@ -53,6 +56,13 @@ export function DarkWizards({ active = false, roots, onPrepare, outcome, onOpenG
   const [error, setError] = useState('');
   const [over, setOver] = useState<Slot | null>(null);
   const [cropping, setCropping] = useState(false);
+  // Video Replace (UX-22c2): the clip, its edited first frame, the chosen video method and the frame run that should continue into the video step.
+  const [clip, setClip] = useState<WizardClip | null>(null);
+  const [clipBusy, setClipBusy] = useState(false);
+  const [editedFrame, setEditedFrame] = useState<WizardPicture | null>(null);
+  const [videoMethodId, setVideoMethodId] = useState('');
+  const [videoModelPath, setVideoModelPath] = useState('');
+  const [chain, setChain] = useState<number | 'next' | null>(null);
   const tab = useRef<HTMLElement>(null), scan = useRef(0);
   const zones = useRef<Record<Slot, HTMLDivElement | null>>({ target: null, object: null });
 
@@ -93,19 +103,38 @@ export function DarkWizards({ active = false, roots, onPrepare, outcome, onOpenG
   // Owner decision: several targets share the one replacement (their grown masks merge); say so instead of splitting.
   const targets = wizard?.fields.includes('target') ? wizardTargets(fields.target ?? '') : [];
   const replacement = fields.replacement?.replace(/\s+/g, ' ').trim() || (withObject ? t('wizards.replace.multiObject') : '');
+  const videoChoices = clip && wizard?.video && models ? wizardVideoChoices(wizard.video, models) : [];
+  const videoChoice = videoChoices.find(c => c.method.id === videoMethodId && c.models.length) ?? videoChoices.find(c => c.models.length);
+  const videoModel = videoChoice?.models.find(m => m.path === videoModelPath) ?? videoChoice?.models[0];
+  const clipSeconds = clip && videoChoice ? videoSeconds(clip.seconds, videoChoice.method.maxSeconds) : undefined;
+  const videoBlocked = !native ? t('wizards.run.native') : !videoModel ? t('wizards.video.noModel') : '';
 
   const place = (into: Slot, value: WizardPicture | null) => {
     setPictures(p => ({ ...p, [into]: value }));
     // After the picture to change, the next paste or drop-free Choose goes to the empty object slot.
     if (value && into === 'target' && wizard?.object && !pictures.object) setSlot('object'); else setSlot(into);
   };
-  const fromPath = async (path: string, into: Slot) => {
+  /** `keepClip`: the picture replaces the clip's first frame (a grid crop of it), not the clip itself. */
+  const fromPath = async (path: string, into: Slot, keepClip = false) => {
     setError('');
     try {
       const item = (await describeMedia([path])).map(itemFromEntry).find(Boolean);
-      if (item?.media === 'image' && item.path) place(into, { name: item.name, path: item.path, src: item.src });
-      else setError(t('wizards.picture.unsupported'));
+      if (item?.media === 'image' && item.path) { if (into === 'target' && !keepClip) { setClip(null); setEditedFrame(null); } place(into, { name: item.name, path: item.path, src: item.src }); }
+      else if (item?.media === 'video' && item.path && into === 'target' && wizard?.video) await fromClip({ name: item.name, path: item.path, src: item.src });
+      else setError(t(item?.media === 'video' && into === 'object' ? 'wizards.picture.videoObject' : 'wizards.picture.unsupported'));
     } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+  };
+  // A clip's first frame comes from Media Analysis' exact FFmpeg frame path and is copied into Input, like a saved frame.
+  const fromClip = async (video: WizardPicture) => {
+    setClipBusy(true); setClip(null); setEditedFrame(null); setChain(null); place('target', null);
+    try {
+      const info = await openClip(video.path);
+      const copied = await invoke<string>('native_media_copy_in', { path: await clipFrame(video.path, 0, info.count) });
+      const frame = (await describeMedia([copied])).map(itemFromEntry).find(Boolean);
+      if (frame?.media !== 'image' || !frame.path) throw new Error(t('wizards.picture.unsupported'));
+      setClip({ ...video, width: info.width, height: info.height, seconds: info.duration });
+      place('target', { name: frame.name, path: frame.path, src: frame.src });
+    } finally { setClipBusy(false); }
   };
   const choose = async (into: Slot) => {
     setSlot(into);
@@ -116,7 +145,7 @@ export function DarkWizards({ active = false, roots, onPrepare, outcome, onOpenG
   const cropToGrid = async () => {
     if (!picture || !crop || cropping) return;
     setError(''); setCropping(true);
-    try { await fromPath(await saveDerived(await cropPicture(picture.src, crop), gridCopyName(picture.name, crop)), 'target'); }
+    try { await fromPath(await saveDerived(await cropPicture(picture.src, crop), gridCopyName(picture.name, crop)), 'target', true); }
     catch (e) { setError(e instanceof Error ? e.message : String(e)); }
     finally { setCropping(false); }
   };
@@ -131,7 +160,7 @@ export function DarkWizards({ active = false, roots, onPrepare, outcome, onOpenG
       const modal = document.querySelector('dialog[open], [aria-modal="true"]');
       if (modal && !modal.contains(el)) return;
       const into = live.current.slot;
-      const path = pastedPaths(e.clipboardData).find(p => IMAGE.test(p));
+      const path = pastedPaths(e.clipboardData).find(p => IMAGE.test(p) || VIDEO.test(p));
       if (path) { e.preventDefault(); void live.current.fromPath(path, into); return; }
       const copied = pastedPictures(e);
       if (!copied.length) return;
@@ -156,18 +185,19 @@ export function DarkWizards({ active = false, roots, onPrepare, outcome, onOpenG
         const hit = under(e.payload.position); setOver(e.payload.type !== 'drop' ? hit : null);
         if (e.payload.type !== 'drop' || !hit || !alive) return;
         const path = e.payload.paths[0];
-        if (path && IMAGE.test(path)) void live.current.fromPath(path, hit); else setError(t('wizards.picture.unsupported'));
+        if (path && (IMAGE.test(path) || VIDEO.test(path))) void live.current.fromPath(path, hit); else setError(t('wizards.picture.unsupported'));
       }).then(stop => { if (alive) unlisten = stop; else stop(); }, () => {});
     } catch { /* partial runtime: Choose and paste still work */ }
     return () => { alive = false; unlisten?.(); };
   }, [native, active]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const prepare = (withRun = false) => {
-    if (!wizard || !strategy || !model || !picture || !ready || (withRun && !runnable)) return;
+  /** True when a hand-over was sent. */
+  const prepare = (withRun = false): boolean => {
+    if (!wizard || !strategy || !model || !picture || !ready || (withRun && !runnable)) return false;
     const s = strategy, family = model.family ?? '';
     const canvas = s.source === 'reference' && pictureSize ? wizardCanvas(family, pictureSize) : undefined;
     const cfg = strategyCfg(s, family);
-    if (s.source === 'reference' && !canvas) { setError(t('wizards.picture.size')); return; }
+    if (s.source === 'reference' && !canvas) { setError(t('wizards.picture.size')); return false; }
     setError('');
     onPrepare({ wizard: wizard.id, strategy: s.id, pipeline: s.pipeline, source: s.source, ...(s.edit ? { edit: s.edit } : {}),
       model: { name: model.name, path: model.path }, picture,
@@ -175,7 +205,31 @@ export function DarkWizards({ active = false, roots, onPrepare, outcome, onOpenG
       ...(withObject && object ? { references: s.source === 'reference' ? [object] : [picture, object] } : {}),
       positive: strategyPrompt(s, fields, withObject), ...(canvas ? { size: canvas } : {}), ...(s.denoise !== undefined ? { denoise: s.denoise } : {}),
       ...(cfg !== undefined ? { cfg } : {}), ...(s.maskGrow !== undefined ? { maskGrow: s.maskGrow } : {}), ...(s.maskBlur !== undefined ? { maskBlur: s.maskBlur } : {}), ...(withRun ? { run: true, ...(s.needsMask ? { mask: maskTarget } : {}) } : {})});
+    return true;
   };
+
+  // Step 2 of a video Replace: the edited first frame drives an ordinary video draft that Generate runs.
+  const sendVideo = (frame: WizardPicture) => {
+    if (!wizard || !clip || !videoChoice || !videoModel || videoBlocked) return;
+    const m = videoChoice.method;
+    const size = videoModel.family ? wizardCanvas(videoModel.family, { width: clip.width, height: clip.height }) : undefined;
+    setError('');
+    onPrepare({ wizard: wizard.id, strategy: m.id, pipeline: m.pipeline, source: 'video', model: { name: videoModel.name, path: videoModel.path }, picture: frame,
+      ...(m.pipeline === 'v2v' ? { sourceVideo: { name: clip.name, path: clip.path, src: clip.src }, sourceStrength: m.sourceStrength } : {}),
+      positive: videoPrompt(m, fields), ...(size ? { size } : {}), ...(clipSeconds ? { seconds: clipSeconds } : {}), run: true });
+  };
+  // A finished frame run in video mode is the edited first frame; when it was started by *Run both steps*, the video step follows.
+  useEffect(() => {
+    const r = outcome?.run;
+    if (!clip || !outcome || !r) return;
+    if (r.state === 'succeeded' && r.picture && !r.picture.video) {
+      const frame = { name: r.picture.path.split(/[\\/]/).pop() ?? 'frame.png', path: r.picture.path, src: convertFileSrc(r.picture.path) };
+      setEditedFrame(frame);
+      if (chain === outcome.n) { setChain(null); sendVideo(frame); }
+    } else if (chain === outcome.n && r.state !== 'queued' && r.state !== 'running') setChain(null);
+  }, [outcome]); // eslint-disable-line react-hooks/exhaustive-deps
+  // App numbers hand-overs one after the other, so the frame run sent now is `handoff + 1`.
+  const runBoth = () => { if (!ready || !runnable || videoBlocked) return; if (prepare(true)) setChain((handoff ?? 0) + 1); };
 
   if (!wizard) return null;
   const field = (key: WizardField) => <label className="forge-field" key={key}>
@@ -188,7 +242,7 @@ export function DarkWizards({ active = false, roots, onPrepare, outcome, onOpenG
     return <div className="wizards-step" key={s} data-wizard-slot={s}>
       <div className="wizards-step-head"><span className="forge-note">{t(`wizards.picture.${s}`)}</span>
         <span className="wizards-row">
-          {shown && <button type="button" className="forge-ghost" data-wizard-remove={s} onClick={() => place(s, null)}>{t('wizards.picture.remove')}</button>}
+          {shown && <button type="button" className="forge-ghost" data-wizard-remove={s} onClick={() => { place(s, null); if (s === 'target') { setClip(null); setEditedFrame(null); setChain(null); } }}>{t('wizards.picture.remove')}</button>}
           <button type="button" className="forge-ghost" data-wizard-choose={s} aria-label={t(`wizards.picture.choose.${s}`)} disabled={!native} onClick={() => void choose(s)}>{t('wizards.picture.choose')}</button>
         </span></div>
       <div ref={el => { zones.current[s] = el; }} className={`wizards-drop${over === s ? ' over' : ''}${shown ? ' filled' : ''}${slots.length > 1 && slot === s ? ' is-active' : ''}`}
@@ -197,6 +251,8 @@ export function DarkWizards({ active = false, roots, onPrepare, outcome, onOpenG
           : <div className="forge-empty"><strong>{t('wizards.picture.empty')}</strong><span>{t(s === 'object' ? 'wizards.picture.objectBody' : 'wizards.picture.emptyBody')}</span></div>}
       </div>
       {shown && <p className="forge-note wizards-name" title={shown.path}>{shown.name}{size ? ` · ${size.width}×${size.height}` : ''}</p>}
+      {s === 'target' && clipBusy && <p className="forge-note" role="status" data-wizard-clip-reading>{t('wizards.video.reading')}</p>}
+      {s === 'target' && clip && <p className="forge-note" data-wizard-clip title={clip.path}>{t('wizards.video.clip', { name: clip.name, size: `${clip.width}×${clip.height}`, seconds: clip.seconds.toFixed(1) })}</p>}
     </div>;
   };
   const hint = strategy ? `wizards.${wizard.id}.hint.${strategy.id}${withObject ? 'Object' : ''}` : '';
@@ -253,17 +309,39 @@ export function DarkWizards({ active = false, roots, onPrepare, outcome, onOpenG
           {scanError && <p className="error-message" role="alert">{scanError}</p>}
         </>}
       </div>
+      {clip && wizard.video && <div className="wizards-step" data-wizard-video>
+        <span className="forge-note">{t('wizards.video.title')}</span>
+        <div className="wizards-methods" role="group" aria-label={t('wizards.video.title')}>
+          {videoChoices.map(c => <button type="button" key={c.method.id} className="forge-ghost" data-wizard-video-method={c.method.id} aria-pressed={videoChoice?.method.id === c.method.id}
+            disabled={!c.models.length} title={c.models.length ? undefined : t('wizards.video.noModel')} onClick={() => setVideoMethodId(c.method.id)}>{t(`wizards.${wizard.id}.video.${c.method.id}`)}</button>)}
+        </div>
+        {videoChoice && videoModel && <>
+          <label className="forge-field"><span>{t('wizards.video.model')}</span>
+            <select data-wizard-video-model value={videoModel.path} onChange={e => setVideoModelPath(e.target.value)}>
+              {videoChoice.models.map(m => <option key={m.path} value={m.path}>{m.name}</option>)}
+            </select></label>
+          <p className="forge-note" data-wizard-video-hint>{t(`wizards.${wizard.id}.video.hint.${videoChoice.method.id}`)}</p>
+          {clipSeconds && <p className="forge-note" data-wizard-video-length>{t('wizards.video.length', { seconds: String(clipSeconds), total: clip.seconds.toFixed(1) })}</p>}
+        </>}
+        {!videoChoice && <p className="forge-note" data-wizard-video-missing>{t('wizards.video.noModel')}</p>}
+        <p className="forge-note" data-wizard-video-notice>{t('wizards.video.notice')}</p>
+        {editedFrame && <p className="forge-note wizards-name" data-wizard-edited-frame title={editedFrame.path}>{t('wizards.video.frameReady', { name: editedFrame.name })}</p>}
+      </div>}
       <div className="wizards-row wizards-actions">
         <button type="button" className="action-button" data-wizard-prepare disabled={!ready || pending || running} onClick={() => prepare()}>{t('wizards.prepare')}</button>
-        <button type="button" className="action-button" data-wizard-run disabled={!ready || pending || running || !runnable} title={runBlocked || undefined} onClick={() => prepare(true)}>{t('wizards.run')}</button>
+        <button type="button" className="action-button" data-wizard-run disabled={!ready || pending || running || !runnable} title={runBlocked || undefined} onClick={() => prepare(true)}>{t(clip ? 'wizards.video.frameRun' : 'wizards.run')}</button>
+        {clip && <button type="button" className="action-button" data-wizard-video-run-both disabled={!ready || pending || running || !runnable || !!videoBlocked || chain !== null} title={videoBlocked || runBlocked || undefined} onClick={runBoth}>{t('wizards.video.runBoth')}</button>}
+        {clip && editedFrame && <button type="button" className="action-button" data-wizard-video-run-step disabled={pending || running || !!videoBlocked || chain !== null} title={videoBlocked || undefined} onClick={() => sendVideo(editedFrame)}>{t('wizards.video.runVideo')}</button>}
         {running && run?.job && <button type="button" className="forge-ghost" data-wizard-stop onClick={() => { const job = run?.job; if (job) void stopWorkbenchJob(job).catch(e => setError(e instanceof Error ? e.message : String(e))); }}>{t('wizards.run.stop')}</button>}
         {!running && <span className="forge-note">{t('wizards.prepareNote')}</span>}
       </div>
       {run && <div className="wizards-run" data-wizard-run-state={run.state} role="status">
-        <p className="forge-note" data-wizard-run-status>{run.masking ? t('wizards.run.masking') : !run.job && run.error ? t('wizards.run.notRun') : run.state === 'running' ? (run.max ? t('wizards.run.running', { value: String(run.value ?? 0), max: String(run.max) }) : t('wizards.run.drawing')) : t(`wizards.run.${run.state}`)}</p>
+        <p className="forge-note" data-wizard-run-status>{run.masking ? t('wizards.run.masking') : !run.job && run.error ? t('wizards.run.notRun') : run.state === 'running' ? (run.max ? t('wizards.run.running', { value: String(run.value ?? 0), max: String(run.max) }) : t('wizards.run.drawing')) : t(run.state === 'succeeded' && run.picture?.video ? 'wizards.run.videoSucceeded' : `wizards.run.${run.state}`)}</p>
+        {chain !== null && running && <p className="forge-note" data-wizard-chain>{t('wizards.video.chained')}</p>}
         {run.preview && running && <img className="wizards-preview" src={run.preview} alt=""/>}
         {run.picture && <figure className="wizards-result">
-          <img src={convertFileSrc(run.picture.path)} alt={strategy ? strategyPrompt(strategy, fields, withObject).slice(0, 160) : t('wizards.title')}/>
+          {run.picture.video ? <video src={convertFileSrc(run.picture.path)} controls preload="metadata" data-wizard-result-video/>
+            : <img src={convertFileSrc(run.picture.path)} alt={strategy ? strategyPrompt(strategy, fields, withObject).slice(0, 160) : t('wizards.title')}/>}
           <figcaption>{[`${run.picture.width}×${run.picture.height}`, run.picture.checkpoint.replace(/\.(safetensors|gguf|ckpt)$/i, ''), t('wizards.run.seed', { seed: String(run.picture.seed) }), run.picture.ms ? `${(run.picture.ms / 1000).toFixed(1)} s` : ''].filter(Boolean).join(' · ')}</figcaption>
         </figure>}
         {(run.picture || run.error) && onOpenGenerate && <button type="button" className="forge-ghost" data-wizard-open onClick={onOpenGenerate}>{t('wizards.run.open')}</button>}

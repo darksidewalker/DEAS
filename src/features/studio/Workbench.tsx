@@ -1014,7 +1014,7 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
   if(size===null){fail(t('chat.render.badSize',{aspect:ask.aspect??'',resolution:ask.resolution??''}));return;}
   lastError.current='';
   void run(undefined,undefined,{positive:ask.positive,negative:ask.negative,...(size?{size}:{})}).then(started=>{
-   if(started)onChatRender?.(ask.id,{job:started.job,width:started.intent.width,height:started.intent.height,seed:started.intent.seed,checkpoint:started.intent.checkpoint});
+   if(started)onChatRender?.(ask.id,{job:started.job,width:started.intent.width,height:started.intent.height,seed:started.intent.seed,checkpoint:'checkpoint' in started.intent?started.intent.checkpoint:started.intent.model});
    else fail(lastError.current||t('chat.render.notStarted'));
   },e=>fail(e instanceof Error?e.message:String(e)));
  },[chatRender?.id]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -1044,7 +1044,7 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
  }
  /** `only` = Post-process: the refine/upscale pass alone on that image (an image-to-image job), without a first generation. */
  /** `step` = a continuity planner step (H3): its seconds and action replace the controls, and the finished job's clip is pinned to it. */
- async function run(only?:{image:string;size:Size;src:string;item:MediaItem;upscaleOnly?:boolean},step?:{index:number;all:boolean},chat?:{positive:string;negative:string;size?:Size}):Promise<{job:JobStatus;intent:DiagnosticImageIntentV1}|undefined>{
+ async function run(only?:{image:string;size:Size;src:string;item:MediaItem;upscaleOnly?:boolean},step?:{index:number;all:boolean},chat?:{positive:string;negative:string;size?:Size}):Promise<{job:JobStatus;intent:DiagnosticImageIntentV1|VideoIntentV1}|undefined>{
   if(!native||stopLock.current||admissionBlocked||samBusy||nativeRefining||scanning||((step||autoPlan||planRun.current||resolving)&&(!step||serialBlocked))||(moss&&only))return;
   if(step&&!continuityOn)return;
   if(!checkpoint){setError(t('studio.run.noModels'));return;}
@@ -1061,7 +1061,8 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
   const out=optionsPref.output??defaultVideoOutput;
   if(seedMode==='random'){nextSeed.current=randomSeed();setSeed(nextSeed.current);}
   if(isMusic&&!only){await runMusic(naming,capturedSeed);return;}
-  if(isVideo&&!only){await runVideo(naming,out,capturedSeed,step);return;}
+  // The started video job is returned like a picture job, so a wizard run can follow it.
+  if(isVideo&&!only)return await runVideo(naming,out,capturedSeed,step);
   const layerSnapshot=layers.filter(l=>l.visible).map(l=>({...l}));const inputLayers=visibleImages(layerSnapshot);
   const refSnap=imageRefs.map(r=>({path:r.item.path!,strength:r.strength}));
   const methodSnapshot=referenceMethod,visionSnapshot=refVision;
@@ -1249,7 +1250,7 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
    if(cont&&(dialSpan.basis==='planContinued'||dialSpan.basis==='plan'))intent=withDialSourceFrames(intent,dialSpan.window?.source);
    return intent;
  }
- async function runVideo(naming:string,out:VideoOutput,capturedSeed:number,step?:{index:number;all:boolean}){
+ async function runVideo(naming:string,out:VideoOutput,capturedSeed:number,step?:{index:number;all:boolean}):Promise<{job:JobStatus;intent:VideoIntentV1}|undefined>{
   if(!videoFamily||!family||!split||!model)return;
   if(step&&plan.source&&plan.source.endpoint!==endpoint){setError(t('studio.run.cont.sourceEndpointChanged'));setAutoPlan(false);return;}
   const next=step?nextStep(plan):null;
@@ -1276,6 +1277,7 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
     if(job.state==='succeeded')void pinClip(job);
     else if(job.state==='failed'||job.state==='cancelled'||job.state==='unknown'){planRun.current=null;setAutoPlan(false);}
    }
+   return activeRun(ticket)?{job,intent}:undefined;
   }catch(e){if(activeRun(ticket)){setError(e instanceof Error?e.message:String(e));setAutoPlan(false);}}
   finally{finishRun(ticket,admitted);}
  }
@@ -1856,11 +1858,11 @@ const promptTools=forgeContext&&<>
  const pickModel=(m:LocalModel)=>switchDraft(pipeline,m,true,false,true);
  // Dark Wizards: prepare an ordinary draft (model, picture, prompt, size); with `run`, Generate starts that draft afterwards.
  const wizardApplied=useRef(0);
- const wizardBeginnerSize=useRef<{model:string;size?:Size;cfg?:number}|null>(null);
+ const wizardBeginnerSize=useRef<{model:string;size?:Size;cfg?:number;seconds?:number}|null>(null);
  const [wizardStart,setWizardStart]=useState<number>();
  // A masked one-click run first waits for the editor to hold the picture, then masks it with SAM 3.1 from *Replace what*.
  const [wizardMask,setWizardMask]=useState<{n:number;targets:string[];grow:number}>();
- const wizardJob=useRef<{n:number;job:JobStatus;intent:DiagnosticImageIntentV1}|undefined>(undefined);
+ const wizardJob=useRef<{n:number;job:JobStatus;intent:DiagnosticImageIntentV1|VideoIntentV1}|undefined>(undefined);
  useEffect(()=>{
   if(!wizard||wizardApplied.current===wizard.n||models===null)return;
   wizardApplied.current=wizard.n;wizardJob.current=undefined;setWizardStart(undefined);setWizardMask(undefined);
@@ -1871,7 +1873,7 @@ const promptTools=forgeContext&&<>
   if(beginner){
    // Beginner restores its own per-model LoRA draft and starting settings when the model changes; the wizard's draft has no LoRAs and keeps its size.
    beginnerLoraDraft.current={model:identity(m),loras:[]};writePref('beginner.loras',beginnerLoraDraft.current);
-   wizardBeginnerSize.current=model&&identity(model)===identity(m)?null:{model:identity(m),size:wizard.size,cfg:wizard.cfg};
+   wizardBeginnerSize.current=model&&identity(model)===identity(m)?null:{model:identity(m),size:wizard.size,cfg:wizard.cfg,seconds:wizard.seconds};
   }
   switchDraft(wizard.pipeline,m,true);
   setHistoryDraft(null);setLoras([]);
@@ -1879,6 +1881,13 @@ const promptTools=forgeContext&&<>
   const picture:MediaItem={name:wizard.picture.name,path:wizard.picture.path,src:wizard.picture.src,media:'image'};
   const references=(wizard.references??[]).map(r=>({item:{name:r.name,path:r.path,src:r.src,media:'image' as const},strength:0.6}));
   if(wizard.source==='reference'){setMedia(null);setImageRefs([{item:picture,strength:0.6},...references]);}
+  else if(wizard.source==='video'){
+   // Video step of a Replace: the edited first frame is the first frame; LTX video-to-video also keeps the clip as its guide.
+   setImageRefs([]);setRefs([]);setLastFrame(null);setLastOnlySrc(null);setMedia(picture);setWizardPicture(null);
+   setSourceVideo(wizard.sourceVideo?{name:wizard.sourceVideo.name,path:wizard.sourceVideo.path,src:wizard.sourceVideo.src,media:'video'}:null);setSourceVideoSize(null);
+   if(wizard.sourceStrength!==undefined&&isUnit(wizard.sourceStrength))setSourceStrength(wizard.sourceStrength);
+   if(wizard.seconds!==undefined&&wizard.seconds>0){const seconds=wizard.seconds;setVideo(v=>({...v,seconds}));}
+  }
   else {setImageRefs(references);setMedia(picture);setWizardPicture(comfyName(picture)?null:{path:wizard.picture.path,name:wizard.picture.name});if(wizard.edit)setEdit(wizard.edit);if(wizard.denoise!==undefined)(wizard.edit==='inpaint'?setInpaintDenoise:setDenoise)(wizard.denoise);if(wizard.maskBlur!==undefined&&isMaskBlur(wizard.maskBlur))setMaskBlur(wizard.maskBlur);}
   if(wizard.size){setWidth(wizard.size.width);setHeight(wizard.size.height);setResolution('fixed');}
   // The strategy's measured CFG for this family (set after switchDraft's starting values; Beginner reapplies it below after its model reset).
@@ -1931,11 +1940,13 @@ const promptTools=forgeContext&&<>
   held.job=found;
   if(found.state==='queued'||found.state==='running'){onWizardApplied?.(held.n,undefined,{state:found.state,job:found,...(found.progress?{value:found.progress.value,max:found.progress.max}:{}),...(found.preview?{preview:found.preview}:{})});return;}
   wizardJob.current=undefined;
-  const output=found.outputs.find(o=>!o.format?.startsWith('video/'));
+  // A video step's result is its video; picture runs keep their picture (a video job's first-frame PNG is not the result).
+  const isVideoRun=held.intent.recipeId==='video-generation';
+  const output=isVideoRun?found.outputs.find(o=>o.format?.startsWith('video/')||/\.(mp4|webm|mkv|mov)$/i.test(o.filename)):found.outputs.find(o=>!o.format?.startsWith('video/'));
   const path=output&&found.state==='succeeded'?jobOutputPath(found,output):undefined;
   const problem=found.state!=='succeeded'?(found.error||t(found.state==='cancelled'?'wizards.run.cancelled':'wizards.run.failed')):(path?undefined:t('wizards.run.noFile'));
   onWizardApplied?.(held.n,undefined,{state:found.state,job:found,
-   ...(path?{picture:{path,width:held.intent.width,height:held.intent.height,seed:held.intent.seed,checkpoint:held.intent.checkpoint,...(found.metadata?.generationMs!=null?{ms:found.metadata.generationMs}:{})}}:{}),
+   ...(path?{picture:{path,width:held.intent.width,height:held.intent.height,seed:held.intent.seed,checkpoint:'checkpoint' in held.intent?held.intent.checkpoint:held.intent.model,...(found.metadata?.generationMs!=null?{ms:found.metadata.generationMs}:{}),...(isVideoRun?{video:true}:{})}}:{}),
    ...(problem?{error:problem}:{})});
  },[jobs]); // eslint-disable-line react-hooks/exhaustive-deps
  const beginnerTarget=(m:LocalModel)=>familyOf(m)?.defaults||m.family==='yue2'||aceMusicProfile(m.family)?pipelines.find(p=>!blocked(m,p)):undefined;
@@ -1973,7 +1984,7 @@ const promptTools=forgeContext&&<>
    for(const key of beginnerMusicEdited.current)advancedSettings.current[key]=authored[key];
    applyStudioSettings(advancedSettings.current);advancedSettings.current=null;const saved=advancedReferences.current;if(saved){setImageRefs(saved.imageRefs);setRefs(saved.refs);setRefmods(saved.refmods);setLastFrame(saved.lastFrame);setLastOnlySrc(saved.lastOnlySrc);setFramePeople(saved.framePeople);setSourceVideo(saved.sourceVideo);setPlan(saved.plan);advancedReferences.current=null;}}
  },[beginner]);
- useEffect(()=>{if(!beginner||!model)return;const sameModel=beginnerModelKey.current===identity(model);beginnerModelKey.current=identity(model);const draft=beginnerLoraDraft.current;const allowed=new Set(beginnerLoraModels.map(m=>m.name));setLoras(!isGguf(model.name)&&draft?.model===identity(model)?draft.loras.filter(l=>allowed.has(l.name)):[]);if(!isMusic){startingSettings(model);if(sameModel){setSteps(steps);setCfg(cfg);}}const fromWizard=wizardBeginnerSize.current;if(fromWizard?.model===identity(model)){wizardBeginnerSize.current=null;if(fromWizard.size){setWidth(fromWizard.size.width);setHeight(fromWizard.size.height);setResolution('fixed');}if(fromWizard.cfg!==undefined)setCfg(fromWizard.cfg);}const videoDefaults=familyOf(model)?.video;setVideo({...defaultVideo,...(videoDefaults?{seconds:videoDefaults.seconds,fps:videoDefaults.fps}:{})});},[beginner,model?.path,model?.name,model?.family]);
+ useEffect(()=>{if(!beginner||!model)return;const sameModel=beginnerModelKey.current===identity(model);beginnerModelKey.current=identity(model);const draft=beginnerLoraDraft.current;const allowed=new Set(beginnerLoraModels.map(m=>m.name));setLoras(!isGguf(model.name)&&draft?.model===identity(model)?draft.loras.filter(l=>allowed.has(l.name)):[]);if(!isMusic){startingSettings(model);if(sameModel){setSteps(steps);setCfg(cfg);}}const fromWizard=wizardBeginnerSize.current;if(fromWizard?.model===identity(model)){wizardBeginnerSize.current=null;if(fromWizard.size){setWidth(fromWizard.size.width);setHeight(fromWizard.size.height);setResolution('fixed');}if(fromWizard.cfg!==undefined)setCfg(fromWizard.cfg);}const wizardSeconds=fromWizard?.model===identity(model)?fromWizard.seconds:undefined;const videoDefaults=familyOf(model)?.video;setVideo({...defaultVideo,...(videoDefaults?{seconds:videoDefaults.seconds,fps:videoDefaults.fps}:{}),...(wizardSeconds?{seconds:wizardSeconds}:{})});},[beginner,model?.path,model?.name,model?.family]);
  // Only authored intent is shared across restarts. Automatic beginner settings must
  // never overwrite the user's persisted advanced technical defaults.
  useEffect(()=>{if(!beginner||project)return;writePref('studio.run.positive',positive);writePref('studio.run.checkpoint',checkpointPref);writePref('studio.run.pipeline',pipeline);writePref('studio.run.aspect',aspectPref);if(resolutionPref!=='fixed')writePref('studio.run.resolution',resolutionPref);writePref(musicPromptPreferenceKeys[0],musicStyle);writePref(musicPromptPreferenceKeys[1],musicLyrics);},[beginner,project,positive,checkpointPref,pipeline,aspectPref,resolutionPref,musicStyle,musicLyrics]);

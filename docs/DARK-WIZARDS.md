@@ -22,6 +22,19 @@ Swaps a person, object or detail in a picture for something else — described i
 
 Preparing selects the model like a click in the Models dock (its remembered settings return), clears that draft's LoRAs, replaces the picture to edit / prompt references and the positive prompt, and leaves the negative prompt, seed, sampler and post-processing as they are. Check the Run Plan before Run. Components the model needs (text encoder, VAE) are checked by Generate as usual.
 
+### Replace in a video
+
+The picture to change can also be an MP4, MOV, WebM or MKV video (drop, paste or Choose…, as for a picture; the object picture must stay a picture). The wizard reads the clip, takes its exact first frame with the same FFmpeg frame path as Media Analysis, saves it as a new file in the Input folder and shows it as the picture to change, with the clip's name, size and length below it. Then it works in two steps:
+
+1. **Edit the first frame** — every image method above works on that frame (Reference edit, Paint a mask, the object picture, Crop to W×H).
+2. **Video method** — two methods, chosen from what was measured (see [verification](VERIFICATION.md#dark-wizards-replace-for-videos-in-the-wizard-ux-22c2-0327-2026-11-24)):
+   - **Edit video (LTX 2.3)**: LTX video-to-video with the clip as guide (source strength 0.2) and the edited frame as first frame. It keeps the clip's camera and motion and works best for still or slow shots. In strongly moving shots the old object comes back after about a second, and the clip's sound is not kept.
+   - **Re-animate from the edited frame (MiniMax H3)**: H3 image-to-video from the edited frame. The replacement stays, but the motion is new and does not follow the clip; H3 makes its own sound.
+
+   The wizard says plainly that strongly moving shots are not reliable yet with either method. It uses the first 5 seconds of the clip at most (the clip's own length when it is shorter), at the video model's usual pixel count in the clip's aspect, on that model's 32-pixel grid.
+
+**Run both steps** edits the frame through Generate and, when that picture is done, hands the edited frame to the chosen video method and runs it there — both are ordinary Generate jobs in the queue with their Run Plan, Stop and history. **Edit the first frame** runs only step 1; after any finished frame edit, **Run the video step** reuses that edited frame (for example to try the other method) without editing the frame again. The video result plays in the wizard and is in Generate's queue and Media. A video method without an installed model is greyed out with *No installed model for this video method*. The video model list is sorted by name; pick the model you want before running (an H3 base model runs at its family's starting settings, a Turbo model at its own).
+
 ### In Beginner
 
 **Wizards** in Beginner's band opens the same wizard. **Prepare in Generate** switches to Beginner's **Generation** page; **Prepare and run** stays on the wizard as in Advanced. Only models Beginner can use itself are accepted (the same ones its Models page offers); any other choice is refused with a note and nothing changes. What Beginner shows of the prepared draft:
@@ -42,4 +55,4 @@ A wizard is a data entry in `src/wizards/builtin.json`: its input fields, whethe
 
 ## Not yet included
 
-Replace for videos and the planned Mood, Movie Maker and Grid Generator wizards are tracked in the [plan](PLAN.md#ux-22--dark-wizards-tab--replace-priority-1-movie-maker-mood-grid-generator).
+The planned Mood, Movie Maker and Grid Generator wizards are tracked in the [plan](PLAN.md#ux-22--dark-wizards-tab--replace-priority-1-movie-maker-mood-grid-generator).

@@ -24,7 +24,10 @@ beforeEach(() => {
     const a = args as Record<string, any>;
     if (command === 'native_models_scan') return models;
     if (command === 'native_analysis_pick') return picks.shift() ?? '/pics/street.png';
-    if (command === 'native_media_describe') return a.paths.map((path: string) => ({ kind: 'file', name: path.split('/').pop(), path, media: /\.(png|jpe?g|webp)$/i.test(path) ? 'image' : null }));
+    if (command === 'native_media_describe') return a.paths.map((path: string) => ({ kind: 'file', name: path.split('/').pop(), path, media: /\.(png|jpe?g|webp)$/i.test(path) ? 'image' : /\.(mp4|mov|webm|mkv)$/i.test(path) ? 'video' : null }));
+    if (command === 'native_analysis_frames_open') return { name: 'clip', width: 1280, height: 720, fps: 24, count: 192, duration: 8, stride: 1, thumbs: [] };
+    if (command === 'native_analysis_frame') return `/runtime/frames/${a.index}.png`;
+    if (command === 'native_media_copy_in') return '/in/clip-first.png';
     if (command === 'native_workbench_interrupt_running' || command === 'native_workbench_cancel_pending') return { ...(a as object) } as never;
     throw new Error(`Unexpected ${command}`);
   });
@@ -126,10 +129,13 @@ it('takes a file copied in a file manager by Ctrl+V, refuses other files, and sh
   fireEvent.paste(document.body, { clipboardData: { files: [], getData: (type: string) => type === 'text/uri-list' ? 'file:///pics/My%20Cat.webp' : '' } });
   expect(await screen.findByRole('img', { name: 'My Cat.webp' })).toBeTruthy();
   fireEvent.paste(document.body, { clipboardData: { files: [], getData: (type: string) => type === 'text/plain' ? '/pics/clip.mp4' : '' } });
-  expect(screen.getByRole('img', { name: 'My Cat.webp' })).toBeTruthy(); // a video path is not a wizard picture
+  // The highlighted slot is now the object picture, which cannot be a video; the picture to change stays.
+  await screen.findByText('A video goes into “Picture to change”; the object to put in must be a picture.');
+  expect(screen.getByRole('img', { name: 'My Cat.webp' })).toBeTruthy();
   view.rerender(<I18nProvider><DarkWizards active roots={{ models: '/m', input: '/in' }} onPrepare={onPrepare} handoff={2} outcome={{ n: 2, error: 'Generate cannot use the model the wizard chose.' }}/></I18nProvider>);
   expect(screen.getByText('Generate cannot use the model the wizard chose.')).toBeTruthy();
-  await waitFor(() => expect(calls('native_media_describe')).toEqual([{ paths: ['/pics/My Cat.webp'] }]));
+  await waitFor(() => expect(calls('native_media_describe')).toEqual([{ paths: ['/pics/My Cat.webp'] }, { paths: ['/pics/clip.mp4'] }]));
+  expect(calls('native_analysis_frames_open')).toEqual([]);
 });
 
 it('runs the prepared draft through Generate with Prepare and run, and keeps that button closed for the mask method without SAM 3.1', async () => {
@@ -329,4 +335,90 @@ it('hands the masked method its measured CFG on the full Qwen 2.1 model only', a
   fireEvent.click(screen.getByRole('button', { name: 'Prepare in Generate' }));
   expect(onPrepare.mock.calls.at(-1)![0]).toMatchObject({ strategy: 'reference' });
   expect(onPrepare.mock.calls.at(-1)![0].cfg).toBeUndefined();
+});
+
+const ltx = { category: 'diffusion_models', name: 'ltx23.safetensors', path: '/m/diffusion_models/ltx23.safetensors', size: 1, info: null, family: 'ltx-2' };
+const h3 = { category: 'diffusion_models', name: 'h3.safetensors', path: '/m/diffusion_models/h3.safetensors', size: 1, info: null, family: 'minimax-h3' };
+async function chooseClip() {
+  picks = ['/clips/street.mp4'];
+  fireEvent.click(await screen.findByRole('button', { name: 'Choose… picture to change' }));
+  const img = await screen.findByRole('img', { name: 'clip-first.png' });
+  Object.defineProperties(img, { naturalWidth: { value: 1280 }, naturalHeight: { value: 720 } });
+  fireEvent.load(img);
+  await screen.findByText('clip-first.png · 1280×720');
+}
+
+it('a video as the picture to change edits its first frame, then hands the edited frame to the chosen video method', async () => {
+  models = [qwenFull, ltx, h3];
+  const onPrepare = vi.fn();
+  const props = { active: true, roots: { models: '/m', input: '/in' }, onPrepare };
+  const view = render(<I18nProvider><DarkWizards {...props}/></I18nProvider>);
+  await chooseClip();
+  // The first frame comes from Media Analysis' exact frame path and is copied into Input.
+  expect(calls('native_analysis_frames_open')).toEqual([{ path: '/clips/street.mp4' }]);
+  expect(calls('native_analysis_frame')).toEqual([{ path: '/clips/street.mp4', index: 0, count: 192 }]);
+  expect(calls('native_media_copy_in')).toEqual([{ path: '/runtime/frames/0.png' }]);
+  expect(screen.getByText(/Video street\.mp4 · 1280×720 · 8\.0 s/)).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Edit video (LTX 2.3)', pressed: true })).toBeTruthy();
+  expect(screen.getByText(/In strongly moving shots the old object comes back/)).toBeTruthy();
+  expect(screen.getByText('Uses the first 5 s of the 8.0 s clip.')).toBeTruthy();
+  expect(screen.getByText('Strongly moving shots are not reliable yet with either method.')).toBeTruthy();
+  type('Replace what', 'the phone');
+  type('With what', 'a red apple');
+  fireEvent.click(screen.getByRole('button', { name: 'Run both steps' }));
+  expect(onPrepare).toHaveBeenCalledTimes(1);
+  expect(onPrepare.mock.calls[0][0]).toMatchObject({ strategy: 'reference', source: 'reference', run: true, picture: { path: '/in/clip-first.png' } });
+  // Generate reports the frame run (hand-over 1); its picture becomes the edited frame and the video step follows.
+  const frameRun = { state: 'succeeded' as const, picture: { path: '/out/raw/edit.png', width: 1568, height: 896, seed: 3, checkpoint: 'q' } };
+  view.rerender(<I18nProvider><DarkWizards {...props} handoff={1} outcome={{ n: 1, run: { state: 'running' as const } }}/></I18nProvider>);
+  expect(screen.getByText('The video step starts when the edited first frame is done.')).toBeTruthy();
+  view.rerender(<I18nProvider><DarkWizards {...props} handoff={1} outcome={{ n: 1, run: frameRun }}/></I18nProvider>);
+  await waitFor(() => expect(onPrepare).toHaveBeenCalledTimes(2));
+  const video = onPrepare.mock.calls[1][0];
+  expect(video).toMatchObject({ wizard: 'replace', strategy: 'edit', pipeline: 'v2v', source: 'video', model: { path: ltx.path }, run: true, seconds: 5, sourceStrength: 0.2,
+    picture: { name: 'edit.png', path: '/out/raw/edit.png' }, sourceVideo: { name: 'street.mp4', path: '/clips/street.mp4' },
+    positive: 'The same shot as the source video, with a red apple instead of the phone. Keep the camera, the motion and everything else unchanged.' });
+  expect(video.size.width % 32).toBe(0); expect(video.size.height % 32).toBe(0);
+  expect(Math.abs(video.size.width / video.size.height - 16 / 9)).toBeLessThan(0.05);
+  expect(screen.getByText('Edited first frame ready: edit.png')).toBeTruthy();
+  // The other method reuses the edited frame without editing it again.
+  view.rerender(<I18nProvider><DarkWizards {...props} handoff={2} outcome={{ n: 2, run: { state: 'succeeded' as const, picture: { path: '/out/video/a.mp4', width: 1280, height: 704, seed: 3, checkpoint: 'ltx23', video: true } } }}/></I18nProvider>);
+  expect(screen.getByText('Done — the video shows here and in Generate’s queue.')).toBeTruthy();
+  expect(document.querySelector('[data-wizard-result-video]')?.getAttribute('src')).toBe('asset:///out/video/a.mp4');
+  fireEvent.click(screen.getByRole('button', { name: 'Re-animate from the edited frame (MiniMax H3)' }));
+  expect(screen.getByText(/the motion is new and does not follow the clip/)).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Run the video step' }));
+  expect(onPrepare).toHaveBeenCalledTimes(3);
+  const again = onPrepare.mock.calls[2][0];
+  expect(again).toMatchObject({ strategy: 'reanimate', pipeline: 'i2v', source: 'video', model: { path: h3.path }, picture: { path: '/out/raw/edit.png' }, seconds: 5 });
+  expect(again.sourceVideo).toBeUndefined(); expect(again.sourceStrength).toBeUndefined();
+  // Removing the picture to change drops the clip and its edited frame.
+  fireEvent.click(document.querySelector('[data-wizard-remove="target"]')!);
+  expect(document.querySelector('[data-wizard-video]')).toBeNull();
+});
+
+it('a failed frame run does not start the video step, and a video cannot be the object picture', async () => {
+  models = [qwenFull, ltx];
+  const onPrepare = vi.fn();
+  const props = { active: true, roots: { models: '/m', input: '/in' }, onPrepare };
+  const view = render(<I18nProvider><DarkWizards {...props}/></I18nProvider>);
+  await chooseClip();
+  type('Replace what', 'the phone');
+  type('With what', 'a red apple');
+  fireEvent.click(screen.getByRole('button', { name: 'Run both steps' }));
+  expect(onPrepare).toHaveBeenCalledTimes(1);
+  view.rerender(<I18nProvider><DarkWizards {...props} handoff={1} outcome={{ n: 1, run: { state: 'failed' as const, error: 'boom' } }}/></I18nProvider>);
+  expect(onPrepare).toHaveBeenCalledTimes(1);
+  expect(screen.queryByRole('button', { name: 'Run the video step' })).toBeNull();
+  picks = ['/clips/other.mp4'];
+  fireEvent.click(screen.getByRole('button', { name: 'Choose… object to put in' }));
+  await screen.findByText('A video goes into “Picture to change”; the object to put in must be a picture.');
+});
+
+it('without a model for any video method the video step says so and stays closed', async () => {
+  models = [qwenFull];
+  ui();
+  await chooseClip();
+  expect(screen.getAllByText('No installed model for this video method.').length).toBeGreaterThan(0);
+  expect((screen.getByRole('button', { name: 'Run both steps' }) as HTMLButtonElement).disabled).toBe(true);
 });

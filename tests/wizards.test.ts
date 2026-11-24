@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { builtinWizards, editGrid, preferredChoice, strategyCfg, strategyPrompt, usesObject, validWizard, wizardCanvas, wizardChoices, wizardPrompt, wizardReady, type WizardModel } from '../src/lib/wizards.ts';
+import { builtinWizards, editGrid, preferredChoice, strategyCfg, strategyPrompt, videoPrompt, videoSeconds, wizardVideoChoices, usesObject, validWizard, wizardCanvas, wizardChoices, wizardPrompt, wizardReady, type WizardModel } from '../src/lib/wizards.ts';
 
 const replace = builtinWizards.find(w => w.id === 'replace')!;
 const model = (name: string, family: string | null, category = 'diffusion_models'): WizardModel => ({ name, family, category, path: `/m/${name}` });
@@ -111,4 +111,25 @@ test('inpaint grid mirrors Generate: Qwen with references 32, otherwise the fami
   assert.equal(editGrid('qwen-image-2.1', false), 16);
   assert.equal(editGrid('sdxl', true), 64);
   assert.equal(editGrid('unknown', false), 16);
+});
+
+test('Replace offers both measured video methods (owner decision): LTX edit at guide 0.2, H3 re-animate', () => {
+  const [edit, reanimate] = replace.video!;
+  assert.deepEqual([edit.id, edit.pipeline, edit.families, edit.sourceStrength, edit.maxSeconds], ['edit', 'v2v', ['ltx-2'], 0.2, 5]);
+  assert.deepEqual([reanimate.id, reanimate.pipeline, reanimate.families, reanimate.sourceStrength], ['reanimate', 'i2v', ['minimax-h3'], undefined]);
+  assert.equal(videoPrompt(edit, { target: 'the book', replacement: 'a cat' }), 'The same shot as the source video, with a cat instead of the book. Keep the camera, the motion and everything else unchanged.');
+  assert.match(videoPrompt(reanimate, {}), /^The new object from the first frame stays in the scene/);
+  const broken = (patch: (v: NonNullable<typeof replace.video>) => void) => { const w = structuredClone(replace); patch(w.video!); return validWizard(w); };
+  assert.equal(broken(v => { delete v[0].sourceStrength; }), false); // v2v needs its guide strength
+  assert.equal(broken(v => { v[1].sourceStrength = 0.5; }), false); // i2v has no clip guide
+  assert.equal(broken(v => { v[0].families = ['nope']; }), false);
+  assert.equal(broken(v => { v[0].maxSeconds = 0; }), false);
+  assert.equal(broken(v => { v[1].id = 'edit'; }), false);
+  assert.equal(broken(v => { (v[0] as { pipeline: string }).pipeline = 't2v'; }), false);
+  assert.deepEqual(wizardVideoChoices(replace.video!, [model('ltx.safetensors', 'ltx-2'), model('lora.safetensors', 'ltx-2', 'loras'), model('h3.safetensors', 'minimax-h3', 'unet')]).map(c => c.models.map(m => m.name)),
+    [['ltx.safetensors'], ['h3.safetensors']]);
+  assert.equal(videoSeconds(8, 5), 5);
+  assert.equal(videoSeconds(3.27, 5), 3.2);
+  assert.equal(videoSeconds(0.4, 5), 1);
+  assert.equal(videoSeconds(0, 5), undefined);
 });

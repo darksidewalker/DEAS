@@ -48,6 +48,27 @@
         "needsMask": true
       }
     ],
-    "library": "Qwen Image 2.1"
+    "library": "Qwen Image 2.1",
+    "video": [
+      {
+        "id": "edit",
+        "families": [
+          "ltx-2"
+        ],
+        "pipeline": "v2v",
+        "sourceStrength": 0.2,
+        "maxSeconds": 5,
+        "positive": "The same shot as the source video, with {replacement|the new object from the first frame} instead of {target|the original object}. Keep the camera, the motion and everything else unchanged."
+      },
+      {
+        "id": "reanimate",
+        "families": [
+          "minimax-h3"
+        ],
+        "pipeline": "i2v",
+        "maxSeconds": 5,
+        "positive": "{replacement|The new object from the first frame} stays in the scene with natural motion; the camera, lighting and everything else continue as in the first frame."
+      }
+    ]
   }
 ]

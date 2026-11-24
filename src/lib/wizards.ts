@@ -44,8 +44,21 @@ export interface WizardStrategy {
   /** With an object picture this strategy hands over the named strategy instead (when the chosen model fits it). */
   objectVia?: string;
 }
-/** `object`: the wizard also takes an optional object picture whose content goes into the picture to change. */
-export interface WizardDescriptor { id: string; media: 'image'; fields: WizardField[]; strategies: WizardStrategy[]; library: string; object?: boolean }
+/**
+ * Second step of a video Replace (owner decision UX-22c1 (a), measured 2026-11-24): after the clip's first frame was edited
+ * with an image strategy, the edited frame drives an ordinary video draft. `v2v` (LTX) keeps the clip as a guide at
+ * `sourceStrength`; `i2v` (H3) animates a new clip from the edited frame. `maxSeconds` caps the length taken from the clip.
+ */
+export interface WizardVideoMethod {
+  id: string;
+  families: string[];
+  pipeline: 'v2v' | 'i2v';
+  positive: string;
+  sourceStrength?: number;
+  maxSeconds: number;
+}
+/** `object`: the wizard also takes an optional object picture whose content goes into the picture to change. `video`: it also takes a clip. */
+export interface WizardDescriptor { id: string; media: 'image'; fields: WizardField[]; strategies: WizardStrategy[]; library: string; object?: boolean; video?: WizardVideoMethod[] }
 /** The model facts a wizard needs; a subset of the native scan's LocalModel. */
 export interface WizardModel { category: string; name: string; path: string; family?: string | null }
 export interface WizardChoice { strategy: WizardStrategy; models: WizardModel[] }
@@ -55,15 +68,17 @@ export interface WizardPicture { name: string; path: string; src: string }
  * `mask` (masked edits with `run` only) is the *Replace what* text: Generate first masks the picture with its own SAM 3.1 text path, one mask layer per target, and starts the run only when a mask was found.
  */
 export interface WizardHandoff {
-  n: number; wizard: string; strategy: string; pipeline: 't2i' | 'i2i'; source: 'reference' | 'edit'; edit?: 'inpaint' | 'resample';
+  n: number; wizard: string; strategy: string; pipeline: 't2i' | 'i2i' | 'v2v' | 'i2v'; source: 'reference' | 'edit' | 'video'; edit?: 'inpaint' | 'resample';
   model: { name: string; path: string }; picture: WizardPicture; references?: WizardPicture[]; positive: string; size?: Size; run?: boolean; mask?: string; denoise?: number;
   /** Masked edits: grow the SAM mask by this many pixels and set Generate's Mask blur. */
   maskGrow?: number; maskBlur?: number;
   /** Generate's CFG for this draft (the strategy's per-family value). */
   cfg?: number;
+  /** Video step (`source: 'video'`): `picture` is the edited first frame; `sourceVideo` the clip (`v2v` only) with its guide strength; `seconds` the length. */
+  sourceVideo?: WizardPicture; sourceStrength?: number; seconds?: number;
 }
 /** The picture a wizard's own run produced, in that job's native-held output folder. */
-export interface WizardRunPicture { path: string; width: number; height: number; seed: number; checkpoint: string; ms?: number }
+export interface WizardRunPicture { path: string; width: number; height: number; seed: number; checkpoint: string; ms?: number; video?: boolean }
 /**
  * Progress and outcome of a wizard run. Generate owns the submission, the queue and the polling; the wizard only shows
  * what its hand-over became and can stop that one job. `job` is the native-held status, kept so Stop targets it.
@@ -107,6 +122,16 @@ function validStrategy(s: unknown): s is WizardStrategy {
     && (v.cfg === undefined || (!!v.cfg && typeof v.cfg === 'object' && !Array.isArray(v.cfg) && Object.keys(v.cfg).length > 0
       && Object.entries(v.cfg).every(([f, n]) => (v.families as string[]).includes(f) && typeof n === 'number' && Number.isFinite(n) && n > 0 && n <= 30)));
 }
+function validVideoMethod(m: unknown): m is WizardVideoMethod {
+  if (!m || typeof m !== 'object') return false;
+  const v = m as Record<string, unknown>;
+  return typeof v.id === 'string' && /^[a-z][a-z0-9-]*$/.test(v.id)
+    && Array.isArray(v.families) && v.families.length > 0 && v.families.every(f => typeof f === 'string' && familyIds.has(f))
+    && (v.pipeline === 'v2v' || v.pipeline === 'i2v')
+    && typeof v.positive === 'string' && v.positive.length > 0 && v.positive.length <= 2000
+    && (v.pipeline === 'v2v' ? typeof v.sourceStrength === 'number' && v.sourceStrength >= 0 && v.sourceStrength <= 1 : v.sourceStrength === undefined)
+    && typeof v.maxSeconds === 'number' && Number.isFinite(v.maxSeconds) && v.maxSeconds >= 1 && v.maxSeconds <= 30;
+}
 /** Rejects malformed descriptors instead of half-applying them (unknown families, mismatched pipeline/source). */
 export function validWizard(w: unknown): w is WizardDescriptor {
   if (!w || typeof w !== 'object') return false;
@@ -117,7 +142,9 @@ export function validWizard(w: unknown): w is WizardDescriptor {
     && new Set((v.strategies as WizardStrategy[]).map(s => s.id)).size === v.strategies.length
     && (v.strategies as WizardStrategy[]).every(s => s.objectVia === undefined || (v.strategies as WizardStrategy[]).some(o => o.id === s.objectVia && !!o.objectPositive))
     && typeof v.library === 'string' && v.library.trim().length > 0
-    && (v.object === undefined || typeof v.object === 'boolean');
+    && (v.object === undefined || typeof v.object === 'boolean')
+    && (v.video === undefined || (Array.isArray(v.video) && v.video.length > 0 && v.video.every(validVideoMethod)
+      && new Set((v.video as WizardVideoMethod[]).map(m => m.id)).size === v.video.length));
 }
 export const builtinWizards: WizardDescriptor[] = (data as unknown[]).filter(validWizard);
 
@@ -129,6 +156,19 @@ export function wizardChoices(wizard: WizardDescriptor, models: readonly WizardM
       .sort((a, b) => strategy.families.indexOf(a.family!) - strategy.families.indexOf(b.family!) || a.name.localeCompare(b.name)),
   }));
 }
+/** Installed models per video method, in the method's family order. */
+export function wizardVideoChoices(methods: readonly WizardVideoMethod[], models: readonly WizardModel[]): { method: WizardVideoMethod; models: WizardModel[] }[] {
+  return methods.map(method => ({
+    method,
+    models: models.filter(m => modelCategories.includes(m.category) && !!m.family && method.families.includes(m.family))
+      .sort((a, b) => method.families.indexOf(a.family!) - method.families.indexOf(b.family!) || a.name.localeCompare(b.name)),
+  }));
+}
+/** Seconds of the clip a video step uses: the clip's own length up to the method's cap, at 0.1 s; undefined for an unreadable clip. */
+export function videoSeconds(clipSeconds: number, maxSeconds: number): number | undefined {
+  if (!(clipSeconds > 0) || !(maxSeconds > 0)) return undefined;
+  return Math.max(1, Math.floor(Math.min(clipSeconds, maxSeconds) * 10) / 10);
+}
 /** The first strategy (in descriptor order) that has an installed model, or undefined when the Library is needed. */
 export const preferredChoice = (choices: readonly WizardChoice[]) => choices.find(c => c.models.length > 0);
 
@@ -139,6 +179,8 @@ export const strategyCfg = (strategy: WizardStrategy, family: string | null | un
 export const usesObject = (strategy: WizardStrategy, family: string | null | undefined, hasObject: boolean) =>
   hasObject && !!strategy.objectPositive && !!family && !!strategy.objectFamilies?.includes(family);
 const template = (strategy: WizardStrategy, withObject: boolean) => withObject && strategy.objectPositive ? strategy.objectPositive : strategy.positive;
+/** Video prompts use the same placeholders; a missing field falls back to the text in its `{field|fallback}`. */
+export const videoPrompt = (method: WizardVideoMethod, fields: Partial<Record<WizardField, string>>) => wizardPrompt(method.positive, fields);
 /** Fills `{field}` (required) and `{field|fallback}` (optional) placeholders with trimmed, single-line user text. */
 export function wizardPrompt(text: string, fields: Partial<Record<WizardField, string>>): string {
   return text.replace(placeholder, (_, k: WizardField, fallback?: string) => (fields[k] ?? '').replace(/\s+/g, ' ').trim() || (fallback ?? ''));
