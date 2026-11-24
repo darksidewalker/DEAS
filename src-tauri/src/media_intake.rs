@@ -99,6 +99,13 @@ pub(crate) fn paste_into(root: &Path, bytes: &[u8], stamp: &str) -> Result<PathB
     publish(root, &format!("pasted-{stamp}"), ext, bytes)
 }
 
+/// A picture DEAS derived from another one (for example a grid-aligned crop) becomes a new file in Input
+/// under a readable name; the source is never touched and an existing name is never overwritten.
+pub(crate) fn derived_into(root: &Path, bytes: &[u8], name: &str) -> Result<PathBuf, String> {
+    let ext = sniffed(bytes, true)?;
+    publish(root, &clean_stem(name), ext, bytes)
+}
+
 pub(crate) fn copy_into(root: &Path, source: &Path) -> Result<PathBuf, String> {
     let file = std::fs::File::open(source).map_err(|_| "Dropped file unreadable")?;
     let meta = file.metadata().map_err(|_| "Dropped file unreadable")?;
@@ -150,6 +157,20 @@ pub fn native_media_paste(
     })())
 }
 
+/// Picture bytes derived by DEAS from a picture the user chose become a new file in Input named `name`.
+#[tauri::command]
+pub fn native_media_save_derived(
+    bytes: Vec<u8>,
+    name: String,
+    engine: tauri::State<'_, crate::install::Engine>,
+    operations: tauri::State<'_, crate::FolderOperations>,
+) -> Result<String, String> {
+    reply((|| {
+        let _guard = operations.enter()?;
+        derived_into(&input_root(&engine)?, &bytes, &name)
+    })())
+}
+
 /// A dropped picture/video file is copied (never moved) into Input under its own readable name.
 #[tauri::command]
 pub fn native_media_copy_in(
@@ -167,6 +188,17 @@ pub fn native_media_copy_in(
 mod tests {
     use super::*;
     const PNG: &[u8] = b"\x89PNG\r\n\x1a\n rest of a picture";
+
+    #[test]
+    fn derived_pictures_get_a_clean_name_and_never_overwrite() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = derived_into(dir.path(), PNG, "street/../shot-grid-1024x768").unwrap();
+        let b = derived_into(dir.path(), PNG, "street/../shot-grid-1024x768").unwrap();
+        assert_eq!(a.file_name().unwrap(), "street____shot-grid-1024x768.png");
+        assert_eq!(b.file_name().unwrap(), "street____shot-grid-1024x768-2.png");
+        assert_eq!(a.parent().unwrap(), dir.path());
+        assert!(derived_into(dir.path(), b"not a picture", "x").is_err());
+    }
 
     #[test]
     fn paste_names_by_stamp_and_never_overwrites() {

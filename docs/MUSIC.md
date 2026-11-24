@@ -66,7 +66,7 @@ selected audio or video ──LoadAudio──► SheetSage2AudioToABC ──melo
 ```
 
 - Select the source in the Media dock with **Use for music cover** (context menu). Audio files and videos are accepted; images are not offered. Only one source is active; the Media dock marks it.
-- Core `LoadAudio` reads the first audio stream. A video without an audio track fails at the backend with `No audio stream found in the file.` — there is no silent text-only fallback.
+- Before anything is uploaded, Run checks the source locally with ffprobe (FFmpeg must be installed). A video without sound is refused with *“clip.mp4” has no audio stream … Choose an audio file or a video with sound.* Core `LoadAudio` decodes the whole first audio stream at once as 32-bit float, so the source may last at most 15 minutes and decode to at most 768 MiB (the same bounds as a returned FLAC; 15 minutes of 48 kHz stereo is about 330 MiB). A longer or very wide source (for example 10 minutes of 8-channel 96 kHz audio, about 1.7 GiB) is refused with its length and decoded size, so trim it or mix it down first. A file whose length, sample rate or channel count cannot be read is refused rather than guessed. There is no silent text-only fallback.
 - The source is uploaded once when you press Run; the submitted intent carries the uploaded name and is frozen. Edits after Run belong to the next job.
 - A cover is a melody reinterpretation: planning is always Melody, Lyrics come from you, and nothing copies the singer's voice, transcribes words, or preserves tempo, timbre or exact duration.
 

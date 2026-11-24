@@ -64,5 +64,13 @@
   "wizards.replace.replacementObjectPlaceholder": "facultatif : le chien de l’image de l’objet",
   "wizards.replace.hint.referenceObject": "L’image à modifier devient image 1 et l’image de l’objet image 2 d’une édition par référence Qwen Image 2.1 ; le résultat garde le format de image 1. Vérifiez la taille du résultat et appuyez sur Lancer.",
   "wizards.replace.objectRouted": "Avec une image d’objet, l’assistant transmet la retouche par référence sur le même modèle : une retouche masquée garderait l’ancien objet.",
-  "wizards.picture.offGrid": "Cette image fait {size}. L’inpaint avec ce modèle demande des côtés multiples de {grid} px ; Générer bloque Lancer tant que l’image n’est pas rééchantillonnée sur cette grille."
+  "wizards.picture.offGrid": "Cette image fait {size}. L’inpaint avec ce modèle demande des côtés multiples de {grid} px ; Générer bloque Lancer pour cette image.",
+  "wizards.picture.gridCopy": "Recadrer en {size}",
+  "wizards.picture.gridCopyBusy": "Recadrage…",
+  "wizards.picture.gridCopyHint": "Enregistre un recadrage centré de {size} comme nouvelle image dans le dossier Input et l’utilise ici. Seuls les quelques pixels de bord hors grille sont coupés, rien n’est rééchantillonné ; l’original reste inchangé.",
+  "wizards.picture.gridCopySmall": "Cette image est trop petite pour être recadrée sur la grille ; choisissez-en une plus grande.",
+  "wizards.search.gridCopy": "Affiché seulement quand l’image à modifier n’est pas sur la grille du modèle pour une méthode masquée.",
+  "wizards.picture.gridCopyLabel": "Recadrer sur la grille du modèle",
+  "wizards.replace.multiTarget": "Les {count} cibles ({targets}) deviennent toutes {replacement}. Pour donner à chacune son propre remplacement, lancez l’assistant une fois par cible.",
+  "wizards.replace.multiObject": "l’objet de la deuxième image"
 }

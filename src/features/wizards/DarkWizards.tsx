@@ -3,13 +3,23 @@ import { convertFileSrc, isTauri } from '@tauri-apps/api/core';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { useI18n } from '../../i18n/I18nProvider';
 import { pickMedia } from '../../lib/analysis';
-import { describeMedia, dropCssPoint, itemFromEntry, pastedPaths, pastedPictures, pasteToInput } from '../../lib/media';
+import { describeMedia, dropCssPoint, itemFromEntry, pastedPaths, pastedPictures, pasteToInput, saveDerived } from '../../lib/media';
 import { stopWorkbenchJob } from '../../lib/jobs';
 import { scanModels } from '../../lib/models';
-import { builtinWizards, editGrid, findInLibrary, preferredChoice, strategyPrompt, usesObject, wizardCanvas, wizardChoices, wizardReady, type WizardField, type WizardHandoff, type WizardModel, type WizardPicture, type WizardRun } from '../../lib/wizards';
+import { builtinWizards, editGrid, findInLibrary, gridCopyName, gridCrop, preferredChoice, wizardTargets, strategyPrompt, usesObject, wizardCanvas, wizardChoices, wizardReady, type WizardField, type WizardHandoff, type WizardModel, type WizardPicture, type WizardRun } from '../../lib/wizards';
 import './darkWizards.css';
 
 const IMAGE = /\.(png|jpe?g|webp)$/i;
+/** PNG of a rectangle of the picture; read through a blob so the asset protocol never taints the canvas. */
+async function cropPicture(src: string, r: { x: number; y: number; width: number; height: number }): Promise<Blob> {
+  const response = await fetch(src); if (!response.ok) throw new Error(`Image load failed: ${response.status}`);
+  const bitmap = await createImageBitmap(await response.blob());
+  const c = document.createElement('canvas'); c.width = r.width; c.height = r.height;
+  const ctx = c.getContext('2d'); if (!ctx) { bitmap.close(); throw new Error('canvas'); }
+  try { ctx.drawImage(bitmap, r.x, r.y, r.width, r.height, 0, 0, r.width, r.height); } finally { bitmap.close(); }
+  const blob = await new Promise<Blob | null>(done => c.toBlob(done, 'image/png')); if (!blob) throw new Error('canvas');
+  return blob;
+}
 /** `target` is the picture to change (reference 1 / picture to edit); `object` the optional picture whose content goes in (reference 2). */
 type Slot = 'target' | 'object';
 export interface DarkWizardsProps {
@@ -42,6 +52,7 @@ export function DarkWizards({ active = false, roots, onPrepare, outcome, onOpenG
   const [modelPath, setModelPath] = useState('');
   const [error, setError] = useState('');
   const [over, setOver] = useState<Slot | null>(null);
+  const [cropping, setCropping] = useState(false);
   const tab = useRef<HTMLElement>(null), scan = useRef(0);
   const zones = useRef<Record<Slot, HTMLDivElement | null>>({ target: null, object: null });
 
@@ -78,6 +89,10 @@ export function DarkWizards({ active = false, roots, onPrepare, outcome, onOpenG
   // Inpaint keeps the source size, so a picture off the model's grid is first resampled in Generate; say so before the hand-over.
   const grid = strategy?.source === 'edit' && model?.family ? editGrid(model.family, withObject) : 0;
   const offGrid = !!grid && !!pictureSize && (pictureSize.width % grid !== 0 || pictureSize.height % grid !== 0);
+  const crop = offGrid && pictureSize ? gridCrop(pictureSize, grid) : undefined;
+  // Owner decision: several targets share the one replacement (their grown masks merge); say so instead of splitting.
+  const targets = wizard?.fields.includes('target') ? wizardTargets(fields.target ?? '') : [];
+  const replacement = fields.replacement?.replace(/\s+/g, ' ').trim() || (withObject ? t('wizards.replace.multiObject') : '');
 
   const place = (into: Slot, value: WizardPicture | null) => {
     setPictures(p => ({ ...p, [into]: value }));
@@ -96,6 +111,14 @@ export function DarkWizards({ active = false, roots, onPrepare, outcome, onOpenG
     setSlot(into);
     try { const path = await pickMedia(t('wizards.picture.chooseTitle')); if (path) await fromPath(path, into); }
     catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+  };
+  // Off-grid picture for a masked method: save a centred grid-aligned crop as a new Input file and use that instead.
+  const cropToGrid = async () => {
+    if (!picture || !crop || cropping) return;
+    setError(''); setCropping(true);
+    try { await fromPath(await saveDerived(await cropPicture(picture.src, crop), gridCopyName(picture.name, crop)), 'target'); }
+    catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+    finally { setCropping(false); }
   };
   const live = useRef({ fromPath, slot }); live.current = { fromPath, slot };
   // Ctrl+V on the visible tab fills the highlighted slot: a copied file by its path, copied picture data saved to the Input folder first. Text fields keep their paste.
@@ -169,7 +192,7 @@ export function DarkWizards({ active = false, roots, onPrepare, outcome, onOpenG
         </span></div>
       <div ref={el => { zones.current[s] = el; }} className={`wizards-drop${over === s ? ' over' : ''}${shown ? ' filled' : ''}${slots.length > 1 && slot === s ? ' is-active' : ''}`}
         data-wizard-picture={s} tabIndex={0} role="group" aria-label={t(`wizards.picture.${s}`)} onFocus={() => setSlot(s)} onPointerDown={() => setSlot(s)}>
-        {shown ? <img src={shown.src} alt={shown.name} onLoad={e => { const img = e.currentTarget; if (img.naturalWidth > 0 && img.naturalHeight > 0) setSizes(m => ({ ...m, [shown.src]: { width: img.naturalWidth, height: img.naturalHeight } })); }}/>
+        {shown ? <img key={shown.src} src={shown.src} alt={shown.name} onLoad={e => { const img = e.currentTarget; if (img.naturalWidth > 0 && img.naturalHeight > 0) setSizes(m => ({ ...m, [shown.src]: { width: img.naturalWidth, height: img.naturalHeight } })); }}/>
           : <div className="forge-empty"><strong>{t('wizards.picture.empty')}</strong><span>{t(s === 'object' ? 'wizards.picture.objectBody' : 'wizards.picture.emptyBody')}</span></div>}
       </div>
       {shown && <p className="forge-note wizards-name" title={shown.path}>{shown.name}{size ? ` · ${size.width}×${size.height}` : ''}</p>}
@@ -207,8 +230,17 @@ export function DarkWizards({ active = false, roots, onPrepare, outcome, onOpenG
             </div>
             {routed && <p className="forge-note" data-wizard-object-routed>{t(`wizards.${wizard.id}.objectRouted`)}</p>}
             <p className="forge-note" data-wizard-hint>{t(hint)}</p>
+            {targets.length > 1 && replacement && <p className="forge-note" data-wizard-multi-target>{t('wizards.replace.multiTarget', { count: String(targets.length), targets: targets.join(', '), replacement })}</p>}
             {object && !withObject && <p className="forge-note" data-wizard-object-unused>{t('wizards.picture.objectUnused')}</p>}
-            {offGrid && pictureSize && <p className="forge-note" data-wizard-off-grid>{t('wizards.picture.offGrid', { size: `${pictureSize.width}×${pictureSize.height}`, grid: String(grid) })}</p>}
+            {offGrid && pictureSize && <div className="wizards-grid" data-wizard-off-grid>
+              <p className="forge-note">{t('wizards.picture.offGrid', { size: `${pictureSize.width}×${pictureSize.height}`, grid: String(grid) })}</p>
+              {crop ? <div className="wizards-row">
+                <button type="button" className="forge-ghost" data-wizard-grid-copy disabled={!native || !roots?.input || cropping || pending || running}
+                  title={!roots?.input ? t('wizards.picture.noInput') : undefined} aria-describedby="wizards-grid-copy-hint" onClick={() => void cropToGrid()}>
+                  {t(cropping ? 'wizards.picture.gridCopyBusy' : 'wizards.picture.gridCopy', { size: `${crop.width}×${crop.height}` })}</button>
+                <span id="wizards-grid-copy-hint" className="forge-note">{t('wizards.picture.gridCopyHint', { size: `${crop.width}×${crop.height}` })}</span>
+              </div> : <p className="forge-note" data-wizard-grid-small>{t('wizards.picture.gridCopySmall')}</p>}
+            </div>}
           </>}
           {!chosen && <div className="wizards-missing" data-wizard-missing>
             <p className="forge-note">{t('wizards.models.missing', { name: wizard.library })}</p>

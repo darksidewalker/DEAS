@@ -254,3 +254,55 @@ it('uses an object picture A inside picture B: reference edit and masked edit on
   fireEvent.click(document.querySelector('[data-wizard-remove="object"]')!);
   expect(screen.queryByRole('img', { name: 'dog.png' })).toBeNull(); expect(screen.queryByText(/This model uses only the text/)).toBeNull();
 });
+
+it('crops an off-grid picture for a masked method onto the model grid as a new Input file and uses that copy', async () => {
+  models = [sdxl];
+  const drawn: unknown[][] = [];
+  const restore = [vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(() => ({ drawImage: (...a: unknown[]) => drawn.push(a) }) as never),
+    vi.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementation(function (this: HTMLCanvasElement, done: BlobCallback) { done({ arrayBuffer: async () => new Uint8Array([0x89, 0x50, 0x4e, 0x47]).buffer } as Blob); /* jsdom Blob has no arrayBuffer */ })];
+  const bitmap = { close: vi.fn() };
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, blob: async () => new Blob(['x']) })));
+  vi.stubGlobal('createImageBitmap', vi.fn(async () => bitmap));
+  const base = vi.mocked(invoke).getMockImplementation()!;
+  vi.mocked(invoke).mockImplementation(async (command, args) => command === 'native_media_save_derived' ? '/in/street-grid-960x576.png' : base(command, args));
+  try {
+    const { onPrepare } = ui();
+    await choosePicture(1000, 600);
+    expect(screen.getByText(/This picture is 1000×600\. Inpaint with this model needs both sides on a multiple of 64 px/)).toBeTruthy();
+    expect(screen.getByText(/Saves a centred 960×576 crop as a new picture in the Input folder/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Crop to 960×576' }));
+    const img = await screen.findByRole('img', { name: 'street-grid-960x576.png' });
+    // Centred: 40 px and 24 px trimmed, split evenly between both edges; nothing is scaled.
+    expect(drawn).toEqual([[bitmap, 20, 12, 960, 576, 0, 0, 960, 576]]);
+    expect(bitmap.close).toHaveBeenCalled();
+    const saved = calls('native_media_save_derived');
+    expect(saved).toHaveLength(1); expect(saved[0].name).toBe('street-grid-960x576'); expect(saved[0].bytes).toEqual([0x89, 0x50, 0x4e, 0x47]);
+    Object.defineProperties(img, { naturalWidth: { value: 960 }, naturalHeight: { value: 576 } });
+    fireEvent.load(img);
+    await waitFor(() => expect(document.querySelector('[data-wizard-off-grid]')).toBeNull());
+    type('With what', 'a cat');
+    fireEvent.click(screen.getByRole('button', { name: 'Prepare in Generate' }));
+    expect(onPrepare.mock.calls[0][0].picture).toMatchObject({ name: 'street-grid-960x576.png', path: '/in/street-grid-960x576.png' });
+  } finally { restore.forEach(r => r.mockRestore()); vi.unstubAllGlobals(); }
+});
+
+it('says when an off-grid picture is too small to crop onto the grid', async () => {
+  models = [sdxl];
+  ui();
+  await choosePicture(60, 900);
+  expect(screen.getByText(/too small to crop onto the grid/)).toBeTruthy();
+  expect(document.querySelector('[data-wizard-grid-copy]')).toBeNull();
+});
+
+it('says that several targets share the one replacement instead of splitting them', async () => {
+  models = [sdxl];
+  ui();
+  await choosePicture(1024, 576);
+  type('Replace what', 'the red car');
+  type('With what', 'a blue bicycle');
+  expect(document.querySelector('[data-wizard-multi-target]')).toBeNull();
+  type('Replace what', 'the red car, the shop sign');
+  expect(screen.getByText('All 2 targets (the red car, the shop sign) become a blue bicycle. To give each its own replacement, run the wizard once per target.')).toBeTruthy();
+  type('With what', '');
+  expect(document.querySelector('[data-wizard-multi-target]')).toBeNull(); // nothing to name yet
+});

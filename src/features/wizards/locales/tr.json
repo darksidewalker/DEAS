@@ -64,5 +64,13 @@
   "wizards.replace.replacementObjectPlaceholder": "isteğe bağlı: nesne resmindeki köpek",
   "wizards.replace.hint.referenceObject": "Değiştirilecek resim, Qwen Image 2.1 referans düzenlemesinin image 1'i, nesne resmi image 2'si olur; sonuç image 1'in en-boy oranını korur. Sonuç boyutunu kontrol edip Çalıştır'a basın.",
   "wizards.replace.objectRouted": "Bir nesne resmiyle sihirbaz aynı modelde referans düzenlemesini iletir: maskeli düzenleme eski nesneyi korurdu.",
-  "wizards.picture.offGrid": "Bu resim {size}. Bu modelle Inpaint için iki kenarın da {grid} px'in katı olması gerekir; resim bu ızgaraya yeniden örneklenene kadar Oluştur Çalıştır'ı engeller."
+  "wizards.picture.offGrid": "Bu resim {size}. Bu modelle Inpaint için iki kenarın da {grid} px'in katı olması gerekir; Oluştur bu resim için Çalıştır'ı engeller.",
+  "wizards.picture.gridCopy": "{size} olarak kırp",
+  "wizards.picture.gridCopyBusy": "Kırpılıyor…",
+  "wizards.picture.gridCopyHint": "Ortalanmış {size} kırpmayı Input klasörüne yeni bir resim olarak kaydeder ve burada kullanır. Yalnızca ızgaranın dışında kalan birkaç kenar pikseli kesilir, yeniden örnekleme yapılmaz; orijinal değişmez.",
+  "wizards.picture.gridCopySmall": "Bu resim ızgaraya kırpılamayacak kadar küçük; daha büyük bir resim seçin.",
+  "wizards.search.gridCopy": "Yalnızca maskeli bir yöntemde değiştirilecek resim modelin ızgarasına uymadığında görünür.",
+  "wizards.picture.gridCopyLabel": "Model ızgarasına kırp",
+  "wizards.replace.multiTarget": "{count} hedefin tümü ({targets}) {replacement} olur. Her birine ayrı bir değiştirme vermek için sihirbazı her hedef için bir kez çalıştırın.",
+  "wizards.replace.multiObject": "ikinci resimdeki nesne"
 }

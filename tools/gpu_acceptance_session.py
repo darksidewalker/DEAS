@@ -102,12 +102,23 @@ H3_LATENT_UPSCALER = 'minimax_h3_latent_upscaler_3d_conv_v1_bf16.safetensors'
 REGENERATE_LORA = 'MiniMaxH3/open_h3_regenerate_2k_native_svd_e0999_comfyui.safetensors'
 IMAGE_CKPT = 'Illustrious/DasiwaIllustriousAnime_epitaphecstasy.safetensors'
 SPANDREL_UPSCALE = '2x-AnimeSharpV4_RCAN.safetensors'
-LTX_MODEL = 'LTX2/ltx.safetensors'
+LTX_MODEL = 'LTX2/DasiwaLTX23_dragonleapV4_INT8ConvRot.safetensors'
+LTX_TEXT_ENCODER = 'gemma_3_12B_it_fp8_e4m3fn.safetensors'
+LTX_TEXT_PROJECTION = 'ltx-2.3_text_projection_bf16.safetensors'
+LTX_VAE = 'LTX2/LTX23_video_vae_bf16.safetensors'
+LTX_AUDIO_VAE = 'LTX2/LTX23_audio_vae_bf16.safetensors'
 SAM3 = 'SAM3/sam3.1_multiplex_fp16.safetensors'
 
 PROBE_IMAGE = 'deas-inputs/acceptance-a.png'   # staged by the session from /input sources
 PROBE_IMAGE2 = 'deas-inputs/acceptance-b.png'  # second reference for multi-reference gates
 PROBE_FACE = 'deas-inputs/acceptance-face.png'  # head-and-shoulders crop for face gates
+# UX-22c Replace for videos: one source clip and its replaced first frame, staged by --replace-clip /
+# --replace-frame at the shared 832x480 / 24 fps / 5 s geometry. The clip is top-level (core LoadVideo
+# lists only those) and keeps the deas-input- prefix the H3 media validator requires.
+REPLACE_SOURCE = 'deas-input-replace-source.mp4'
+REPLACE_FRAME = 'deas-inputs/replace-first-frame.png'
+REPLACE_SIZE = (832, 480)
+REPLACE_PROMPT = 'the same shot as the source clip, with the replaced object from the first frame, natural motion'
 
 
 def h3_base():
@@ -403,6 +414,111 @@ def _checks_sigma(files, ctx):
              p_ is not None and 5 < p_ < 30)]
 
 
+def replace_base(family):
+    """Shared settings for the UX-22c candidates: same seed, canvas and 5 s at 24 fps."""
+    if family == 'ltx-2':
+        return {'recipeId': 'video-generation', 'version': 1, 'family': 'ltx-2',
+                'positivePrompt': REPLACE_PROMPT, 'negativePrompt': 'text and subtitles',
+                'model': LTX_MODEL, 'textEncoder': LTX_TEXT_ENCODER, 'vae': LTX_VAE,
+                'seed': 1234, 'width': REPLACE_SIZE[0], 'height': REPLACE_SIZE[1], 'frames': 121,
+                'frameRate': 24, 'steps': 8, 'cfg': 1.0, 'sampler': 'euler_cfg_pp',
+                'scheduler': 'linear_quadratic', 'outputPrefix': 'video/acceptance/replace',
+                'output': h3_base()['output'],
+                'ltx': {'textProjection': LTX_TEXT_PROJECTION, 'audioVae': LTX_AUDIO_VAE, 'passes': 1}}
+    return {**h3_base(), 'positivePrompt': REPLACE_PROMPT, 'width': REPLACE_SIZE[0],
+            'height': REPLACE_SIZE[1], 'outputPrefix': 'video/acceptance/replace'}
+
+
+def replace_candidate(kind):
+    if kind == 'A':   # H3 image-to-video from the replaced first frame
+        return {**replace_base('minimax-h3'),
+                'h3': h3_block(mode='I2VA', references=[{'slot': 0, 'image': REPLACE_FRAME}], remove=['media'])}
+    if kind == 'B':   # H3 REF2VA: source clip (picture + sound) on the timeline, replaced frame as reference
+        return {**replace_base('minimax-h3'),
+                'h3': h3_block(media=[{'type': 'image', 'file': REPLACE_FRAME, 'slot': 0},
+                                      {'type': 'video', 'file': REPLACE_SOURCE, 'slot': 0,
+                                       'mediaMode': 'video_audio', 'trimStart': 0.0, 'trimEnd': 5.0}])}
+    # C: LTX 2.3 video-to-video: source clip as multi-frame guide, replaced frame as first frame
+    base = replace_base('ltx-2')
+    return {**base, 'sourceVideo': REPLACE_SOURCE, 'firstFrame': REPLACE_FRAME,
+            'ltx': {**base['ltx'], 'sourceStrength': REPLACE_SOURCE_STRENGTH}}
+
+
+REPLACE_SOURCE_STRENGTH = 0.6   # --replace-source-strength overrides it for candidate C
+
+
+def _replace_frames(path, size, limit=10):
+    """Every 12th decoded frame (2 per second at 24 fps), resized to the shared canvas.
+
+    Index-based on purpose: the `fps` filter resamples on timestamps and its first sample is not the
+    first frame, which would compare the replaced first frame against a later one.
+    """
+    tmp = Path(tempfile.mkdtemp(prefix='deas-acc-replace-'))
+    sh(['ffmpeg', '-hide_banner', '-loglevel', 'error', '-i', str(path), '-vf', r'select=not(mod(n\,12))',
+        '-fps_mode', 'vfr', str(tmp / '%03d.png')])
+    out = []
+    for f in sorted(tmp.glob('*.png'))[:limit]:
+        im = Image.open(f).convert('RGB')
+        if im.size != size:
+            im = im.resize(size, Image.LANCZOS)
+        out.append(np.asarray(im, dtype=np.float64))
+    return out
+
+
+def _masked_psnr(a, b, keep):
+    """PSNR over the pixels where `keep` is True (a plain float, so logs read `21.5`, not `np.float64(21.5)`)."""
+    if keep is None or not keep.any():
+        return None
+    mse = float(((a - b) ** 2)[keep].mean())
+    return 99.0 if mse == 0 else round(float(10 * np.log10(255.0 ** 2 / mse)), 2)
+
+
+def replace_mask(ctx, size, grow=8):
+    """Replaced region on the shared canvas, grown by `grow` px so its soft edge counts as replaced."""
+    path = ctx.get('replace_mask')
+    if not (path and _HAS_NUMPY_PIL):
+        return None
+    m = np.asarray(Image.open(path).convert('L').resize(size, Image.NEAREST)) > 127
+    grown = m.copy()
+    for dy in range(-grow, grow + 1, 2):
+        for dx in range(-grow, grow + 1, 2):
+            grown |= np.roll(np.roll(m, dy, axis=0), dx, axis=1)
+    return grown
+
+
+def _checks_replace(files, ctx, frames):
+    """UX-22c measurements. The thresholds flag a candidate as unusable; ranking the usable ones is the owner's."""
+    out = _checks_h3_base(files, ctx, REPLACE_SIZE, frames)
+    video, source, frame = main_video(files), ctx.get('replace_source'), ctx.get('replace_frame')
+    if not (video and source and frame and _HAS_NUMPY_PIL):
+        return out + [('replace inputs and verifier deps present', 'source, frame, numpy/PIL', 'missing', False)]
+    mask = replace_mask(ctx, REPLACE_SIZE)
+    got, src = _replace_frames(video, REPLACE_SIZE), _replace_frames(source, REPLACE_SIZE)
+    n = min(len(got), len(src))
+    first = np.asarray(Image.open(frame).convert('RGB').resize(REPLACE_SIZE, Image.LANCZOS), dtype=np.float64)
+    if mask is not None and n:
+        outside = [_masked_psnr(g, s, ~mask) for g, s in zip(got[:n], src[:n])]
+        inside0 = _masked_psnr(got[0], first, mask)
+        held = [_masked_psnr(g, first, mask) for g in got[:n]]
+        out.append(('untouched area kept (PSNR outside the mask vs source, mean of 2 fps samples)',
+                    '>= 20 dB', f'{round(float(np.mean(outside)), 2)} (per sample {outside})',
+                    float(np.mean(outside)) >= 20))
+        out.append(('replacement present at the start (PSNR inside the mask, frame 0 vs replaced frame)',
+                    '>= 18 dB', f'{inside0}', inside0 is not None and inside0 >= 18))
+        out.append(('replacement held over time (PSNR inside the mask vs replaced frame, last sample)',
+                    'measured; static camera expects >= 15 dB', f'{held[-1]} (per sample {held})', True))
+    else:
+        out.append(('mask for area metrics', '--replace-mask given', 'none: area metrics skipped', True))
+    if n >= 3:
+        motion = lambda fs: np.array([np.abs(fs[k] - fs[k - 1]).mean() for k in range(1, len(fs))])
+        mg, ms = motion(got[:n]), motion(src[:n])
+        corr = float(np.corrcoef(mg, ms)[0, 1]) if mg.std() > 0 and ms.std() > 0 else None
+        out.append(('motion follows the source (correlation of frame-to-frame change)', '>= 0.5',
+                    f'{None if corr is None else round(corr, 3)} (output {mg.round(2).tolist()}, '
+                    f'source {ms.round(2).tolist()})', corr is not None and corr >= 0.5))
+    return out
+
+
 GATES = [
     dict(name='V-12-h3', item='V-12', intent=h3_base,
          note='real H3 recipe run; check exact 832x480, 124 frames, fps, audio track',
@@ -519,6 +635,20 @@ GATES = [
         **_image_intent(), 'lyingSigma': {'factor': 0.5, 'startPercent': 0.2, 'endPercent': 0.6}},
         note='real-model lying-sigma A/B vs MD-01b (factor 0.0): must measurably differ, same seed',
         check=lambda files, ctx: _checks_sigma(files, ctx), draft=False),
+    # UX-22c1: Replace for videos — the same source clip, replaced first frame and seed through three
+    # recipes. Needs --replace-clip and --replace-frame (optional --replace-mask for the area metrics);
+    # without them these gates are skipped, never run on a stand-in picture.
+    dict(name='UX-22c-A-h3-i2va', item='UX-22c', intent=lambda: replace_candidate('A'), replace=True,
+         note='Replace for videos A: H3 I2VA from the replaced first frame; motion comes from the prompt only',
+         check=lambda files, ctx: _checks_replace(files, ctx, 124), draft=True),
+    dict(name='UX-22c-B-h3-ref2va', item='UX-22c', intent=lambda: replace_candidate('B'), replace=True,
+         note='Replace for videos B: H3 REF2VA with the source clip (picture + sound) as timeline media and '
+              'the replaced frame as image reference',
+         check=lambda files, ctx: _checks_replace(files, ctx, 124), draft=True),
+    dict(name='UX-22c-C-ltx-v2v', item='UX-22c', intent=lambda: replace_candidate('C'), replace=True,
+         note='Replace for videos C: LTX 2.3 v2v, source clip as guide (strength 0.6) and the replaced frame '
+              'as first frame',
+         check=lambda files, ctx: _checks_replace(files, ctx, 121), draft=True),
 ]
 
 
@@ -1102,6 +1232,56 @@ class PreviewObserver:
 
 
 
+def stage_replace(args, scratch, outdir, logbuf, wanted):
+    """UX-22c inputs at the shared geometry: 832x480 (scale to cover, centre crop), 24 fps, first 5.2 s.
+
+    Every candidate and every metric then sees the same pixels. Without --replace-frame the staged first
+    frame is written to the session folder for the image Replace wizard, and the session stops before
+    starting a backend.
+    """
+    if not wanted:
+        return {}
+    if not args.replace_clip:
+        log(logbuf, 'NOTE: UX-22c gates need --replace-clip and --replace-frame; they are skipped')
+        return {}
+    w, h = REPLACE_SIZE
+    fit = f'scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h},fps=24'
+    clip = scratch / 'input' / REPLACE_SOURCE
+    out = sh(['ffmpeg', '-hide_banner', '-loglevel', 'error', '-y', '-i', str(Path(args.replace_clip).expanduser()),
+              '-t', '5.2', '-vf', fit, '-c:v', 'libx264', '-crf', '12', '-pix_fmt', 'yuv420p',
+              '-c:a', 'aac', '-b:a', '192k', str(clip)])
+    if out.returncode or not clip.is_file():
+        raise SystemExit(f'cannot stage --replace-clip: {out.stderr.strip()[-300:]}')
+    info = ffprobe(clip)
+    log(logbuf, f"staged {REPLACE_SOURCE} from {Path(args.replace_clip).name}: {info.get('width')}x"
+                f"{info.get('height')}, {info.get('frames')} frames at {info.get('fps')} fps, "
+                f"audio={info.get('audio')}")
+    if not info.get('audio'):
+        log(logbuf, '  note: the clip has no sound; B carries no audio reference and "has audio" checks '
+                    'describe generated sound only')
+    if not args.replace_frame:
+        first = outdir / 'replace-source-first-frame.png'
+        sh(['ffmpeg', '-hide_banner', '-loglevel', 'error', '-y', '-i', str(clip), '-frames:v', '1', str(first)])
+        log(logbuf, f'wrote {first}: run the image Replace wizard on it, then pass the result as '
+                    '--replace-frame (and its mask as --replace-mask). Nothing was started.')
+        return {'stop': True}
+    frame = scratch / 'input' / REPLACE_FRAME
+    im = Image.open(Path(args.replace_frame).expanduser()).convert('RGB')
+    if abs(im.width / im.height - w / h) > 0.02:
+        log(logbuf, f'  note: --replace-frame is {im.width}x{im.height}, not the {w}:{h} canvas aspect; '
+                    'it is centre-cropped like the clip')
+    scale = max(w / im.width, h / im.height)
+    im = im.resize((max(w, round(im.width * scale)), max(h, round(im.height * scale))), Image.LANCZOS)
+    left, top = (im.width - w) // 2, (im.height - h) // 2
+    im.crop((left, top, left + w, top + h)).save(frame, 'PNG')
+    log(logbuf, f'staged {REPLACE_FRAME} ({w}x{h}) from {Path(args.replace_frame).name}')
+    ctx = {'replace_source': str(clip), 'replace_frame': str(frame)}
+    if args.replace_mask:
+        ctx['replace_mask'] = str(Path(args.replace_mask).expanduser())
+        log(logbuf, f'replace mask: {Path(args.replace_mask).name} (area metrics on)')
+    return ctx
+
+
 def install_marker_test():
     """Temporary ignored Rust test that prints compile(&DEAS_INTENT). Auto-removed in cleanup."""
     path = SRC_TAURI / 'src' / 'jobs_video_tests.rs'
@@ -1365,10 +1545,41 @@ def main():
                                          'head-and-shoulders crop of --probe-image)')
     ap.add_argument('--probe-image', help='picture used as the H3 reference (default: the largest '
                                           'photo in the AI-Ressources input tree, second-largest as reference B)')
+    ap.add_argument('--replace-clip', help='UX-22c: source video for the Replace-for-videos comparison; '
+                                           'staged as 832x480, 24 fps, first 5.2 s, sound kept')
+    ap.add_argument('--replace-frame', help='UX-22c: the replaced first frame (the image Replace wizard run on '
+                                            'the staged first frame); without it the session writes that first '
+                                            'frame to the session folder and stops')
+    ap.add_argument('--replace-mask', help='UX-22c: optional white-on-black mask of the replaced region on the '
+                                           'first frame; enables the inside/outside area metrics')
+    ap.add_argument('--replace-prompt', help='UX-22c: prompt describing the shot with the replacement '
+                                             '(all three candidates get the same text)')
+    ap.add_argument('--replace-size', default='832x480',
+                    help='UX-22c: shared canvas WxH, both edges multiples of 32 (H3 and LTX grid); '
+                         'use 480x832 for portrait clips')
+    ap.add_argument('--replace-source-strength', type=float, default=0.6,
+                    help='UX-22c: source guide strength of candidate C (LTX v2v), 0-1, default 0.6')
     ap.add_argument('--dry-run', action='store_true',
                     help='start the throwaway backend with --cpu, prove startup and paths, then stop; '
                          'no model runs and no GPU allocation (safe while another app holds the card)')
     args = ap.parse_args()
+    global REPLACE_SOURCE_STRENGTH, REPLACE_SIZE, REPLACE_PROMPT
+    if args.replace_prompt:
+        REPLACE_PROMPT = args.replace_prompt.strip()
+    try:
+        REPLACE_SIZE = tuple(int(n) for n in args.replace_size.lower().split('x'))
+        assert len(REPLACE_SIZE) == 2 and all(256 <= n <= 2048 and n % 32 == 0 for n in REPLACE_SIZE)
+    except (ValueError, AssertionError):
+        ap.error('--replace-size must be WxH with both edges multiples of 32 between 256 and 2048')
+    if not 0.0 <= args.replace_source_strength <= 1.0:
+        ap.error('--replace-source-strength must be between 0 and 1')
+    REPLACE_SOURCE_STRENGTH = args.replace_source_strength
+    for flag in ('replace_clip', 'replace_frame', 'replace_mask'):
+        value = getattr(args, flag)
+        if value and not Path(value).expanduser().is_file():
+            ap.error(f'--{flag.replace("_", "-")} is not a file: {value}')
+    if args.replace_frame and not args.replace_clip:
+        ap.error('--replace-frame needs --replace-clip (the frame is compared against that clip)')
     if args.replay:
         replay(args.replay, [])
         print(f'verified: {Path(args.replay) / "summary-verified.md"}')
@@ -1424,6 +1635,8 @@ def main():
     # GPU gate (skipped for --precheck)
     backend = None
     base = None
+    adapters_backup = []   # --precheck never syncs adapters; the summary still reports them
+    replace_ctx = {}
     if not args.precheck:
         st = gpu_state()
         if st is None:
@@ -1505,6 +1718,11 @@ def main():
             log(logbuf, 'NOTE: only one probe picture staged; the two-reference gate (V-02) needs a '
                         'second one — pass --probe-image and use --only without V-02, or add input photos')
 
+        replace_ctx = stage_replace(args, scratch, outdir, logbuf,
+                                    any(g.get('replace') for g in GATES if g['name'] in wanted))
+        if replace_ctx.get('stop'):
+            (outdir / 'session.log').write_text('\n'.join(logbuf) + '\n', encoding='utf-8')
+            return
         adapters_backup = sync_adapters(logbuf, outdir, enabled=not args.no_adapter_sync)
         extra = shlex.split(args.backend_args)
         protected = {'--port', '--listen', '--output-directory', '--input-directory',
@@ -1556,6 +1774,11 @@ def main():
         for g in GATES:
             if g['name'] not in wanted:
                 continue
+            if g.get('replace') and not args.precheck and not replace_ctx.get('replace_frame'):
+                log(logbuf, f"SKIP {g['name']}: needs --replace-clip and --replace-frame")
+                results.append(dict(name=g['name'], item=g['item'], status='skip_missing_input',
+                                    error='--replace-clip/--replace-frame not given'))
+                continue
             intent = g['intent']()
             miss = missing_models(intent, index)
             if miss:
@@ -1601,7 +1824,7 @@ def main():
                     return self.precompiled
 
             drv = SessionDriver(base, str(SRC_TAURI), str(outdir / 'results.jsonl'))
-            ctx = {'outdir': outdir, 'by_name': {}, 'observations': {}}
+            ctx = {'outdir': outdir, 'by_name': {}, 'observations': {}, **replace_ctx}
             for g in GATES:
                 if g['name'] not in wanted or g['name'] not in compiled:
                     continue

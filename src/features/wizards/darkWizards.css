@@ -6,6 +6,7 @@
 .wizards-pick span { font-size: 12px; opacity: 0.8; }
 .wizards-step { display: grid; gap: 6px; min-width: 0; align-content: start; }
 .wizards-step-head, .wizards-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.wizards-grid { display: grid; gap: 6px; }
 .wizards-step-head { justify-content: space-between; }
 .wizards-fields { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px; }
 .wizards-fields input { width: 100%; box-sizing: border-box; }

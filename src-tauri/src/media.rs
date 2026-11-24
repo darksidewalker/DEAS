@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 #[path = "media_intake.rs"]
 pub(crate) mod intake;
-pub use intake::{native_media_copy_in, native_media_paste};
+pub use intake::{native_media_copy_in, native_media_paste, native_media_save_derived};
 #[path = "media_star.rs"]
 pub(crate) mod star;
 pub use star::{

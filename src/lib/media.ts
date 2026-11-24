@@ -70,6 +70,8 @@ export async function pasteToInput(pictures:Blob[]):Promise<string[]> {
  for(const picture of pictures)paths.push(await invoke<string>('native_media_paste',{bytes:Array.from(new Uint8Array(await picture.arrayBuffer())),stamp}));
  return paths;
 }
+/** A picture DEAS derived from another one (PNG bytes) is saved as a new file in Input; the native side never overwrites. */
+export const saveDerived=async(picture:Blob,name:string)=>invoke<string>('native_media_save_derived',{bytes:Array.from(new Uint8Array(await picture.arrayBuffer())),name});
 /** Picture files of a paste event; text fields keep their own paste. */
 export const pastedPictures=(event:ClipboardEvent)=>event.target instanceof Element&&event.target.closest('input, textarea, [contenteditable="true"]')?[]:[...(event.clipboardData?.files??[])].filter(f=>f.type.startsWith('image/'));
 /** Local paths of files copied in a file manager: `text/uri-list` (file:// URIs) or a plain-text list made only of absolute paths. Ordinary text yields []. */

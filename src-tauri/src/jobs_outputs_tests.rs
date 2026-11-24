@@ -1134,6 +1134,17 @@ async fn music_flac_outputs_are_decoded_before_preview_and_export() {
         let (base, server) = binary_server(flac.clone(), 200, "Content-Type: audio/x-flac").await;
         let jobs = completed(&base);
         with_music(&jobs, state);
+        // External backend: no captured output root, so preview and export fetch over HTTP only.
+        assert!(jobs
+            .lock()
+            .unwrap()
+            .job
+            .as_ref()
+            .unwrap()
+            .plan
+            .media_root
+            .is_none());
+        assert!(jobs.current().unwrap().get("outputRoot").is_none());
         let result = jobs.output("job-a".into(), index).await.unwrap();
         assert_eq!(
             (result.mime_type, result.width, result.height, result.index),

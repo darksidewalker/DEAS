@@ -155,6 +155,24 @@ export function wizardCanvas(familyId: string, picture: Size, grid?: number): Si
 export const librarySearchEvent = 'deas:library-search';
 export const findInLibrary = (query: string) => window.dispatchEvent(new CustomEvent(librarySearchEvent, { detail: query }));
 
+/**
+ * Centred crop that puts a picture on `grid` by trimming at most `grid − 1` px per axis (split between both edges).
+ * Cropping keeps every remaining pixel exact, unlike a resample. Undefined when the picture is already on the grid
+ * or the trimmed size would not be a valid canvas.
+ */
+export function gridCrop(picture: Size, grid: number): (Size & { x: number; y: number }) | undefined {
+  if (!(grid > 0) || !(picture.width > 0 && picture.height > 0) || (picture.width % grid === 0 && picture.height % grid === 0)) return undefined;
+  const width = Math.floor(picture.width / grid) * grid, height = Math.floor(picture.height / grid) * grid;
+  if (!validCanvas({ width, height })) return undefined;
+  return { x: Math.floor((picture.width - width) / 2), y: Math.floor((picture.height - height) / 2), width, height };
+}
+
+/** Targets in *Replace what*, split the way Generate's SAM 3.1 text path splits them (comma, semicolon, new line). */
+export const wizardTargets = (text: string) => text.split(/[,;\n]/u).map(s => s.trim()).filter(Boolean);
+
+/** File stem for a grid-aligned copy: the source stem plus the new size, so it is recognisable next to the original. */
+export const gridCopyName = (name: string, size: Size) => `${name.replace(/\.[^.]+$/, '')}-grid-${size.width}x${size.height}`;
+
 /** Grid Generate's Inpaint requires for the picture to edit (mirrors Workbench: Qwen with prompt references needs 32, otherwise the family grid). */
 export function editGrid(familyId: string, withReferences: boolean): number {
   const f = (families as { id: string; multiple?: number }[]).find(x => x.id === familyId);

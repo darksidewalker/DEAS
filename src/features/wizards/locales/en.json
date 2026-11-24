@@ -64,5 +64,13 @@
   "wizards.replace.replacementObjectPlaceholder": "optional: the dog in the object picture",
   "wizards.replace.hint.referenceObject": "The picture to change becomes image 1 and the object picture image 2 of a Qwen Image 2.1 reference edit; the result keeps image 1's aspect ratio. Check the result size and press Run.",
   "wizards.replace.objectRouted": "With an object picture the wizard hands over the reference edit on the same model: a masked edit would keep the old object.",
-  "wizards.picture.offGrid": "This picture is {size}. Inpaint with this model needs both sides on a multiple of {grid} px, so Generate keeps Run blocked until the picture is resampled to that grid."
+  "wizards.picture.offGrid": "This picture is {size}. Inpaint with this model needs both sides on a multiple of {grid} px, so Generate keeps Run blocked for this picture.",
+  "wizards.picture.gridCopy": "Crop to {size}",
+  "wizards.picture.gridCopyBusy": "Cropping…",
+  "wizards.picture.gridCopyHint": "Saves a centred {size} crop as a new picture in the Input folder and uses it here. Only the few edge pixels past the grid are cut, nothing is resampled; the original stays unchanged.",
+  "wizards.picture.gridCopySmall": "This picture is too small to crop onto the grid; choose a larger one.",
+  "wizards.search.gridCopy": "Shown only when the picture to change is off the model's grid for a masked method.",
+  "wizards.picture.gridCopyLabel": "Crop to the model grid",
+  "wizards.replace.multiTarget": "All {count} targets ({targets}) become {replacement}. To give each its own replacement, run the wizard once per target.",
+  "wizards.replace.multiObject": "the object from the second picture"
 }

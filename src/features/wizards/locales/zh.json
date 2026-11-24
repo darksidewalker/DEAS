@@ -64,5 +64,13 @@
   "wizards.replace.replacementObjectPlaceholder": "可选：对象图片里的狗",
   "wizards.replace.hint.referenceObject": "要修改的图片成为 Qwen Image 2.1 参考编辑的 image 1，对象图片成为 image 2；结果保持 image 1 的宽高比。检查输出尺寸后点击运行。",
   "wizards.replace.objectRouted": "有物体图片时，向导会在同一模型上改用参考编辑：遮罩编辑会保留原来的物体。",
-  "wizards.picture.offGrid": "这张图片为 {size}。用此模型进行局部重绘需要两边都是 {grid} px 的倍数，因此在图片重新采样到该网格之前，生成会阻止运行。"
+  "wizards.picture.offGrid": "这张图片为 {size}。用此模型进行局部重绘需要两边都是 {grid} px 的倍数，因此生成会阻止对这张图片运行。",
+  "wizards.picture.gridCopy": "裁剪为 {size}",
+  "wizards.picture.gridCopyBusy": "正在裁剪…",
+  "wizards.picture.gridCopyHint": "将居中的 {size} 裁剪保存为 Input 文件夹中的新图片并在此使用。只裁掉超出网格的少量边缘像素，不做重新采样；原图保持不变。",
+  "wizards.picture.gridCopySmall": "这张图片太小，无法裁剪到网格；请选择更大的图片。",
+  "wizards.search.gridCopy": "仅在遮罩方法下要修改的图片不在模型网格上时显示。",
+  "wizards.picture.gridCopyLabel": "裁剪到模型网格",
+  "wizards.replace.multiTarget": "全部 {count} 个目标（{targets}）都会变成 {replacement}。若要分别替换，请对每个目标各运行一次向导。",
+  "wizards.replace.multiObject": "第二张图片中的物体"
 }

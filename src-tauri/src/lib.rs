@@ -71,9 +71,11 @@ pub use jobs::{
 };
 pub mod model_check;
 pub mod model_families;
+pub mod music_source;
 pub mod recipe_prerequisites;
 pub mod wildcard;
 pub mod window_mode;
+pub use music_source::native_music_source_check;
 pub use recipe_prerequisites::native_recipe_prerequisites;
 pub use wildcard::{native_wildcard_build, native_wildcard_library};
 pub use window_mode::{native_logs_window_error, native_window_read, native_window_write};
@@ -103,8 +105,8 @@ pub mod media_metadata;
 mod media_reference;
 pub use media::{
     native_media_copy_in, native_media_describe, native_media_list, native_media_paste,
-    native_media_reveal, native_media_star, native_media_star_notice, native_media_star_status,
-    native_media_thumbnail, native_media_unstar,
+    native_media_reveal, native_media_save_derived, native_media_star, native_media_star_notice,
+    native_media_star_status, native_media_thumbnail, native_media_unstar,
 };
 pub use media_metadata::native_media_metadata;
 pub use media_reference::native_media_reference_thumbnail;

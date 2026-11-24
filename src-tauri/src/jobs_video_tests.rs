@@ -2311,6 +2311,79 @@ fn h3_reference_crop_limits_match_director_stream_totals() {
 }
 
 /// `cargo test --lib dump_video_graphs -- --ignored --nocapture` prints the three graphs for an offline
+/// UX-22c0: the three Replace-for-videos candidates, built only from existing intent fields. Same
+/// source clip, same replaced first frame, same seed and canvas; the GPU comparison (UX-22c1) runs them
+/// through `tools/gpu_acceptance_session.py --only UX-22c` with real model names.
+fn replace_video_candidates() -> [(&'static str, Value); 3] {
+    let frame = "deas-inputs/replace-first-frame.png";
+    let canvas = |mut i: Value| {
+        i["width"] = json!(832);
+        i["height"] = json!(480);
+        i
+    };
+    // A: H3 image-to-video from the replaced first frame; the source clip only lends its prompt.
+    let mut a = canvas(h3());
+    a["h3"]["references"] = json!([{"slot":0,"image":frame}]);
+    // B: H3 REF2VA with the source clip (picture and sound) on the timeline and the replaced frame as image reference.
+    let mut b = canvas(h3());
+    b["h3"]["mode"] = json!("REF2VA");
+    b["h3"]["references"] = json!([]);
+    b["h3"]["media"] = json!([{"type":"image","file":frame,"slot":0},
+        {"type":"video","file":"deas-input-replace-source.mp4","slot":0,"mediaMode":"video_audio","trimStart":0.0,"trimEnd":5.0}]);
+    // C: LTX 2.3 video-to-video: the source clip as multi-frame guide, the replaced frame as first frame.
+    let mut c = canvas(ltx());
+    c["sourceVideo"] = json!("deas-input-replace-source.mp4");
+    c["firstFrame"] = json!(frame);
+    c["ltx"]["sourceStrength"] = json!(0.6);
+    [("h3_i2va", a), ("h3_ref2va", b), ("ltx_v2v", c)]
+}
+
+#[test]
+fn replace_video_candidates_compile_with_the_replaced_frame_and_the_source_clip() {
+    let graphs: Vec<(&str, Value)> = replace_video_candidates()
+        .into_iter()
+        .map(|(name, i)| (name, compile(&i).unwrap_or_else(|e| panic!("{name}: {e}"))))
+        .collect();
+    let text = |g: &Value| g.to_string();
+    for (name, g) in &graphs {
+        assert!(
+            text(g).contains("deas-inputs/replace-first-frame.png"),
+            "{name} must load the replaced first frame"
+        );
+    }
+    let (a, b, c) = (&graphs[0].1, &graphs[1].1, &graphs[2].1);
+    assert!(
+        !text(a).contains("replace-source.mp4"),
+        "A starts from the frame alone"
+    );
+    assert!(
+        text(b).contains("replace-source.mp4") && text(b).contains("video_audio"),
+        "B carries the source clip with its sound"
+    );
+    let classes = |g: &Value| {
+        g.as_object()
+            .unwrap()
+            .values()
+            .filter_map(|n| n["class_type"].as_str().map(str::to_owned))
+            .collect::<Vec<_>>()
+    };
+    assert!(classes(c).iter().any(|k| k == "LoadVideo"));
+    // Source guide at strength 0.6 and the replaced frame at full strength, both at frame 0.
+    assert_eq!(c["SV"]["inputs"]["file"], "deas-input-replace-source.mp4");
+    assert_eq!(c["SVS"]["inputs"]["width"], 832);
+}
+
+/// Prints the UX-22c0 candidate graphs for `tools/validate_video_graphs.py`.
+#[test]
+#[ignore]
+fn dump_replace_video_candidates() {
+    let mut out = json!({});
+    for (name, i) in replace_video_candidates() {
+        out[format!("replace_{name}")] = compile(&i).unwrap();
+    }
+    println!("{out}");
+}
+
 /// `execution.validate_prompt` run against the real ComfyUI checkout (see the deas-development skill).
 #[test]
 #[ignore]

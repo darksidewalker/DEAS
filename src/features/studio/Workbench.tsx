@@ -21,7 +21,7 @@ import { convertFileSrc, invoke, isTauri } from '@tauri-apps/api/core';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { useI18n } from '../../i18n/I18nProvider';
 import { isGguf, clipLoaderName, nativeImageReferenceEncoders, nativeImageReferenceLimit, safeComfyModel, animaLoraNode, type DiagnosticImageIntentV1, type RecipeAllowlist } from '../../lib/execution';
-import { autoRefine, loadDiagnosticJobOutput, waitForWorkbenchJob, stopWorkbench, stopWorkbenchJob, runWorkbenchJob, readCurrentWorkbench, pollWorkbench, uploadMask, uploadInput, readH3Session, readRefMods, isImageIntent, type JobStatus, type JobIntent, type H3ImportedVideo } from '../../lib/jobs';
+import { autoRefine, loadDiagnosticJobOutput, waitForWorkbenchJob, stopWorkbench, stopWorkbenchJob, runWorkbenchJob, readCurrentWorkbench, pollWorkbench, uploadMask, uploadInput, checkMusicSource, readH3Session, readRefMods, isImageIntent, type JobStatus, type JobIntent, type H3ImportedVideo } from '../../lib/jobs';
 import { chunkCount, defaultVideoOutput, h3LatentChanged, h3LatentDefaults, h3RegenerateTargets, h3Scalings, isH3Video, isVideoEnhanceIntent, isVideoIntent, latentUpscaleSize, regenerateSize, videoFrames, type H3LatentAdvanced, type H3RegenerateTarget, type H3Scaling, type VideoFamily, type VideoIntentV1, type VideoOutput } from '../../lib/videoIntent';
 import { defaultAbc, defaultMusicGeneration, isMusicIntent, isMusicPipeline, musicBounds, musicMaxDuration, type AbcSettings, type MusicGenerationSettings, type MusicIntentV1, type MusicPlanning } from '../../lib/musicIntent';
 import { MusicPrompts, type MusicField } from './MusicPrompts';
@@ -1189,6 +1189,9 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
   observation.current++;setObservationRetry(n=>n+1);const ticket=beginRun();
   let admitted=false;
   try{
+   // A sound-less video or a source too long to decode in one piece is refused here, before any upload.
+   if(draft.mode==='cover')await checkMusicSource(sourcePath!);
+   if(!activeRun(ticket))return;
    const intent:MusicIntentV1=draft.mode==='cover'?{...draft,sourceAudio:await uploadInput(endpoint,sourcePath!)}:draft;
    if(!activeRun(ticket))return;
    admitted=true;

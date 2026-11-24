@@ -17,7 +17,7 @@ import type { LocalModel } from '../../lib/models';
 import { I18nProvider } from '../../i18n/I18nProvider';
 import { checkRecipePrerequisites } from '../../lib/recipePrerequisites';
 import { scanModels } from '../../lib/models';
-import { autoRefine, stopWorkbench, runWorkbenchJob, readCurrentWorkbench, pollWorkbench, uploadMask, uploadInput, readH3Session, readRefMods, type JobStatus } from '../../lib/jobs';
+import { autoRefine, stopWorkbench, runWorkbenchJob, readCurrentWorkbench, pollWorkbench, uploadMask, uploadInput, checkMusicSource, readH3Session, readRefMods, type JobStatus } from '../../lib/jobs';
 import { readImageMetadata } from '../../lib/imageMetadata';
 
 test('poll reply already in flight cannot overwrite Stop',async()=>{
@@ -1109,6 +1109,28 @@ test('cover mode stage toolbar offers the same "Use for music cover" action as t
  expect(markOf('voice.wav')).toBe('Cover source (audio or video)');
 });
 
+test('cover source preflight refuses a sound-less clip before any upload and shows its reason',async()=>{
+ vi.mocked(checkMusicSource).mockRejectedValue('MUSIC_SOURCE: "clip.mp4" has no audio stream, so there is no melody to cover. Choose an audio file or a video with sound.');
+ await mountMusic('Music (Cover Music)');
+ fireEvent.change(music().style,{target:{value:'bossa nova'}});
+ fireEvent.click(within(screen.getByRole('group',{name:'Environment folders'})).getByRole('button',{name:'Input'}));
+ await screen.findByRole('button',{name:'clip.mp4'});
+ fireEvent.click(menuOf('clip.mp4').getByRole('menuitem',{name:'Use for music cover'}));
+ const run=screen.getByRole('button',{name:'Run'}) as HTMLButtonElement;
+ await waitFor(()=>expect(run.disabled).toBe(false));
+ fireEvent.click(run);
+ await screen.findByText(/"clip\.mp4" has no audio stream/);
+ expect(vi.mocked(checkMusicSource).mock.calls).toEqual([['/env/ComfyUI/input/clip.mp4']]);
+ expect(uploadInput).not.toHaveBeenCalled();expect(runWorkbenchJob).not.toHaveBeenCalled();
+ // A passing check lets the same Run upload and submit.
+ vi.mocked(checkMusicSource).mockResolvedValue({seconds:12,sampleRate:48000,channels:2,pcmBytes:4608000});
+ vi.mocked(uploadInput).mockResolvedValue('deas-inputs/clip.mp4');
+ await waitFor(()=>expect(run.disabled).toBe(false));
+ fireEvent.click(run);
+ await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(1));
+ expect(vi.mocked(runWorkbenchJob).mock.lastCall![1]).toMatchObject({mode:'cover',sourceAudio:'deas-inputs/clip.mp4'});
+});
+
 test('cover needs an explicitly selected audio or video source, uploads it once on Run, and is immutable to later edits',async()=>{
  let uploaded!:(name:string)=>void;
  vi.mocked(uploadInput).mockImplementation(()=>new Promise<string>(resolve=>{uploaded=resolve;}));
@@ -1133,6 +1155,9 @@ test('cover needs an explicitly selected audio or video source, uploads it once 
  fireEvent.change(music().style,{target:{value:'changed after run'}});fireEvent.click(menuOf('clip.mp4').getByRole('menuitem',{name:'Use for music cover'}));
  fireEvent.click(document.querySelector('[data-music-source-remove]')!);
  expect(runWorkbenchJob).not.toHaveBeenCalled();
+ // The preflight runs first, on the source captured at Run; the upload follows it.
+ await waitFor(()=>expect(uploadInput).toHaveBeenCalledTimes(1));
+ expect(checkMusicSource).toHaveBeenCalledExactlyOnceWith('/env/ComfyUI/input/voice.wav');
  await act(async()=>{uploaded('deas-input-voice.wav');});
  await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(1));
  expect(uploadInput).toHaveBeenCalledExactlyOnceWith('http://127.0.0.1:7801','/env/ComfyUI/input/voice.wav');

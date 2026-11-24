@@ -86,7 +86,9 @@ window.__TAURI_INTERNALS__.invoke=async(c,a)=>{
   native_wildcard_library:JSON.stringify({categories:[]}),
   native_audio_enhance_install_status:{running:false,mode:"",stage:"",downloaded:0,total:0},
   native_audio_enhance_capabilities:{clean:true,deep:false,stems:false},
-  native_monitoring_sample:{at:0,source:'layout-fixture',cpu:null,ram:null,swap:null,disks:[],diskIo:null,gpus:[]}
+  native_monitoring_sample:{at:0,source:'layout-fixture',cpu:null,ram:null,swap:null,disks:[],diskIo:null,gpus:[]},
+  // Start-window preference (0.3.22) and multi-GPU enumeration (0.3.21): single-GPU fixture, default start mode.
+  native_window_read:'maximized',native_backend_gpus:null
  };
  if(c==='native_install_plan'){f.calls.push({command:c,args:clone(a??{})});return {id:'layout-reopen',reopenId:'checked',request:a.request,steps:[],warnings:[],unsupportedOptions:[],canExecute:true};}
  if(c==='native_recipe_prerequisites'){

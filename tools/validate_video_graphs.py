@@ -66,6 +66,8 @@ for family, g in graphs.items():
     for a, b in swap.items():
         text = text.replace(json.dumps(a)[1:-1], b.replace('\\', '\\\\'))
     text = text.replace('"ref.png"', json.dumps(image)).replace('"first.png"', json.dumps(image)).replace('"deas-inputs/a.png"', json.dumps(image)).replace('"deas-masks/3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d.png"', json.dumps(image))
+    # UX-22c0 Replace-for-videos candidates (dump_replace_video_candidates): replaced first frame and source clip.
+    text = text.replace('"deas-inputs/replace-first-frame.png"', json.dumps(image)).replace('"deas-input-replace-source.mp4"', '"source.mp4"')
     g = json.loads(text)
     result = loop.run_until_complete(execution.validate_prompt('deas-probe', g, None))
     valid, error, outputs, node_errors = result[0], result[1], result[2], result[3]

@@ -64,5 +64,13 @@
   "wizards.replace.replacementObjectPlaceholder": "任意：オブジェクト画像の犬",
   "wizards.replace.hint.referenceObject": "変更する画像が Qwen Image 2.1 参照編集の image 1、オブジェクト画像が image 2 になります。結果は image 1 の縦横比を保ちます。出力サイズを確認して実行を押してください。",
   "wizards.replace.objectRouted": "オブジェクト画像がある場合、ウィザードは同じモデルでリファレンス編集を渡します。マスク編集では元のオブジェクトが残ってしまいます。",
-  "wizards.picture.offGrid": "この画像は {size} です。このモデルでのインペイントには両辺が {grid} px の倍数である必要があるため、画像がそのグリッドにリサンプルされるまで生成の実行はブロックされます。"
+  "wizards.picture.offGrid": "この画像は {size} です。このモデルでのインペイントには両辺が {grid} px の倍数である必要があるため、生成はこの画像での実行をブロックします。",
+  "wizards.picture.gridCopy": "{size} に切り抜く",
+  "wizards.picture.gridCopyBusy": "切り抜き中…",
+  "wizards.picture.gridCopyHint": "中央の {size} の切り抜きを Input フォルダーに新しい画像として保存し、ここで使います。グリッドからはみ出した端の数ピクセルだけを切り落とし、リサンプルはしません。元の画像は変更されません。",
+  "wizards.picture.gridCopySmall": "この画像は小さすぎてグリッドに切り抜けません。もっと大きな画像を選んでください。",
+  "wizards.search.gridCopy": "マスク方式で、変更する画像がモデルのグリッドに合っていない場合にのみ表示されます。",
+  "wizards.picture.gridCopyLabel": "モデルのグリッドに切り抜く",
+  "wizards.replace.multiTarget": "{count} 個の対象（{targets}）はすべて {replacement} になります。対象ごとに別の置き換えにするには、対象ごとにウィザードを 1 回ずつ実行してください。",
+  "wizards.replace.multiObject": "2 枚目の画像の物体"
 }
