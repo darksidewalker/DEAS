@@ -1856,7 +1856,7 @@ const promptTools=forgeContext&&<>
  const pickModel=(m:LocalModel)=>switchDraft(pipeline,m,true,false,true);
  // Dark Wizards: prepare an ordinary draft (model, picture, prompt, size); with `run`, Generate starts that draft afterwards.
  const wizardApplied=useRef(0);
- const wizardBeginnerSize=useRef<{model:string;size?:Size}|null>(null);
+ const wizardBeginnerSize=useRef<{model:string;size?:Size;cfg?:number}|null>(null);
  const [wizardStart,setWizardStart]=useState<number>();
  // A masked one-click run first waits for the editor to hold the picture, then masks it with SAM 3.1 from *Replace what*.
  const [wizardMask,setWizardMask]=useState<{n:number;targets:string[];grow:number}>();
@@ -1871,7 +1871,7 @@ const promptTools=forgeContext&&<>
   if(beginner){
    // Beginner restores its own per-model LoRA draft and starting settings when the model changes; the wizard's draft has no LoRAs and keeps its size.
    beginnerLoraDraft.current={model:identity(m),loras:[]};writePref('beginner.loras',beginnerLoraDraft.current);
-   wizardBeginnerSize.current=model&&identity(model)===identity(m)?null:{model:identity(m),size:wizard.size};
+   wizardBeginnerSize.current=model&&identity(model)===identity(m)?null:{model:identity(m),size:wizard.size,cfg:wizard.cfg};
   }
   switchDraft(wizard.pipeline,m,true);
   setHistoryDraft(null);setLoras([]);
@@ -1881,6 +1881,8 @@ const promptTools=forgeContext&&<>
   if(wizard.source==='reference'){setMedia(null);setImageRefs([{item:picture,strength:0.6},...references]);}
   else {setImageRefs(references);setMedia(picture);setWizardPicture(comfyName(picture)?null:{path:wizard.picture.path,name:wizard.picture.name});if(wizard.edit)setEdit(wizard.edit);if(wizard.denoise!==undefined)(wizard.edit==='inpaint'?setInpaintDenoise:setDenoise)(wizard.denoise);if(wizard.maskBlur!==undefined&&isMaskBlur(wizard.maskBlur))setMaskBlur(wizard.maskBlur);}
   if(wizard.size){setWidth(wizard.size.width);setHeight(wizard.size.height);setResolution('fixed');}
+  // The strategy's measured CFG for this family (set after switchDraft's starting values; Beginner reapplies it below after its model reset).
+  if(wizard.cfg!==undefined&&Number.isFinite(wizard.cfg))setCfg(wizard.cfg);
   setPositive(wizard.positive);setError('');
   // A hand-over that asked to run starts one commit later, so Run builds its intent from the draft that was just applied.
   const maskTargets=wizard.run&&wizard.source==='edit'&&wizard.edit==='inpaint'&&wizard.mask?samTargets(wizard.mask):[];
@@ -1971,7 +1973,7 @@ const promptTools=forgeContext&&<>
    for(const key of beginnerMusicEdited.current)advancedSettings.current[key]=authored[key];
    applyStudioSettings(advancedSettings.current);advancedSettings.current=null;const saved=advancedReferences.current;if(saved){setImageRefs(saved.imageRefs);setRefs(saved.refs);setRefmods(saved.refmods);setLastFrame(saved.lastFrame);setLastOnlySrc(saved.lastOnlySrc);setFramePeople(saved.framePeople);setSourceVideo(saved.sourceVideo);setPlan(saved.plan);advancedReferences.current=null;}}
  },[beginner]);
- useEffect(()=>{if(!beginner||!model)return;const sameModel=beginnerModelKey.current===identity(model);beginnerModelKey.current=identity(model);const draft=beginnerLoraDraft.current;const allowed=new Set(beginnerLoraModels.map(m=>m.name));setLoras(!isGguf(model.name)&&draft?.model===identity(model)?draft.loras.filter(l=>allowed.has(l.name)):[]);if(!isMusic){startingSettings(model);if(sameModel){setSteps(steps);setCfg(cfg);}}const fromWizard=wizardBeginnerSize.current;if(fromWizard?.model===identity(model)){wizardBeginnerSize.current=null;if(fromWizard.size){setWidth(fromWizard.size.width);setHeight(fromWizard.size.height);setResolution('fixed');}}const videoDefaults=familyOf(model)?.video;setVideo({...defaultVideo,...(videoDefaults?{seconds:videoDefaults.seconds,fps:videoDefaults.fps}:{})});},[beginner,model?.path,model?.name,model?.family]);
+ useEffect(()=>{if(!beginner||!model)return;const sameModel=beginnerModelKey.current===identity(model);beginnerModelKey.current=identity(model);const draft=beginnerLoraDraft.current;const allowed=new Set(beginnerLoraModels.map(m=>m.name));setLoras(!isGguf(model.name)&&draft?.model===identity(model)?draft.loras.filter(l=>allowed.has(l.name)):[]);if(!isMusic){startingSettings(model);if(sameModel){setSteps(steps);setCfg(cfg);}}const fromWizard=wizardBeginnerSize.current;if(fromWizard?.model===identity(model)){wizardBeginnerSize.current=null;if(fromWizard.size){setWidth(fromWizard.size.width);setHeight(fromWizard.size.height);setResolution('fixed');}if(fromWizard.cfg!==undefined)setCfg(fromWizard.cfg);}const videoDefaults=familyOf(model)?.video;setVideo({...defaultVideo,...(videoDefaults?{seconds:videoDefaults.seconds,fps:videoDefaults.fps}:{})});},[beginner,model?.path,model?.name,model?.family]);
  // Only authored intent is shared across restarts. Automatic beginner settings must
  // never overwrite the user's persisted advanced technical defaults.
  useEffect(()=>{if(!beginner||project)return;writePref('studio.run.positive',positive);writePref('studio.run.checkpoint',checkpointPref);writePref('studio.run.pipeline',pipeline);writePref('studio.run.aspect',aspectPref);if(resolutionPref!=='fixed')writePref('studio.run.resolution',resolutionPref);writePref(musicPromptPreferenceKeys[0],musicStyle);writePref(musicPromptPreferenceKeys[1],musicLyrics);},[beginner,project,positive,checkpointPref,pipeline,aspectPref,resolutionPref,musicStyle,musicLyrics]);

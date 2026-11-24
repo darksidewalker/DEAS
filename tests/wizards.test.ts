@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { builtinWizards, editGrid, preferredChoice, strategyPrompt, usesObject, validWizard, wizardCanvas, wizardChoices, wizardPrompt, wizardReady, type WizardModel } from '../src/lib/wizards.ts';
+import { builtinWizards, editGrid, preferredChoice, strategyCfg, strategyPrompt, usesObject, validWizard, wizardCanvas, wizardChoices, wizardPrompt, wizardReady, type WizardModel } from '../src/lib/wizards.ts';
 
 const replace = builtinWizards.find(w => w.id === 'replace')!;
 const model = (name: string, family: string | null, category = 'diffusion_models'): WizardModel => ({ name, family, category, path: `/m/${name}` });
@@ -24,6 +24,12 @@ test('bundled Replace wizard is valid data: Qwen reference edit first, masked ed
   // A replacement redraws the masked area completely; the reference edit has no source strength.
   assert.equal(replace.strategies[1].denoise, 1);
   assert.equal(replace.strategies[0].denoise, undefined);
+  // Measured: the full Qwen 2.1 model draws a masked replacement only at a raised CFG; Turbo and other families keep theirs.
+  assert.equal(strategyCfg(replace.strategies[1], 'qwen-image-2.1'), 4);
+  assert.equal(strategyCfg(replace.strategies[1], 'qwen-image-2.1-turbo'), undefined);
+  assert.equal(strategyCfg(replace.strategies[1], 'sdxl'), undefined);
+  assert.equal(strategyCfg(replace.strategies[0], 'qwen-image-2.1'), undefined);
+  assert.equal(strategyCfg(replace.strategies[1], null), undefined);
 });
 
 test('descriptor validation refuses unknown families and mismatched pipeline/source/mask combinations', () => {
@@ -48,6 +54,11 @@ test('descriptor validation refuses unknown families and mismatched pipeline/sou
   assert.equal(broken(w => { w.strategies[1].maskBlur = 32; }), false);
   assert.equal(broken(w => { w.strategies[0].maskGrow = 8; }), false); // no mask on a reference edit
   assert.equal(broken(w => { w.strategies[0].objectFamilies = ['krea-2']; }), false); // not among the strategy's families
+  assert.equal(broken(w => { w.strategies[1].cfg = { 'krea-2': 4 }; }), false); // CFG only for the strategy's own families
+  assert.equal(broken(w => { w.strategies[1].cfg = { 'qwen-image-2.1': 0 }; }), false);
+  assert.equal(broken(w => { w.strategies[1].cfg = { 'qwen-image-2.1': 31 }; }), false);
+  assert.equal(broken(w => { w.strategies[1].cfg = {}; }), false);
+  assert.equal(broken(w => { w.strategies[1].cfg = { 'qwen-image-2.1': 2.5, sdxl: 7 }; }), true);
 });
 
 test('choices list only installed models of declared families, in family order; unknown and LoRA files never count', () => {

@@ -40,6 +40,9 @@
         "denoise": 1,
         "maskGrow": 32,
         "maskBlur": 4,
+        "cfg": {
+          "qwen-image-2.1": 4
+        },
         "positive": "{replacement}",
         "objectVia": "reference",
         "needsMask": true

@@ -6,7 +6,7 @@ import { pickMedia } from '../../lib/analysis';
 import { describeMedia, dropCssPoint, itemFromEntry, pastedPaths, pastedPictures, pasteToInput, saveDerived } from '../../lib/media';
 import { stopWorkbenchJob } from '../../lib/jobs';
 import { scanModels } from '../../lib/models';
-import { builtinWizards, editGrid, findInLibrary, gridCopyName, gridCrop, preferredChoice, wizardTargets, strategyPrompt, usesObject, wizardCanvas, wizardChoices, wizardReady, type WizardField, type WizardHandoff, type WizardModel, type WizardPicture, type WizardRun } from '../../lib/wizards';
+import { builtinWizards, editGrid, findInLibrary, gridCopyName, gridCrop, preferredChoice, strategyCfg, wizardTargets, strategyPrompt, usesObject, wizardCanvas, wizardChoices, wizardReady, type WizardField, type WizardHandoff, type WizardModel, type WizardPicture, type WizardRun } from '../../lib/wizards';
 import './darkWizards.css';
 
 const IMAGE = /\.(png|jpe?g|webp)$/i;
@@ -166,6 +166,7 @@ export function DarkWizards({ active = false, roots, onPrepare, outcome, onOpenG
     if (!wizard || !strategy || !model || !picture || !ready || (withRun && !runnable)) return;
     const s = strategy, family = model.family ?? '';
     const canvas = s.source === 'reference' && pictureSize ? wizardCanvas(family, pictureSize) : undefined;
+    const cfg = strategyCfg(s, family);
     if (s.source === 'reference' && !canvas) { setError(t('wizards.picture.size')); return; }
     setError('');
     onPrepare({ wizard: wizard.id, strategy: s.id, pipeline: s.pipeline, source: s.source, ...(s.edit ? { edit: s.edit } : {}),
@@ -173,7 +174,7 @@ export function DarkWizards({ active = false, roots, onPrepare, outcome, onOpenG
       // Reference edits make the picture reference 1 themselves; a masked edit lists it explicitly so the prompt's `image 1` exists there too.
       ...(withObject && object ? { references: s.source === 'reference' ? [object] : [picture, object] } : {}),
       positive: strategyPrompt(s, fields, withObject), ...(canvas ? { size: canvas } : {}), ...(s.denoise !== undefined ? { denoise: s.denoise } : {}),
-      ...(s.maskGrow !== undefined ? { maskGrow: s.maskGrow } : {}), ...(s.maskBlur !== undefined ? { maskBlur: s.maskBlur } : {}), ...(withRun ? { run: true, ...(s.needsMask ? { mask: maskTarget } : {}) } : {})});
+      ...(cfg !== undefined ? { cfg } : {}), ...(s.maskGrow !== undefined ? { maskGrow: s.maskGrow } : {}), ...(s.maskBlur !== undefined ? { maskBlur: s.maskBlur } : {}), ...(withRun ? { run: true, ...(s.needsMask ? { mask: maskTarget } : {}) } : {})});
   };
 
   if (!wizard) return null;

@@ -280,3 +280,30 @@ test('a masked run hand-over without SAM 3.1 reports Generate\'s SAM reason and 
   expect(runWorkbenchJob).not.toHaveBeenCalled(); expect(uploadMask).not.toHaveBeenCalled();
   expect(prompt()).toBe('a blue bicycle');
 });
+
+test('a masked run hand-over sets the strategy CFG for the draft it runs', async () => {
+  vi.mocked(checkRecipePrerequisites).mockResolvedValue(samEvidence());
+  maskCanvas(true);
+  localStorage.setItem('deas.pref.studio.run.cfg', '7');
+  const { applied } = await maskedRun({ ...masked, n: 8, cfg: 4 });
+  await waitFor(() => expect(applied).toHaveBeenCalledWith(8, undefined, expect.objectContaining({ state: 'running' })), { timeout: 4000 });
+  const drawn = vi.mocked(runWorkbenchJob).mock.calls.map(call => call[1] as unknown as Record<string, unknown>).find(i => i.recipeId !== 'sam3-mask')!;
+  expect(drawn).toMatchObject({ positivePrompt: 'a blue bicycle', cfg: 4, denoise: 1 });
+});
+
+test('Beginner keeps the wizard CFG over its model-change starting values', async () => {
+  vi.mocked(scanModels).mockResolvedValue(referenceModels('qwen-image-2.1-turbo'));
+  vi.mocked(checkRecipePrerequisites).mockResolvedValue(qwenEvidence());
+  vi.mocked(uploadInput).mockResolvedValue('deas-inputs/street.png');
+  vi.mocked(runWorkbenchJob).mockResolvedValue({ ...heldJob('wizard-run', 'running') });
+  const applied = vi.fn(), props = { endpoint: evidence.baseUrl, roots: { models: '/m', output: '/out' }, onWizardApplied: applied, beginner: true };
+  const view = render(<I18nProvider><Workbench {...props}/></I18nProvider>);
+  await waitFor(() => expect(document.querySelector('.beginner-selected-model')?.textContent).toBeTruthy());
+  await waitFor(() => expect(scanModels).toHaveBeenCalled());
+  view.rerender(<I18nProvider><Workbench {...props} wizard={{ ...reference, n: 12, run: true, cfg: 4 }}/></I18nProvider>);
+  await waitFor(() => expect(applied).toHaveBeenCalledWith(12, undefined, expect.objectContaining({ state: 'running' })));
+  expect(vi.mocked(runWorkbenchJob).mock.calls.at(-1)![1]).toMatchObject({ checkpoint: 'qwen.safetensors', cfg: 4 });
+  // Beginner's model-change reset ran after the hand-over; the draft's CFG is still the wizard's.
+  await waitFor(() => expect((document.querySelector('[data-beginner-resolution]') as HTMLSelectElement).value).toBe('fixed'));
+  expect((document.querySelector('input[data-num="cfg"]') as HTMLInputElement | null)?.value).toBe('4');
+});

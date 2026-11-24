@@ -35,6 +35,12 @@ export interface WizardStrategy {
    */
   maskGrow?: number;
   maskBlur?: number;
+  /**
+   * CFG per model family for this strategy, overriding the family's starting value. Measured 2026-11-24: masked
+   * replacements on Qwen Image 2.1 (full model) at its official CFG 1 drew the replacement in 0 of 6 seeded runs, at
+   * CFG 4 in 6 of 6; a larger mask did not help. Families not listed keep their own value (Turbo is distilled for CFG 1).
+   */
+  cfg?: Record<string, number>;
   /** With an object picture this strategy hands over the named strategy instead (when the chosen model fits it). */
   objectVia?: string;
 }
@@ -53,6 +59,8 @@ export interface WizardHandoff {
   model: { name: string; path: string }; picture: WizardPicture; references?: WizardPicture[]; positive: string; size?: Size; run?: boolean; mask?: string; denoise?: number;
   /** Masked edits: grow the SAM mask by this many pixels and set Generate's Mask blur. */
   maskGrow?: number; maskBlur?: number;
+  /** Generate's CFG for this draft (the strategy's per-family value). */
+  cfg?: number;
 }
 /** The picture a wizard's own run produced, in that job's native-held output folder. */
 export interface WizardRunPicture { path: string; width: number; height: number; seed: number; checkpoint: string; ms?: number }
@@ -95,7 +103,9 @@ function validStrategy(s: unknown): s is WizardStrategy {
     && (v.denoise === undefined || (v.source === 'edit' && typeof v.denoise === 'number' && v.denoise > 0 && v.denoise <= 1))
     && (v.maskGrow === undefined || (v.needsMask === true && Number.isSafeInteger(v.maskGrow) && (v.maskGrow as number) >= 0 && (v.maskGrow as number) <= 512))
     && (v.maskBlur === undefined || (v.needsMask === true && Number.isSafeInteger(v.maskBlur) && (v.maskBlur as number) >= 0 && (v.maskBlur as number) <= 31))
-    && (v.objectVia === undefined || (typeof v.objectVia === 'string' && v.objectVia !== v.id && v.objectPositive === undefined));
+    && (v.objectVia === undefined || (typeof v.objectVia === 'string' && v.objectVia !== v.id && v.objectPositive === undefined))
+    && (v.cfg === undefined || (!!v.cfg && typeof v.cfg === 'object' && !Array.isArray(v.cfg) && Object.keys(v.cfg).length > 0
+      && Object.entries(v.cfg).every(([f, n]) => (v.families as string[]).includes(f) && typeof n === 'number' && Number.isFinite(n) && n > 0 && n <= 30)));
 }
 /** Rejects malformed descriptors instead of half-applying them (unknown families, mismatched pipeline/source). */
 export function validWizard(w: unknown): w is WizardDescriptor {
@@ -123,6 +133,8 @@ export function wizardChoices(wizard: WizardDescriptor, models: readonly WizardM
 export const preferredChoice = (choices: readonly WizardChoice[]) => choices.find(c => c.models.length > 0);
 
 const placeholder = /\{(target|replacement)(?:\|([^{}]*))?\}/g;
+/** The strategy's CFG for a model family, or undefined when the family keeps its own starting value. */
+export const strategyCfg = (strategy: WizardStrategy, family: string | null | undefined) => family ? strategy.cfg?.[family] : undefined;
 /** Whether the object picture is used: the strategy has an object template and the chosen model's family takes reference pictures. */
 export const usesObject = (strategy: WizardStrategy, family: string | null | undefined, hasObject: boolean) =>
   hasObject && !!strategy.objectPositive && !!family && !!strategy.objectFamilies?.includes(family);

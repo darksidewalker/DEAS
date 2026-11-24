@@ -10,6 +10,7 @@ vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(), isTauri: () => true, c
 vi.mock('@tauri-apps/api/webview', () => ({ getCurrentWebview: () => ({ onDragDropEvent: async () => () => {} }) }));
 
 const qwen = { category: 'diffusion_models', name: 'qwen_image_2.1_turbo.safetensors', path: '/m/diffusion_models/qwen_image_2.1_turbo.safetensors', size: 1, info: null, family: 'qwen-image-2.1-turbo' };
+const qwenFull = { category: 'diffusion_models', name: 'qwen_image_2.1_int8.safetensors', path: '/m/diffusion_models/qwen_image_2.1_int8.safetensors', size: 1, info: null, family: 'qwen-image-2.1' };
 const sdxl = { category: 'checkpoints', name: 'sdxl.safetensors', path: '/m/checkpoints/sdxl.safetensors', size: 1, info: null, family: 'sdxl' };
 const lora = { category: 'loras', name: 'qwen-lora.safetensors', path: '/m/loras/qwen-lora.safetensors', size: 1, info: null, family: 'qwen-image-2.1' };
 let models: unknown[];
@@ -305,4 +306,27 @@ it('says that several targets share the one replacement instead of splitting the
   expect(screen.getByText('All 2 targets (the red car, the shop sign) become a blue bicycle. To give each its own replacement, run the wizard once per target.')).toBeTruthy();
   type('With what', '');
   expect(document.querySelector('[data-wizard-multi-target]')).toBeNull(); // nothing to name yet
+});
+
+it('hands the masked method its measured CFG on the full Qwen 2.1 model only', async () => {
+  models = [qwenFull, qwen, sdxl];
+  const { onPrepare } = ui();
+  await choosePicture(1024, 576);
+  fireEvent.click(screen.getByRole('button', { name: 'Paint a mask (inpaint)' }));
+  expect((screen.getByRole('combobox', { name: 'Model' }) as HTMLSelectElement).value).toBe(qwenFull.path);
+  type('With what', 'a red apple');
+  fireEvent.click(screen.getByRole('button', { name: 'Prepare in Generate' }));
+  expect(onPrepare.mock.calls[0][0]).toMatchObject({ strategy: 'inpaint', model: { path: qwenFull.path }, cfg: 4, denoise: 1, maskGrow: 32 });
+  for (const other of [qwen, sdxl]) {
+    fireEvent.change(screen.getByRole('combobox', { name: 'Model' }), { target: { value: other.path } });
+    fireEvent.click(screen.getByRole('button', { name: 'Prepare in Generate' }));
+    expect(onPrepare.mock.calls.at(-1)![0].cfg).toBeUndefined();
+  }
+  // The reference edit on the same model keeps the family value.
+  fireEvent.change(screen.getByRole('combobox', { name: 'Model' }), { target: { value: qwenFull.path } });
+  fireEvent.click(screen.getByRole('button', { name: 'Reference edit (Qwen Image 2.1)' }));
+  type('Replace what', 'the phone');
+  fireEvent.click(screen.getByRole('button', { name: 'Prepare in Generate' }));
+  expect(onPrepare.mock.calls.at(-1)![0]).toMatchObject({ strategy: 'reference' });
+  expect(onPrepare.mock.calls.at(-1)![0].cfg).toBeUndefined();
 });
