@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.38
+
+- **Movie Maker: the music bed is levelled before it is mixed.** A real run showed that a generated ACE-Step track is very quiet (about −34 dB RMS), so the default *Music level* (−14 dB) left the bed some 20 dB below the speech — practically inaudible, 26 dB with ducking. The mix now first brings the track to a fixed loudness (EBU R128, −24 LUFS) and then applies your level, so the same setting means the same for a quiet generated track and a loudly mastered song; measured on the same film the bed now sits about 12 dB below the speech and about 17 dB below it while the film speaks (ducked). Level and ducking are still yours to tune by ear.
+- Developer: `tools/movie_gpu_session.py` — the Movie Maker GPU acceptance session (first take, continued shot, ACE-Step track, join, real mix with measured ducking) on a throwaway backend; `--precheck` compiles every intent offline, `--remix <session>` re-runs only the mix measurement without the GPU.
 ## 0.3.37
 
 - **Movie Maker: generate the music bed.** In the **Music** step, describe the music (*calm cinematic piano and strings, slow, warm, no vocals*) and press **Generate the track (n s)**: Movie Maker hands Generate an instrumental text-to-music draft of the film's length (the joined film's length when it is made, else the planned shots') on the installed **ACE-Step 1.5** model — Turbo first, other ACE-Step variants next — or **YuE2** when that is all you have (its weights are CC-BY-NC, non-commercial; the step says so). **Prepare in Generate** only fills the draft. The finished track becomes the music file of the movie (so the scored film is marked outdated) and is mixed in with the existing Mix step; a failed generation shows the reason. Generate's music run now also reports its audio file to wizards. The optional H3 audio-reference mode is still to come and will be exclusive with the mix. Six locales, search entry, [the guide](DARK-WIZARDS.md#music-bed).

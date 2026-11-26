@@ -14,6 +14,8 @@ const FILM_EXT: [&str; 4] = ["mp4", "mov", "mkv", "webm"];
 const MUSIC_EXT: [&str; 8] = ["wav", "mp3", "flac", "ogg", "opus", "m4a", "aac", "wma"];
 const MAX_FILM_SECONDS: f64 = 3600.0;
 const MAX_MUSIC_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+/// Integrated loudness (LUFS) the music is normalised to before its level is applied.
+const LOUDNESS_TARGET: i32 = -24;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -130,7 +132,12 @@ pub fn graph(p: &Plan) -> String {
     } else {
         String::new()
     };
-    let music = format!("[1:a:0]volume={:.2}dB{fade}", p.level_db);
+    // The track is first brought to a fixed loudness, so the level setting means the same for a quiet generated track and a loud
+    // mastered one (measured: an ACE-Step track sits near -34 dB RMS, a mastered song 20 dB higher).
+    let music = format!(
+        "[1:a:0]loudnorm=I={LOUDNESS_TARGET}:TP=-2:LRA=11,aresample=48000,volume={:.2}dB{fade}",
+        p.level_db
+    );
     if !p.has_audio {
         return format!("{music}[aout]");
     }

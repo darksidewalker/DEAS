@@ -142,7 +142,7 @@ fn the_graph_ducks_only_when_the_film_has_sound() {
     };
     assert_eq!(
         graph(&p(false, 12.0)),
-        "[1:a:0]volume=-14.00dB,afade=t=out:st=8.000:d=2.000[aout]"
+        "[1:a:0]loudnorm=I=-24:TP=-2:LRA=11,aresample=48000,volume=-14.00dB,afade=t=out:st=8.000:d=2.000[aout]"
     );
     assert!(
         graph(&p(true, 0.0)).contains("amix=inputs=2:duration=first:normalize=0")
