@@ -167,7 +167,7 @@ export function InstalledGallery({models,loaded,root,category,setCategory,select
     <div className="library-body" data-model-scroll>
      <div className="library-results">
       <div className={`library-card-grid is-${layout}`}>{matching.slice(0,limit).map(m=>{
-       const info=m.info?.civitai;const personal=annotation(m.path);
+       const info=m.info?.civitai;
        return <article key={m.path} className={`library-card${selected===m.path||chosen.has(m.path)?' is-selected':''}${blur&&info?.nsfw?' is-sensitive':''}${bulk?' is-bulk':''}`}>
         <ModelMetadataTarget model={m} actions={[
          ...(m.category==='loras'?[{label:t('library.addLora'),onClick:()=>addLora(m),disabled:locked}]:[]),

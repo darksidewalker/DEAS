@@ -138,6 +138,7 @@ An item is only as accepted as its strongest evidence. Keep the levels separate.
 | [UX-28](#ux-28--selected-lora-popup-and-sets) | Selected-LoRA popup and sets | ACCEPT | NATIVE | §4.6 |
 | [UX-29](#ux-29--studio-lora-inventory-fix) | Studio LoRA inventory fix | ACCEPT | NATIVE, OWNER | §4.6 |
 | [UX-30](#ux-30--studio-refocus-fix) | Studio refocus fix | ACCEPT | NATIVE, OWNER | §4.6 |
+| [UX-31](#ux-31--split-workbenchtsx) | Split `Workbench.tsx` | SLICE | CPU | §4.6 |
 | [L-01](#l-01--library-catalog--pr-38--h3-reference-generation-gate) | Library Catalog / PR #38 — H3 reference generation gate | ACCEPT | GPU | §4.7 |
 | [L-02](#l-02--librarystudio-quality-of-life-pr-37) | Library/Studio quality-of-life (PR #37) | ACCEPT | NATIVE, WIN | §4.7 |
 | [L-03](#l-03--native-model-browser-proposal) | Native model browser proposal | ACCEPT | NATIVE, OWNER | §4.7 |
@@ -1058,6 +1059,17 @@ The model refresh on window focus has been removed. A mocked regression checks
 that Run stays available and model/backend requests do not increase on refocus,
 while explicit Reload still discovers new files. Native-window acceptance remains
 with the user; no live generation is started.
+
+#### UX-31 · Split `Workbench.tsx`
+
+**Type:** SLICE · **Needs:** CPU
+
+`src/features/studio/Workbench.tsx` is 353 KB: one `WorkbenchContent` component of about 2,600 lines with 33 `useState`, 29 `useRef` and 60 `useEffect` calls, about 120 lines over 400 characters. Duplication is low (three repeated snippets); the problem is that every concern shares the same state. Done in 0.3.34: the wizard hand-over's decisions as the pure `wizardDraft.ts`, shared guards in `studioGuards.ts`, orphan imports/exports removed. A hook that takes the remaining wizard effects would need a ~60-member parameter bag (all the setters and refs), which only moves the tangle; do these first, in this order, each with the full Workbench suites green and no behaviour change:
+
+- [ ] Pure intent builders (video, image, music `buildXIntent` bodies) out of `run()` into plain functions fed by one settings snapshot object.
+- [ ] The continuity plan runner (`planRun`, `runPlan`, clip resolution) as one hook with its own state, which UX-22d4b1 needs anyway.
+- [ ] Group related state into a few reducers/contexts (references, SAM/masking, run queue) before extracting further hooks, so hooks take a handful of values instead of dozens of setters.
+- [ ] Remaining top-of-file constants and validators into modules (`studioGuards.ts` is the pattern).
 
 ### 4.7 Library and downloads backlog
 

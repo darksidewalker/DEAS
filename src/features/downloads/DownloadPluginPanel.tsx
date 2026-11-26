@@ -1,5 +1,5 @@
 import { MODEL_LIBRARY_UPDATED,modelPathKey,publishModelLibrary,patchModels,refreshModelPreviews,type ModelLibraryUpdate } from '../../lib/modelLibrary';
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { SetStateAction } from 'react';
 import { isTauri } from '@tauri-apps/api/core';
 import { NeuralBlob } from '../../components/neural/NeuralBlob';

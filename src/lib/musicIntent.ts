@@ -70,5 +70,4 @@ export type Yue2MusicIntentV1=MusicBase&(
  |{readonly mode:'cover';readonly planning:'melody';readonly sourceAudio:string;readonly audioEncoder:string}
 );
 export const isMusicIntent=(i:{recipeId:string}):i is MusicIntentV1=>i.recipeId==='music-generation';
-export const musicPipelines=['t2m','cover'] as const;
 export const isMusicPipeline=(p:string):p is 't2m'|'cover'=>p==='t2m'||p==='cover';

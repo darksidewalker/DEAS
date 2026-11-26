@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.3.34
+
+- Developer: first step of splitting `Workbench.tsx` (354 KB, one 2,600-line component). The wizard hand-over's decisions (reference edit, masked/plain edit, Replace video step, Movie Maker shot) are now one pure, tested function (`wizardDraft.ts`) that Workbench only applies; the five small validators/helpers it shares with the preferences moved to `studioGuards.ts`; unused imports/variables (`useLayoutEffect`, `JobIntent`, `ContinuityPlan`, `isVideoEnhanceIntent`, a stale `settingsAspects`, a dead `annotation` lookup, an unused `.map` argument) and two exports nothing referenced (`musicPipelines`, `isH3JoinIntent`) were removed. No behaviour change; the hand-over, Workbench and wizard suites pass unchanged.
 ## 0.3.33
 
 - **Movie Maker: reopening a movie tells you which files are gone.** After you open a saved movie, DEAS looks (by file metadata only — nothing is read, copied or changed) at the recorded clip of every shot and film and at every cast reference picture, and lists the ones that are no longer on disk. **Mark the missing clips as not made** sends those shots back to *not made yet* (the old result stays in the shot's history) and marks what was built from them outdated; missing reference pictures are only reported — remove or replace them in the cast. The check never blocks opening, only paths stored in the movie file are looked at, and the Central Log gets one line with the count (never a path).

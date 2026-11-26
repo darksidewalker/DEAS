@@ -1,6 +1,5 @@
 /** Original node inputs; DEAS selects rules, the installed node resolves them. */
 export { parseVariableLibrary, parsePins, prunePins, mergeVariableLibrary, flattenCategories, resolveVariables, scanVariables, variablePick, variableName, fnv1a, type VariableLibrary, type VariablePins, type VariableToken } from './promptVariables.ts';
-import { parsePins, prunePins } from './promptVariables.ts';
 export interface WildcardRules {
   style: 'Booru' | 'Natural Language';
   seed: number;

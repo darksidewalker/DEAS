@@ -10,6 +10,11 @@
 - `src/lib/movieChains.ts` (pure TypeScript, nothing runs): `chains` (a cut starts a chain; a continued first shot starts its own), `chainPlan` → `ContinuityPlan` (`enabled`, `outputMode: 'segment'`, `overlapFrames` 22 by default, `useReferences`, one step per shot with the shot prompt as action) validated with `isContinuityPlan`, `firstTakeFrames` (17k+5), `extensionFrames` (whole 17-frame steps, mirrors `jobs_video.rs::continuation_extension`), `overlapFor` (largest of 73/56/39/22/5 that fits, mirrors `continuation_window_start`), `chainSession` (valid pack session id). Refusals listed instead of sent: first take over 362 frames, a continued step with no room for the overlap, seconds outside (0, 15], an invalid session or plan.
 - Evidence level: fixture-verified — `tests/movieChains.test.ts` (4 tests), `npm run test:core` 211/211, `npm run typecheck`. Not covered: Studio actually running such a plan from a hand-over (UX-22d4b1), real continued footage, the join of chains.
 
+## Workbench split, first step (UX-31, 0.3.34, 2026-11-24)
+
+- New `src/features/studio/wizardDraft.ts` (pure hand-over translation, `src/features/studio/wizardDraft.test.ts` 5 tests) and `studioGuards.ts`; `Workbench.tsx` applies the draft with its setters. Orphans removed (see CHANGELOG 0.3.34). `Workbench.tsx` 354,260 → 352,598 bytes — a small step by design.
+- Evidence: `Workbench.wizard.test.tsx` 21/21 and `src/features/wizards` unchanged and green. Gates: `npm run typecheck`, `npm run test:core`, `npm run test:ui` 2508 passed + 1 load-timeout (`Workbench.part4` H3 IPC fixture; passes alone, 88/88), `npm run build`, `npm run test:layout` green.
+
 ## Movie Maker missing files on reopen (UX-22d1b, 0.3.33, 2026-11-24)
 
 - `src-tauri/src/movie_store.rs::check` + `native_movie_check({id})` (`permissions/movies.toml`, `main.rs`): reads the stored manifest natively and stats (metadata only, `is_file`) the current revision's result of every item and every cast reference, capped at 2000 checks; only paths from the stored file are examined, never a path from the webview; a missing set writes one Central Logs line with the count. Frontend: `checkMovie` (`src/lib/movies.ts`), `markResultsMissing` (`movieManifest.ts`), the report in `MovieMaker.tsx`.

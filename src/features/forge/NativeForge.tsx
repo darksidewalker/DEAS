@@ -3,7 +3,6 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useI18n } from '../../i18n/I18nProvider';
 import { forgeError, nativeForgeCancel, nativeForgeRevise, nativeForgeTargets, nativeForgeWrite, nativeWriteModel, type NativeCameraOption, type NativeResult, type NativeSegment, type NativeTargets, type NativeWrite } from '../../lib/forge';
 import { isString, usePref } from '../../lib/preferences';
-import { aspects as settingsAspects } from '../../lib/resolution';
 import { ModelSelect, type useForgeModels } from './ForgeButton';
 import { canonicalForgeAspect, forgeAspectChoices, resolveForgeCanvas, type ForgeCanvasContext, type ForgeSendCanvas } from '../../lib/forgeCanvas';
 import type { Size } from '../../lib/resolution';

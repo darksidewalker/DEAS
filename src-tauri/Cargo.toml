@@ -1,6 +1,6 @@
 [package]
 name = "deas"
-version = "0.3.33"
+version = "0.3.34"
 license = "GPL-3.0-or-later"
 description = "DEAS — Dark Engine AI Studio"
 edition = "2021"

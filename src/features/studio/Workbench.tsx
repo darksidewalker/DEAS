@@ -21,7 +21,7 @@ import { convertFileSrc, invoke, isTauri } from '@tauri-apps/api/core';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { useI18n } from '../../i18n/I18nProvider';
 import { isGguf, clipLoaderName, nativeImageReferenceEncoders, nativeImageReferenceLimit, safeComfyModel, animaLoraNode, type DiagnosticImageIntentV1, type RecipeAllowlist } from '../../lib/execution';
-import { autoRefine, loadDiagnosticJobOutput, waitForWorkbenchJob, stopWorkbench, stopWorkbenchJob, runWorkbenchJob, readCurrentWorkbench, pollWorkbench, uploadMask, uploadInput, checkMusicSource, readH3Session, readRefMods, isImageIntent, type JobStatus, type JobIntent, type H3ImportedVideo } from '../../lib/jobs';
+import { autoRefine, loadDiagnosticJobOutput, waitForWorkbenchJob, stopWorkbench, stopWorkbenchJob, runWorkbenchJob, readCurrentWorkbench, pollWorkbench, uploadMask, uploadInput, checkMusicSource, readH3Session, readRefMods, isImageIntent, type JobStatus, type H3ImportedVideo } from '../../lib/jobs';
 import { chunkCount, defaultVideoOutput, h3LatentChanged, h3LatentDefaults, h3RegenerateTargets, h3Scalings, isH3Video, isVideoEnhanceIntent, isVideoIntent, latentUpscaleSize, regenerateSize, videoFrames, type H3LatentAdvanced, type H3RegenerateTarget, type H3Scaling, type VideoFamily, type VideoIntentV1, type VideoOutput } from '../../lib/videoIntent';
 import { defaultAbc, defaultMusicGeneration, isMusicIntent, isMusicPipeline, musicBounds, musicMaxDuration, type AbcSettings, type MusicGenerationSettings, type MusicIntentV1, type MusicPlanning } from '../../lib/musicIntent';
 import { MusicPrompts, type MusicField } from './MusicPrompts';
@@ -35,7 +35,9 @@ import { ReferencesOverlay } from './ReferencesOverlay';
 import { ReferenceEditorDialog } from './ReferenceEditorDialog';
 import { ReferenceThumbnail } from './ReferenceThumbnail';
 import { videoRoles, videoRoleBlock, videoRolePipeline, type VideoRole, type VideoRoles } from './videoRoles';
-import { defaultPlan, isContinuityPlan, nextStep, resolveClip, continuitySource, type ContinuityPlan } from '../../lib/continuity';
+import { isMaskBlur, isMaskGrow, isNumber, isUnit, clamp } from './studioGuards';
+import { wizardDraft } from './wizardDraft';
+import { defaultPlan, isContinuityPlan, nextStep, resolveClip, continuitySource } from '../../lib/continuity';
 import { defaultLyingSigma, isLyingSigma, lyingSigmaSamplingNodes, lyingSigmaScheduleIssue } from '../../lib/lyingSigma';
 import { LyingSigmaControls } from './LyingSigmaControls';
 import { checkRecipePrerequisites } from '../../lib/recipePrerequisites';
@@ -133,12 +135,7 @@ const supportedModelFormat=(m:LocalModel)=>/\.(safetensors|sft|ckpt|pt|pth|gguf)
 const supportedLoraFormat=(m:LocalModel)=>/\.safetensors$/i.test(m.name);
 type Lora=SelectedLora;
 const isLoras=(v:unknown):v is Lora[]=>Array.isArray(v)&&v.every(l=>l&&typeof l.name==='string'&&typeof l.strength==='number'&&(l.enabled===undefined||typeof l.enabled==='boolean'));
-const isNumber=(v:unknown):v is number=>typeof v==='number'&&Number.isFinite(v);
 const isFaceRefineSettings=(v:unknown):v is FaceRefineSettings=>!!v&&typeof v==='object'&&typeof (v as FaceRefineSettings).auto==='boolean'&&typeof (v as FaceRefineSettings).prompt==='string'&&(['denoise','cropFactor','feather'] as const).every(k=>typeof (v as FaceRefineSettings)[k]==='number')&&((v as FaceRefineSettings).minFace===undefined||typeof (v as FaceRefineSettings).minFace==='number')&&((v as FaceRefineSettings).primaryOnly===undefined||typeof (v as FaceRefineSettings).primaryOnly==='boolean');
-const isMaskGrow=(v:unknown):v is number=>isNumber(v)&&Number.isInteger(v)&&v>=0&&v<=512;
-const isMaskBlur=(v:unknown):v is number=>isMaskGrow(v)&&v<=31;
-const clamp=(n:number,min:number,max:number)=>Math.min(max,Math.max(min,n));
-const isUnit=(v:unknown):v is number=>typeof v==='number'&&v>=0&&v<=1;
 /** Locale keys of the Director scaling modes (shared with the image input-scaling labels). */
 const h3ScalingKey:Record<H3Scaling,string>={Off:'off',Auto:'h3auto',Target:'target',Fit:'fit','Fill and crop':'crop','Fit and pad':'pad','Long side with divisible crop':'long'};
 const videoPipelines:readonly string[]=['t2v','i2v','v2v','ref2v'];
@@ -1878,27 +1875,20 @@ const promptTools=forgeContext&&<>
   switchDraft(wizard.pipeline,m,true);
   setHistoryDraft(null);setLoras([]);
   sourceEpoch.current++;setEditorSnapshot(undefined);setLayers([]);setMasked(false);setMediaSize(null);setBrowsed(null);setSelectedJob('');
-  const wp=wizard.picture;
-  if(wizard.source!=='movie'&&!wp){fail('wizards.handoff.model');return;}
-  const picture:MediaItem={name:wp?.name??'',path:wp?.path,src:wp?.src??'',media:'image'};
-  const references=(wizard.references??[]).map(r=>({item:{name:r.name,path:r.path,src:r.src,media:'image' as const},strength:0.6}));
-  if(wizard.source==='movie'){
-   // A Movie Maker shot: text only (t2v) or the cast pictures as REF2VA references (ref2v) — no first frame, no source video, no continuity.
-   setImageRefs([]);setLastFrame(null);setLastOnlySrc(null);setMedia(null);setWizardPicture(null);setSourceVideo(null);setSourceVideoSize(null);setRefmods([]);
-   const picks:VideoRef[]=(wizard.pipeline==='ref2v'?wizard.references??[]:[]).map((r,i)=>({item:{name:r.name,path:r.path,src:r.src,media:'image' as const},second:0,strength:1,mediaMode:'video' as const,uiKey:crypto.randomUUID(),
-    ...(wizard.labels?.[i]?{label:wizard.labels[i]}:{}),...(wizard.notes?.[i]?{description:wizard.notes[i]}:{})}));
-   setRefs(picks);
-   if(wizard.seconds!==undefined&&wizard.seconds>0){const seconds=wizard.seconds;setVideo(v=>({...v,seconds}));}
+  const draft=wizardDraft(wizard,comfyName);
+  if(!draft){fail('wizards.handoff.model');return;}
+  setImageRefs(draft.imageRefs);setMedia(draft.media);
+  if(draft.video){
+   // Video hand-overs reset the other inputs; a Replace video step keeps its clip as the guide, a Movie Maker shot has none.
+   setRefs(draft.video.refs);setLastFrame(null);setLastOnlySrc(null);setWizardPicture(null);setSourceVideo(draft.video.sourceVideo);setSourceVideoSize(null);
+   if(wizard.source==='movie')setRefmods([]);
+   if(draft.video.sourceStrength!==undefined)setSourceStrength(draft.video.sourceStrength);
   }
-  else if(wizard.source==='reference'){setMedia(null);setImageRefs([{item:picture,strength:0.6},...references]);}
-  else if(wizard.source==='video'){
-   // Video step of a Replace: the edited first frame is the first frame; LTX video-to-video also keeps the clip as its guide.
-   setImageRefs([]);setRefs([]);setLastFrame(null);setLastOnlySrc(null);setMedia(picture);setWizardPicture(null);
-   setSourceVideo(wizard.sourceVideo?{name:wizard.sourceVideo.name,path:wizard.sourceVideo.path,src:wizard.sourceVideo.src,media:'video'}:null);setSourceVideoSize(null);
-   if(wizard.sourceStrength!==undefined&&isUnit(wizard.sourceStrength))setSourceStrength(wizard.sourceStrength);
-   if(wizard.seconds!==undefined&&wizard.seconds>0){const seconds=wizard.seconds;setVideo(v=>({...v,seconds}));}
-  }
-  else {setImageRefs(references);setMedia(picture);setWizardPicture(comfyName(picture)?null:{path:picture.path??'',name:picture.name});if(wizard.edit)setEdit(wizard.edit);if(wizard.denoise!==undefined)(wizard.edit==='inpaint'?setInpaintDenoise:setDenoise)(wizard.denoise);if(wizard.maskBlur!==undefined&&isMaskBlur(wizard.maskBlur))setMaskBlur(wizard.maskBlur);}
+  else setWizardPicture(draft.wizardPicture);
+  if(draft.seconds!==undefined){const seconds=draft.seconds;setVideo(v=>({...v,seconds}));}
+  if(draft.edit)setEdit(draft.edit);
+  if(draft.denoise)(draft.denoise.inpaint?setInpaintDenoise:setDenoise)(draft.denoise.value);
+  if(draft.maskBlur!==undefined)setMaskBlur(draft.maskBlur);
   if(wizard.size){setWidth(wizard.size.width);setHeight(wizard.size.height);setResolution('fixed');}
   // The strategy's measured CFG for this family (set after switchDraft's starting values; Beginner reapplies it below after its model reset).
   if(wizard.cfg!==undefined&&Number.isFinite(wizard.cfg))setCfg(wizard.cfg);

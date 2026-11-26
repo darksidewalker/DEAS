@@ -232,7 +232,7 @@ export function FramePicker({ video, start = 0, startPicked, onPicked, onUse, fr
   };
   const isPicked = picked.has(index);
   const shown = full?.index === index ? src(full.path) : thumb(index) ? src(thumb(index)!) : '';
-  const cells = clip.thumbs.map((path, k) => k * clip.stride);
+  const cells = clip.thumbs.map((_, k) => k * clip.stride);
 
   return <div className="analysis-frames" data-frame-picker ref={root} tabIndex={0} aria-label={t('analysis.frames.title')}>
     <div className="analysis-frames-head">
