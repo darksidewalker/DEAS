@@ -106,3 +106,15 @@ A chain is the first shot after a cut plus every following shot marked *Continue
 - **Refused chains:** a first take over 362 frames, a continued step that leaves no room for the overlap in the 362-frame window, or a shot over 15 s is not sent; the message names the shot.
 - **Rerunning:** *Make the chain again* always remakes the whole chain from its first shot (a new session take); there is no restart from a middle shot yet.
 - **Film:** the join takes the chain's clips like any other (in plan order). Whether the seams of continued clips are invisible in the joined film has not been checked on real footage.
+
+### Music bed
+
+The **Music** step sits below the Film step and needs a music file you choose; the mix itself needs the joined film (made and up to date).
+
+- **Choose a music file** — WAV, MP3, FLAC, OGG, Opus, M4A, AAC or WMA. The file stays where it is. Without a film joined yet the step says so.
+- **Settings:** *Music level* (−40…6 dB, default −14), *Duck under the film's sound* (0–30 dB, default 12; 0 turns ducking off) and *Fade-out at the end* (0–10 s, default 2, at most half the film).
+- **What the mix does:** FFmpeg repeats or cuts the track to the film's length, applies the level and fade, and — when the film has its own sound, such as the speech MiniMax H3 generated — compresses the music with the film's audio as the trigger, so the music drops whenever the film itself is loud. Both are then summed without normalising, so the film's sound keeps its level. The video stream is copied unchanged; the audio is encoded as AAC (Opus for WebM). Because the music is mixed in afterwards it is exactly your track, never a re-synthesis.
+- **Result:** the scored film is written beside the joined film as `<name>-scored.<ext>` (then `-scored-2`, …) — a fresh name every time, never an overwrite — plays under the step, and is recorded on the movie (save to keep it). Changing the music file, any setting, or the film marks it *outdated*; the joined film itself is never touched.
+- **Speech:** external dialogue is never layered over H3's own speech; speech in the film comes from H3 for now. If you later pass the music to H3 as an audio reference instead (planned, optional), that mode and this mix are exclusive per movie, so the music is never doubled.
+- **Missing file:** reopening a movie reports a music file that is no longer there.
+- **Needs:** the desktop app and FFmpeg (with ffprobe) on PATH.

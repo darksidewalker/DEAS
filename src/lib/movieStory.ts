@@ -168,7 +168,7 @@ export function applyPlan(m: MovieManifest, plan: StoryPlan): MovieManifest {
     next = { ...next, items: next.items.filter(i => !surplus.has(i.id)).map(i => ({ ...i, deps: i.deps.filter(d => !surplus.has(d)), ...(stale.has(i.id) && i.state === 'done' ? { state: 'stale' as const } : {}) })) };
   }
   const all = segs(next).map(i => i.id);
-  const final = next.items.find(i => i.kind === 'assemble');
+  const final = next.items.find(i => i.id === 'final');
   if (!final) next = { ...next, items: [...next.items, newItem('final', 'assemble', 'Film', all)] };
   else next = reviseItem(next, final.id, { deps: all }, true);
   return next;

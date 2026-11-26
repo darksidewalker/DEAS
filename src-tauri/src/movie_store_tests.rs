@@ -215,6 +215,41 @@ fn check_reports_missing_results_and_references_from_the_stored_manifest_only() 
         2,
         "a directory is not a file"
     );
+    let mut m2 = movie("film2");
+    let mut music = item("mu", "music", &["brief"]);
+    music["file"] = json!(files.path().join("no.wav").to_str().unwrap());
+    m2["items"].as_array_mut().unwrap().push(music);
+    save(d.path(), &m2.to_string()).unwrap();
+    assert_eq!(
+        check(d.path(), "film2").unwrap()["missing"][0]["kind"],
+        "music"
+    );
     assert_eq!(check(d.path(), "../x"), Err("MOVIE_ID".into()));
     assert_eq!(check(d.path(), "none"), Err("MOVIE_NOT_FOUND".into()));
+}
+
+#[test]
+fn music_file_and_mix_settings_follow_the_rules() {
+    let mut m = movie("a");
+    let mut music = item("music", "music", &["brief"]);
+    music["file"] = json!("/music/bed.wav");
+    let mut score = item("score", "score", &["brief", "music"]);
+    score["mix"] = json!({ "mode": "mix", "levelDb": -14, "duckDb": 12, "fadeSeconds": 2 });
+    m["items"].as_array_mut().unwrap().extend([music, score]);
+    assert_eq!(problem(&m), None);
+    m["items"][3]["mix"]["duckDb"] = json!(31);
+    assert_eq!(problem(&m), Some("bad mix settings"));
+    m["items"][3]["mix"]["duckDb"] = json!(12);
+    m["items"][3]["mix"]["mode"] = json!("loud");
+    assert_eq!(problem(&m), Some("bad mix settings"));
+    m["items"][3]["mix"]["mode"] = json!("h3-reference");
+    assert_eq!(problem(&m), None);
+    m["items"][0]["mix"] = m["items"][3]["mix"].clone();
+    assert_eq!(problem(&m), Some("bad mix settings"));
+    m["items"][0].as_object_mut().unwrap().remove("mix");
+    m["items"][0]["file"] = json!("/x.wav");
+    assert_eq!(problem(&m), Some("bad music file"));
+    m["items"][0].as_object_mut().unwrap().remove("file");
+    m["items"][2]["file"] = json!("");
+    assert_eq!(problem(&m), Some("bad music file"));
 }

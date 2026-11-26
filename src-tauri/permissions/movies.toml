@@ -1,4 +1,4 @@
 [[permission]]
 identifier = "allow-native-movies"
-description = "List, open, check for missing referenced files, and atomically save bounded Movie Maker manifests in the app-data movies folder; no file grants, job submission or resubmission."
-commands.allow = ["native_movie_list", "native_movie_open", "native_movie_check", "native_movie_save"]
+description = "List, open, check for missing referenced files, and atomically save bounded Movie Maker manifests in the app-data movies folder, and mix a chosen music file onto a chosen film beside it under a fresh name; no job submission or resubmission, never overwrites a file."
+commands.allow = ["native_movie_list", "native_movie_open", "native_movie_check", "native_movie_save", "native_movie_mix", "native_movie_pick_music"]

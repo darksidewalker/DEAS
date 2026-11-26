@@ -18,8 +18,8 @@ const MAX_REVISIONS: usize = 20;
 const MAX_TEXT: usize = 20_000;
 const MAX_MOVIES: usize = 500;
 const SUFFIX: &str = ".movie.json";
-const KINDS: [&str; 7] = [
-    "brief", "cast", "story", "voice", "music", "segment", "assemble",
+const KINDS: [&str; 8] = [
+    "brief", "cast", "story", "voice", "music", "segment", "assemble", "score",
 ];
 const ROLES: [&str; 4] = ["actor", "location", "prop", "style"];
 const MAX_REFS: usize = 16;
@@ -130,6 +130,33 @@ pub fn problem(m: &Value) -> Option<&'static str> {
         }
         if i.get("locked").is_some_and(|l| !l.is_boolean()) {
             return Some("bad lock");
+        }
+        if i.get("file").is_some_and(|f| {
+            kind != "music"
+                || !f
+                    .as_str()
+                    .is_some_and(|f| (1..=1024).contains(&f.len()) && !f.contains('\0'))
+        }) {
+            return Some("bad music file");
+        }
+        if let Some(x) = i.get("mix") {
+            let num = |k: &str, lo: f64, hi: f64| {
+                x.get(k)
+                    .and_then(Value::as_f64)
+                    .is_some_and(|n| n.is_finite() && (lo..=hi).contains(&n))
+            };
+            let mode = x
+                .get("mode")
+                .and_then(Value::as_str)
+                .is_some_and(|m| m == "mix" || m == "h3-reference");
+            if kind != "score"
+                || !mode
+                || !num("levelDb", -40.0, 6.0)
+                || !num("duckDb", 0.0, 30.0)
+                || !num("fadeSeconds", 0.0, 10.0)
+            {
+                return Some("bad mix settings");
+            }
         }
         if kind != "cast" && (i.get("role").is_some() || i.get("refs").is_some()) {
             return Some("role/refs are cast-only");
@@ -329,7 +356,8 @@ pub fn check(dir: &Path, id: &str) -> Result<Value, String> {
             .flatten()
             .filter_map(Value::as_str)
             .map(|p| ("reference", p));
-        for (kind, path) in results.chain(refs) {
+        let music = item["file"].as_str().into_iter().map(|p| ("music", p));
+        for (kind, path) in results.chain(refs).chain(music) {
             if checked >= MAX_CHECKS {
                 truncated = true;
                 break 'items;

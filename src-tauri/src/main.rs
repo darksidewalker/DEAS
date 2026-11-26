@@ -152,6 +152,8 @@ fn main() {
             deas::movie_store::native_movie_open,
             deas::movie_store::native_movie_check,
             deas::movie_store::native_movie_save,
+            deas::movie_mix::native_movie_mix,
+            deas::movie_mix::native_movie_pick_music,
             deas::native_jobs_history_outputs,
             deas::native_logs_history_error,
             deas::native_job_current,

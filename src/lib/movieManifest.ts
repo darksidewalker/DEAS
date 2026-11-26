@@ -6,9 +6,9 @@
 export const MOVIE_MANIFEST_VERSION = 1;
 export const MOVIE_LIMITS = { items: 400, deps: 32, revisions: 20, text: 20000, id: 80, castRefs: 16, dialogue: 32 } as const;
 
-export type MovieItemKind = 'brief' | 'cast' | 'story' | 'voice' | 'music' | 'segment' | 'assemble';
+export type MovieItemKind = 'brief' | 'cast' | 'story' | 'voice' | 'music' | 'segment' | 'assemble' | 'score';
 export type MovieItemState = 'planned' | 'done' | 'stale' | 'failed';
-export const MOVIE_ITEM_KINDS: readonly MovieItemKind[] = ['brief', 'cast', 'story', 'voice', 'music', 'segment', 'assemble'];
+export const MOVIE_ITEM_KINDS: readonly MovieItemKind[] = ['brief', 'cast', 'story', 'voice', 'music', 'segment', 'assemble', 'score'];
 const states: readonly MovieItemState[] = ['planned', 'done', 'stale', 'failed'];
 
 /** A finished result of one revision. `outputId` is the output identity the shared job path reported; the file itself is not copied here. */
@@ -38,7 +38,15 @@ export interface MovieItem {
   dialogue?: MovieDialogue[];
   entry?: string;
   exit?: string;
+  /** Music items only: the track (an absolute path picked or generated; the file itself is never copied or changed). */
+  file?: string;
+  /** Score items only: how the music bed is mixed onto the joined film. */
+  mix?: MovieMix;
 }
+/** Music bed mix: level and fade apply to the music, `duckDb` is how far it is pushed down under the film's own sound (H3's speech). */
+export interface MovieMix { mode: 'mix' | 'h3-reference'; levelDb: number; duckDb: number; fadeSeconds: number }
+export const DEFAULT_MIX: MovieMix = { mode: 'mix', levelDb: -14, duckDb: 12, fadeSeconds: 2 };
+export const MIX_LIMITS = { levelDb: [-40, 6], duckDb: [0, 30], fadeSeconds: [0, 10] } as const;
 export interface MovieDialogue { castId: string; line: string; delivery?: string }
 export type MovieCastRole = 'actor' | 'location' | 'prop' | 'style';
 export const MOVIE_CAST_ROLES: readonly MovieCastRole[] = ['actor', 'location', 'prop', 'style'];
@@ -68,6 +76,11 @@ function itemProblem(i: unknown, ids: ReadonlySet<string>): string | undefined {
   if (!Array.isArray(v.revisions) || v.revisions.length > MOVIE_LIMITS.revisions) return `${at}: bad revisions`;
   if (v.revisions.some(r => !r || !Number.isSafeInteger(r.n) || !textOk(r.text) || (r.result !== undefined && (typeof r.result.outputId !== 'string' || r.result.outputId.length < 1 || r.result.outputId.length > 500)))) return `${at}: bad revision entry`;
   if (v.locked !== undefined && typeof v.locked !== 'boolean') return `${at}: bad lock`;
+  if (v.file !== undefined && (v.kind !== 'music' || typeof v.file !== 'string' || v.file.length < 1 || v.file.length > 1024 || v.file.includes('\0'))) return `${at}: bad music file`;
+  if (v.mix !== undefined) {
+    const x = v.mix, ok = (n: unknown, [lo, hi]: readonly [number, number]) => typeof n === 'number' && Number.isFinite(n) && n >= lo && n <= hi;
+    if (v.kind !== 'score' || !x || (x.mode !== 'mix' && x.mode !== 'h3-reference') || !ok(x.levelDb, MIX_LIMITS.levelDb) || !ok(x.duckDb, MIX_LIMITS.duckDb) || !ok(x.fadeSeconds, MIX_LIMITS.fadeSeconds)) return `${at}: bad mix settings`;
+  }
   if (v.kind !== 'cast' && (v.role !== undefined || v.refs !== undefined)) return `${at}: role/refs are cast-only`;
   if (v.role !== undefined && !MOVIE_CAST_ROLES.includes(v.role)) return `${at}: unknown cast role`;
   if (v.refs !== undefined && (!Array.isArray(v.refs) || v.refs.length > MOVIE_LIMITS.castRefs || v.refs.some(r => typeof r !== 'string' || r.length < 1 || r.length > 1024 || r.includes('\0')) || new Set(v.refs).size !== v.refs.length)) return `${at}: bad references`;
@@ -226,6 +239,34 @@ export function reviseItem(m: MovieManifest, id: string, patch: Partial<Omit<Mov
 export function markResultsMissing(m: MovieManifest, ids: readonly string[]): MovieManifest {
   const gone = new Set(ids), stale = new Set(ids.flatMap(id => downstream(m, id)));
   return { ...m, items: m.items.map(i => gone.has(i.id) && i.state === 'done' ? { ...i, state: 'planned' as const } : stale.has(i.id) && !gone.has(i.id) && i.state === 'done' ? { ...i, state: 'stale' as const } : i) };
+}
+const hasKind = (m: MovieManifest, kind: MovieItemKind) => m.items.find(i => i.kind === kind);
+/** Adds the score item (film + music → scored film) once the movie has both a final item and a music item. */
+function ensureScore(m: MovieManifest): MovieManifest {
+  const final = m.items.find(i => i.id === 'final'), music = hasKind(m, 'music');
+  if (!final || !music || hasKind(m, 'score')) return m;
+  return { ...m, items: [...m.items, { ...newItem('score', 'score', 'Scored film', ['final', music.id]), mix: { ...DEFAULT_MIX } }] };
+}
+/** Sets (or clears, with null) the music track; creates the music item on first use. Changing it makes the scored film outdated. */
+export function setMusicFile(m: MovieManifest, path: string | null): MovieManifest {
+  let next = m;
+  if (!hasKind(next, 'music')) next = { ...next, items: [...next.items, newItem('music', 'music', 'Music', ['brief'])] };
+  next = reviseItem(next, hasKind(next, 'music')!.id, { file: path ?? undefined }, true);
+  return ensureScore(next);
+}
+/** Changes mix settings (clamped to the limits); the scored film becomes outdated. Needs the score item. */
+export function setMix(m: MovieManifest, patch: Partial<MovieMix>): MovieManifest {
+  const score = hasKind(m, 'score');
+  if (!score) throw new Error('Choose a music file for the film first.');
+  const clamp = (n: number, [lo, hi]: readonly [number, number]) => Math.min(hi, Math.max(lo, n));
+  const cur = score.mix ?? DEFAULT_MIX;
+  const mix: MovieMix = {
+    mode: patch.mode ?? cur.mode,
+    levelDb: patch.levelDb !== undefined && Number.isFinite(patch.levelDb) ? clamp(patch.levelDb, MIX_LIMITS.levelDb) : cur.levelDb,
+    duckDb: patch.duckDb !== undefined && Number.isFinite(patch.duckDb) ? clamp(patch.duckDb, MIX_LIMITS.duckDb) : cur.duckDb,
+    fadeSeconds: patch.fadeSeconds !== undefined && Number.isFinite(patch.fadeSeconds) ? clamp(patch.fadeSeconds, MIX_LIMITS.fadeSeconds) : cur.fadeSeconds,
+  };
+  return reviseItem(m, score.id, { mix }, true);
 }
 /** Records a finished result on the current revision and marks the item done. */
 export function completeItem(m: MovieManifest, id: string, result: MovieResult): MovieManifest {

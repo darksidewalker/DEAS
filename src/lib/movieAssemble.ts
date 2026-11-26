@@ -81,7 +81,7 @@ export async function assembleMovie(m: MovieManifest, deps: AssembleDeps, active
 }
 /** Records the joined film on the final item. */
 export const recordFilm = (m: MovieManifest, r: AssemblyResult): MovieManifest => {
-  const final = m.items.find(i => i.kind === 'assemble');
+  const final = m.items.find(i => i.id === 'final');
   if (!final) throw new Error('This movie has no final item; plan the story first.');
   return completeItem(m, final.id, { outputId: r.path, jobId: r.job.id, ...(r.seconds ? { seconds: r.seconds } : {}) });
 };

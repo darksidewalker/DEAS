@@ -8,7 +8,7 @@ export const newMovieId = () => `movie-${crypto.randomUUID().slice(0, 8)}`;
 export const listMovies = () => invoke<MovieList>('native_movie_list');
 /** Reopens a movie as stored. Nothing is submitted or resumed: a reopened movie is inert. */
 export const openMovie = async (id: string): Promise<MovieManifest> => parseManifest(await invoke<string>('native_movie_open', { id }));
-export interface MissingFile { id: string; kind: 'result' | 'reference'; path: string }
+export interface MissingFile { id: string; kind: 'result' | 'reference' | 'music'; path: string }
 export interface MovieCheck { missing: MissingFile[]; checked: number; truncated: boolean }
 /** Which recorded clips and reference pictures of a saved movie are no longer on disk (metadata only; paths come from the stored file). */
 export const checkMovie = (id: string) => invoke<MovieCheck>('native_movie_check', { id });

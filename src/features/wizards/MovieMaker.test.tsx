@@ -368,3 +368,74 @@ it('a failing step marks that shot failed, leaves the rest of the chain not made
   expect((document.querySelectorAll('[data-movie-shot-make]')[0] as HTMLButtonElement).disabled).toBe(false);
   expect(stateOf('seg-3')).toBe('not made');
 });
+
+const scoredMovie = (filmDone: boolean) => {
+  const m = filmMovie(true);
+  return filmDone ? completeItem(m, 'final', { outputId: '/out/video/film.mp4', seconds: 10 }) : m;
+};
+let pickedMusic: string | null, mixed: Record<string, any>[], mixFail: boolean;
+const openScored = async (m: ReturnType<typeof scoredMovie>) => {
+  pickedMusic = '/music/bed.wav'; mixed = []; mixFail = false;
+  stored[m.id] = JSON.stringify(m);
+  vi.mocked(invoke).mockImplementation(async (command, args) => {
+    const a = args as Record<string, any>;
+    if (command === 'native_movie_list') return { movies: [{ id: m.id, title: m.title, items: m.items.length, targetSeconds: m.targetSeconds, updated: 1 }], damaged: 0 };
+    if (command === 'native_movie_open') return stored[a.id];
+    if (command === 'native_movie_check') return { missing: [], checked: 1, truncated: false };
+    if (command === 'native_llm_models') return { models: [], warnings: [] };
+    if (command === 'native_movie_pick_music') return pickedMusic;
+    if (command === 'native_movie_mix') { mixed.push(a.request); if (mixFail) throw new Error('MOVIE_MIX_FFMPEG'); return { path: '/out/video/film-scored.mp4', seconds: 10, ducked: true }; }
+    return null;
+  });
+  render(<I18nProvider><MovieMaker modelsRoot="/m" endpoint="http://backend" models={[]} onPrepare={vi.fn()}/></I18nProvider>);
+  fireEvent.click(await waitFor(() => { const b = q(`[data-movie-open="${m.id}"]`); expect(b).toBeTruthy(); return b; }));
+  await waitFor(() => expect(q('[data-movie-music]')).toBeTruthy());
+};
+
+it('music bed: choose a track, adjust the mix, mix it onto the film, play the scored film', async () => {
+  await openScored(scoredMovie(true));
+  expect((q('[data-movie-music-run]') as HTMLButtonElement).disabled).toBe(true);
+  expect(q('[data-movie-music-blocked]').textContent).toBe('Choose a music file first.');
+  expect(q('[data-movie-mix="levelDb"]')).toBeNull(); // no settings before a track exists
+  fireEvent.click(q('[data-movie-music-pick]'));
+  await waitFor(() => expect(q('[data-movie-music-file]').textContent).toBe('bed.wav'));
+  expect((q('[data-movie-mix="duckDb"]') as HTMLInputElement).value).toBe('12');
+  fireEvent.change(q('[data-movie-mix="levelDb"]'), { target: { value: '-20' } });
+  fireEvent.change(q('[data-movie-mix="duckDb"]'), { target: { value: '99' } });
+  expect((q('[data-movie-mix="duckDb"]') as HTMLInputElement).value).toBe('30'); // clamped to the limit
+  expect((q('[data-movie-music-run]') as HTMLButtonElement).disabled).toBe(false);
+  fireEvent.click(q('[data-movie-music-run]'));
+  await waitFor(() => expect(q('[data-movie-scored-video]')).toBeTruthy());
+  expect(mixed).toEqual([{ film: '/out/video/film.mp4', music: '/music/bed.wav', levelDb: -20, duckDb: 30, fadeSeconds: 2 }]);
+  expect(q('[data-movie-scored-video]').getAttribute('src')).toBe('asset:///out/video/film-scored.mp4');
+  expect(q('[data-movie-dirty]')).toBeTruthy();
+  // Changing the level afterwards makes the scored film outdated and hides nothing silently.
+  fireEvent.change(q('[data-movie-mix="levelDb"]'), { target: { value: '-18' } });
+  expect(q('[data-movie-music-stale]')).toBeTruthy();
+  expect(q('[data-movie-scored-video]')).toBeNull();
+  fireEvent.click(q('[data-movie-music-clear]'));
+  expect(q('[data-movie-music-file]')).toBeNull();
+});
+
+it('cancelling the chooser changes nothing; the mix says what is missing when the film is not joined yet', async () => {
+  await openScored(scoredMovie(false));
+  pickedMusic = null;
+  fireEvent.click(q('[data-movie-music-pick]'));
+  await waitFor(() => expect(calls('native_movie_pick_music')).toHaveLength(1));
+  expect(q('[data-movie-music-file]')).toBeNull();
+  pickedMusic = '/music/bed.wav';
+  fireEvent.click(q('[data-movie-music-pick]'));
+  await waitFor(() => expect(q('[data-movie-music-file]')).toBeTruthy());
+  expect(q('[data-movie-music-blocked]').textContent).toBe('Join the shots into one film first.');
+  expect((q('[data-movie-music-run]') as HTMLButtonElement).disabled).toBe(true);
+});
+
+it('a failed mix shows the error and records nothing', async () => {
+  await openScored(scoredMovie(true));
+  fireEvent.click(q('[data-movie-music-pick]'));
+  await waitFor(() => expect(q('[data-movie-music-file]')).toBeTruthy());
+  mixFail = true;
+  fireEvent.click(q('[data-movie-music-run]'));
+  await waitFor(() => expect(q('[data-movie-error]').textContent).toBe('MOVIE_MIX_FFMPEG'));
+  expect(q('[data-movie-scored-video]')).toBeNull();
+});

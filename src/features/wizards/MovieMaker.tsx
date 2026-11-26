@@ -2,12 +2,13 @@ import { useEffect, useRef, useState } from 'react';
 import { convertFileSrc, isTauri } from '@tauri-apps/api/core';
 import { useI18n } from '../../i18n/I18nProvider';
 import { pickMedia } from '../../lib/analysis';
-import { MOVIE_CAST_ROLES, addCast, markResultsMissing, deliveredSeconds, reviseItem, newMovie, removeCast, setBrief, setCastRefs, setCastRole, setItemTitle, setLocked, editItem, type MovieCastRole, type MovieManifest } from '../../lib/movieManifest';
+import { MIX_LIMITS, MOVIE_CAST_ROLES, addCast, markResultsMissing, setMix, setMusicFile, deliveredSeconds, reviseItem, newMovie, removeCast, setBrief, setCastRefs, setCastRole, setItemTitle, setLocked, editItem, type MovieCastRole, type MovieManifest } from '../../lib/movieManifest';
 import type { LlmModel } from '../../lib/llm';
 import { applyPlan, h3ActualSeconds, planDiff, segmentLimits, type PlanCheck } from '../../lib/movieStory';
 import { PLANNER_MAX_CHARS, listPlannerModels, logMovieNotice, plannerDestination, plannerPayload, requestPlan } from '../../lib/movieStoryRun';
 import { recordShotRun, shotHandoff } from '../../lib/movieSegments';
 import { chainHandoff, chainOf } from '../../lib/movieChainRun';
+import { mixMusic, mixPlan, pickMusic, recordScore } from '../../lib/movieMusic';
 import { AssemblyError, assemblyPlan, assembleMovie, recordFilm } from '../../lib/movieAssemble';
 import { realAssembleDeps, stopAssemblyJob } from '../../lib/movieAssembleRun';
 import type { JobStatus } from '../../lib/jobs';
@@ -123,7 +124,7 @@ export function MovieMaker({ modelsRoot, endpoint, models = null, onPrepare, out
     } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
   };
   const diff = check?.plan ? planDiff(movie, check.plan) : undefined;
-  const final = movie.items.find(i => i.kind === 'assemble');
+  const final = movie.items.find(i => i.id === 'final');
   const filmPlan = assemblyPlan(movie);
   const owned = useRef<{ cancelled: boolean; job?: JobStatus } | null>(null);
   const [joining, setJoining] = useState('');
@@ -151,6 +152,23 @@ export function MovieMaker({ modelsRoot, endpoint, models = null, onPrepare, out
     if (o.job && (o.job.state === 'queued' || o.job.state === 'running')) void stopAssemblyJob(o.job).catch(e => setError(e instanceof Error ? e.message : String(e)));
   };
   useEffect(() => () => { const o = owned.current; if (o) { o.cancelled = true; if (o.job && (o.job.state === 'queued' || o.job.state === 'running')) void stopAssemblyJob(o.job).catch(() => undefined); } }, []);
+  // Music bed: choose a track, set level/ducking/fade, mix it onto the joined film (the film itself is never changed).
+  const music = movie.items.find(i => i.kind === 'music'), score = movie.items.find(i => i.kind === 'score');
+  const musicPlan = mixPlan(movie);
+  const [mixing, setMixing] = useState(false);
+  const mixBlocked = !native ? t('wizards.movie.music.native') : musicPlan.ok ? '' : t(`wizards.movie.music.why.${musicPlan.why}`);
+  const chooseMusic = async () => {
+    try { const path = await pickMusic(t('wizards.movie.music.pickTitle')); if (path) change(m => setMusicFile(m, path)); }
+    catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+  };
+  const mixIt = async () => {
+    if (!musicPlan.ok || mixing) return;
+    setError(''); setNote(''); setMixing(true);
+    try { const r = await mixMusic(musicPlan); setMovie(m => recordScore(m, r)); setDirty(true); setNote(t('wizards.movie.music.done')); }
+    catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+    finally { setMixing(false); }
+  };
+  const scoredClip = score?.state === 'done' ? score.revisions.find(r => r.n === score.revision)?.result?.outputId : undefined;
   const filmClip = final?.state === 'done' ? final.revisions.find(r => r.n === final.revision)?.result?.outputId : undefined;
   const why = (w: string) => t(`wizards.movie.film.why.${w}`);
   // The chain a shot belongs to: the first shot makes the whole chain; a continued shot is made together with it.
@@ -317,6 +335,27 @@ export function MovieMaker({ modelsRoot, endpoint, models = null, onPrepare, out
       </div>
       {mismatch && <p className="forge-note" role="alert" data-movie-film-mismatch>{t('wizards.movie.film.mismatch', { got: String(mismatch.got), want: String(mismatch.want) })}</p>}
       {filmClip && /\.(mp4|webm|mkv|mov)$/i.test(filmClip) && <video className="wizards-preview" src={convertFileSrc(filmClip)} controls preload="metadata" data-movie-film-video/>}
+    </div>}
+    {final && <div className="wizards-step" data-movie-music>
+      <span className="forge-note">{t('wizards.movie.music.title')}</span>
+      <p className="forge-note">{t('wizards.movie.music.intro')}</p>
+      <div className="wizards-row">
+        <button type="button" className="forge-ghost" data-movie-music-pick disabled={!native} onClick={() => void chooseMusic()}>{t(music?.file ? 'wizards.movie.music.change' : 'wizards.movie.music.pick')}</button>
+        {music?.file && <span className="forge-note wizards-name" title={music.file} data-movie-music-file>{fileName(music.file)}</span>}
+        {music?.file && <button type="button" className="forge-ghost" data-movie-music-clear onClick={() => change(m => setMusicFile(m, null))}>{t('wizards.movie.music.clear')}</button>}
+      </div>
+      {score?.mix && <div className="wizards-fields">
+        {([['levelDb', 'level'], ['duckDb', 'duck'], ['fadeSeconds', 'fade']] as const).map(([key, label]) => <label className="forge-field" key={key}><span>{t(`wizards.movie.music.${label}`)}</span>
+          <input type="number" data-movie-mix={key} min={MIX_LIMITS[key][0]} max={MIX_LIMITS[key][1]} step={key === 'fadeSeconds' ? 0.5 : 1} value={score.mix![key]}
+            onChange={e => { const v = Number(e.target.value); if (Number.isFinite(v)) change(m => setMix(m, { [key]: v })); }}/></label>)}
+      </div>}
+      {score?.mix && <p className="forge-note" data-movie-music-hint>{t('wizards.movie.music.hint')}</p>}
+      <div className="wizards-row">
+        <button type="button" className="action-button" data-movie-music-run disabled={!!mixBlocked || mixing} title={mixBlocked || undefined} onClick={() => void mixIt()}>{t(mixing ? 'wizards.movie.music.mixing' : score?.state === 'done' ? 'wizards.movie.music.again' : 'wizards.movie.music.run')}</button>
+        {mixBlocked && <span className="forge-note" data-movie-music-blocked>{mixBlocked}</span>}
+      </div>
+      {score && (score.state === 'stale' || (score.state === 'planned' && score.revisions.some(r => r.result))) && <p className="forge-note" data-movie-music-stale>{t('wizards.movie.music.stale')}</p>}
+      {scoredClip && /\.(mp4|webm|mkv|mov)$/i.test(scoredClip) && <video className="wizards-preview" src={convertFileSrc(scoredClip)} controls preload="metadata" data-movie-scored-video/>}
     </div>}
     <div className="wizards-row wizards-actions">
       <button type="button" className="action-button" data-movie-save disabled={!native || !dirty} onClick={() => void save()}>{t('wizards.movie.save')}</button>
