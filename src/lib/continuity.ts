@@ -46,3 +46,5 @@ export function resolveClip(clips:readonly H3Clip[],previous:string|undefined,im
  }
  return clips.filter(c=>(c.parent??'')===(previous??'')).sort((a,b)=>b.completed-a.completed)[0]?.clipId;
 }
+/** The plan after a step's job produced `clipId`: that step records the clip and the job that made it; nothing else changes. */
+export const pinStep=(plan:ContinuityPlan,index:number,clipId:string,jobId:string):ContinuityPlan=>({...plan,steps:plan.steps.map((x,i)=>i===index?{...x,clipId,jobId}:x)});

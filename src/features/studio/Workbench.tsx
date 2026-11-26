@@ -37,7 +37,7 @@ import { ReferenceThumbnail } from './ReferenceThumbnail';
 import { videoRoles, videoRoleBlock, videoRolePipeline, type VideoRole, type VideoRoles } from './videoRoles';
 import { isMaskBlur, isMaskGrow, isNumber, isUnit, clamp } from './studioGuards';
 import { wizardDraft } from './wizardDraft';
-import { defaultPlan, isContinuityPlan, nextStep, resolveClip, continuitySource } from '../../lib/continuity';
+import { defaultPlan, isContinuityPlan, nextStep, resolveClip, continuitySource, pinStep, type ContinuityPlan } from '../../lib/continuity';
 import { defaultLyingSigma, isLyingSigma, lyingSigmaSamplingNodes, lyingSigmaScheduleIssue } from '../../lib/lyingSigma';
 import { LyingSigmaControls } from './LyingSigmaControls';
 import { checkRecipePrerequisites } from '../../lib/recipePrerequisites';
@@ -389,7 +389,13 @@ function WorkbenchContent({beginner=false,beginnerPage='generate',onBeginnerPage
  const [sourceAudio,setSourceAudio]=usePref('studio.run.video.sourceAudio',false,isBoolean);
  const [h3Scaling,setH3Scaling]=usePref<H3Scaling>('studio.run.video.h3Scaling','Fill and crop',oneOf(...h3Scalings));
  // MiniMax H3 continuity plan (overlay): steps run one by one, each pinning the clip the previous one produced.
- const [plan,setPlan]=usePref('studio.run.continuity',defaultPlan(),isContinuityPlan);
+ const [userPlan,setUserPlan]=usePref('studio.run.continuity',defaultPlan(),isContinuityPlan);
+ // Movie Maker chains run on their own in-memory plan: while it is held, the planner, Run all and clip pinning work on it and the user's saved plan is untouched.
+ const [moviePlan,setMoviePlan]=useState<{n:number;plan:ContinuityPlan;shotIds:string[]}|null>(null);
+ // Jobs of the chain's steps, so each shot's progress and finished clip are reported to Movie Maker (the wizard's own single-job tracking cannot follow a chain).
+ const movieJobs=useRef(new Map<string,{n:number;index:number;shotId:string;total:number;intent:VideoIntentV1;last?:JobStatus}>());
+ const plan=moviePlan?.plan??userPlan;
+ const setPlan=(v:ContinuityPlan|((p:ContinuityPlan)=>ContinuityPlan))=>{if(moviePlan)setMoviePlan(m=>m&&{...m,plan:typeof v==='function'?v(m.plan):v});else setUserPlan(v);};
  const [referencesOpen,setReferencesOpen]=useState(false);
  useEffect(()=>{if(!referencesOpen)setReferenceDrops([]);},[referencesOpen]);
 const referencesButton=useRef<HTMLButtonElement>(null);
@@ -1268,7 +1274,8 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
    const job=await runWorkbenchJob(endpoint,Object.freeze(intent),ticket.admissionEpoch);
    if(activeRun(ticket)){
     setJobs(list=>[job,...list.filter(j=>j.id!==job.id)]);setBrowsed(null);setSelectedOutput(0);setSlider(false);setSelectedJob(job.id);setRecentSeeds(list=>[intent.seed,...list.filter(s=>s!==intent.seed)].slice(0,10));
-    if(cont&&step){planRun.current={jobId:job.id,...step,...(cont.continuity.sourceKind==='video'&&(intent.family==='minimax-h3'||intent.family==='minimax-h3-hyperflow')?{imported:{sourceId:cont.continuity.sourceId,width:intent.width,height:intent.height,modeFamily:intent.h3.mode==='REF2VA'?'ref2va' as const:'fl2va' as const}}:{})};setPlan({...plan,steps:plan.steps.map((x,i)=>i===cont.index?{...x,jobId:job.id}:x)});}
+    if(cont&&step){planRun.current={jobId:job.id,...step,...(cont.continuity.sourceKind==='video'&&(intent.family==='minimax-h3'||intent.family==='minimax-h3-hyperflow')?{imported:{sourceId:cont.continuity.sourceId,width:intent.width,height:intent.height,modeFamily:intent.h3.mode==='REF2VA'?'ref2va' as const:'fl2va' as const}}:{})};setPlan({...plan,steps:plan.steps.map((x,i)=>i===cont.index?{...x,jobId:job.id}:x)});
+     if(moviePlan&&moviePlan.shotIds[cont.index]){const info={n:moviePlan.n,index:cont.index,shotId:moviePlan.shotIds[cont.index],total:moviePlan.shotIds.length};movieJobs.current.set(job.id,{...info,intent,last:job});onWizardApplied?.(info.n,undefined,{state:job.state,job,step:{index:info.index,shotId:info.shotId,total:info.total}});}}
    }
    if(cont&&step&&activeRun(ticket)){
     if(job.state==='succeeded')void pinClip(job);
@@ -1289,7 +1296,7 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
    const clipId=resolveClip(session.clips,continuitySource(plan,step.index),step.imported);
    if(!live.current||generation!==preparationGeneration.current)return;
    if(!clipId)throw new Error(t('studio.run.cont.noClip'));
-   setPlan({...plan,steps:plan.steps.map((x,i)=>i===step.index?{...x,clipId,jobId:job.id}:x)});
+   setPlan(pinStep(plan,step.index,clipId,job.id));
   }catch(e){if(live.current&&generation===preparationGeneration.current){setError(e instanceof Error?e.message:String(e));setAutoPlan(false);}}
   finally{if(live.current&&generation===preparationGeneration.current)setResolving(false);}
  }
@@ -1885,6 +1892,8 @@ const promptTools=forgeContext&&<>
    if(draft.video.sourceStrength!==undefined)setSourceStrength(draft.video.sourceStrength);
   }
   else setWizardPicture(draft.wizardPicture);
+  // A Movie Maker chain brings its own continuity plan; any other hand-over releases a movie plan and leaves the user's own alone.
+  setMoviePlan(wizard.continuity?{n:wizard.n,plan:structuredClone(wizard.continuity.plan),shotIds:[...wizard.continuity.shotIds]}:null);
   if(draft.seconds!==undefined){const seconds=draft.seconds;setVideo(v=>({...v,seconds}));}
   if(draft.edit)setEdit(draft.edit);
   if(draft.denoise)(draft.denoise.inpaint?setInpaintDenoise:setDenoise)(draft.denoise.value);
@@ -1900,6 +1909,7 @@ const promptTools=forgeContext&&<>
    if(samUnavailable)onWizardApplied?.(wizard.n,undefined,{state:'unknown',error:samUnavailable});
    else {setWizardMask({n:wizard.n,targets:maskTargets,grow:wizard.maskGrow??0});onWizardApplied?.(wizard.n,undefined,{state:'queued',masking:true});}
   }
+  else if(wizard.run&&wizard.continuity){setAutoPlan(true);onWizardApplied?.(wizard.n,undefined,{state:'queued',step:{index:0,shotId:wizard.continuity.shotIds[0]??'',total:wizard.continuity.shotIds.length}});}
   else if(wizard.run)setWizardStart(wizard.n);else onWizardApplied?.(wizard.n);
  },[wizard?.n,models===null]); // eslint-disable-line react-hooks/exhaustive-deps
  // The wizard's own Run goes through Workbench's Run path — the same capture, upload, admission and queue a Generate press uses.
@@ -1948,6 +1958,19 @@ const promptTools=forgeContext&&<>
   onWizardApplied?.(held.n,undefined,{state:found.state,job:found,
    ...(path?{picture:{path,width:held.intent.width,height:held.intent.height,seed:held.intent.seed,checkpoint:'checkpoint' in held.intent?held.intent.checkpoint:held.intent.model,...(found.metadata?.generationMs!=null?{ms:found.metadata.generationMs}:{}),...(isVideoRun?{video:true}:{})}}:{}),
    ...(problem?{error:problem}:{})});
+ },[jobs]); // eslint-disable-line react-hooks/exhaustive-deps
+ // Movie Maker chain: report every step's job (progress, then the finished clip) with the shot it belongs to.
+ useEffect(()=>{
+  for(const [id,m] of movieJobs.current){
+   const found=jobs.find(j=>j.id===id);if(!found||found===m.last)continue;m.last=found;
+   const step={index:m.index,shotId:m.shotId,total:m.total};
+   if(found.state==='queued'||found.state==='running'){onWizardApplied?.(m.n,undefined,{state:found.state,job:found,step,...(found.progress?{value:found.progress.value,max:found.progress.max}:{}),...(found.preview?{preview:found.preview}:{})});continue;}
+   movieJobs.current.delete(id);
+   const output=found.outputs.find(o=>o.format?.startsWith('video/')||/\.(mp4|webm|mkv|mov)$/i.test(o.filename));
+   const path=output&&found.state==='succeeded'?jobOutputPath(found,output):undefined;
+   const problem=found.state!=='succeeded'?(found.error||t(found.state==='cancelled'?'wizards.run.cancelled':'wizards.run.failed')):(path?undefined:t('wizards.run.noFile'));
+   onWizardApplied?.(m.n,undefined,{state:found.state,job:found,step,...(path?{picture:{path,width:m.intent.width,height:m.intent.height,seed:m.intent.seed,checkpoint:m.intent.model,video:true}}:{}),...(problem?{error:problem}:{})});
+  }
  },[jobs]); // eslint-disable-line react-hooks/exhaustive-deps
  const beginnerTarget=(m:LocalModel)=>familyOf(m)?.defaults||m.family==='yue2'||aceMusicProfile(m.family)?pipelines.find(p=>!blocked(m,p)):undefined;
  const beginnerUse=(m:LocalModel)=>{const target=beginnerTarget(m);if(!target)return;
@@ -2490,6 +2513,7 @@ const promptTools=forgeContext&&<>
        {forgeContext&&onOpenPromptForge&&<button type="button" className="wb-dock-action wb-wide" data-open-prompt-forge onClick={onOpenPromptForge}>{t('studio.tab.forge')}</button>}
        {dialsHere&&<button ref={dialsButton} type="button" className="wb-dock-action wb-wide" data-open-dials aria-haspopup="dialog" aria-expanded={showDials} onClick={()=>{setDialsOpen(true);if(native&&endpoint.trim())void refreshChoices(false);}}>{t('studio.run.dock.dials')}{dockBadge(activeDials(dials).length)}</button>}
        {continuityAvailable&&<button ref={continuityButton} type="button" className="wb-dock-action wb-wide" data-continuity-open aria-haspopup="dialog" aria-expanded={continuityOpen} data-continuity-enabled={continuityOn} onClick={()=>setContinuityOpen(true)}>{t(continuityOn?'studio.run.dock.continuity':'studio.run.dock.continuityOff')}</button>}
+       {continuityAvailable&&moviePlan&&<p className="wb-resolution-hint wb-wide" data-movie-plan-notice>{t('studio.run.cont.movie',{count:String(moviePlan.plan.steps.length)})} <button type="button" className="wb-dock-action" data-movie-plan-release disabled={autoPlan||resolving||!!planRun.current||!!current} onClick={()=>setMoviePlan(null)}>{t('studio.run.cont.movieRelease')}</button></p>}
        {frameVideo&&<p className="wb-resolution-hint wb-wide">{lastFrame?<>{t('studio.run.video.lastFrame')}: <strong>{lastFrame.name}</strong> <button type="button" aria-label={t('studio.run.cont.remove')} title={t('studio.run.cont.remove')} onClick={()=>removeVideoRole('last')}>✕</button></>:t('studio.run.video.lastFrameHint')}</p>}
       </>}
       {pipeline==='i2i'&&!inpaint&&<label className="wb-field wb-wide"><span>{t('studio.run.resolution.scaling')}</span><select value={inputScaling} title={t(`studio.run.resolution.hint.${inputScaling}`)} onChange={e=>setInputScaling(e.target.value as ScalingMode)}>{scalingModes.map(s=><option key={s} value={s}>{t(`studio.run.resolution.scale.${s}`)}</option>)}</select></label>}

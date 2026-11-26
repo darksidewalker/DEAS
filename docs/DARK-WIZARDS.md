@@ -84,7 +84,7 @@ Every shot in the **Story stage** has **Prepare in Generate** (fills Generate wi
 - **What is made:** a shot that starts a new take — the first shot, or any shot not marked *Continues the previous shot* — as a MiniMax H3 draft. Without pictures in its cast entries it is text-to-video; with pictures it is REF2VA and the pictures (up to 12, in cast order; videos and other files are skipped and the count is shown) are the references, with the cast description as each picture's note and the picture label *place* (locations) or *style* (styles). The prompt is the camera/action text plus *At the start* / *At the end* states and the spoken lines (*Anna says: "…" (delivery)*); a shot without pictures also gets the cast descriptions. Seconds and canvas come from the shot and the movie's aspect ratio; the Run Plan shows the real frame count.
 - **Result:** a finished clip is stored as the shot's result (file path and job) and plays under the shot; a failed or cancelled run marks the shot failed with the reason. Editing a shot afterwards marks it *outdated*; earlier results stay in its revision history.
 - **Model:** the installed MiniMax H3 file, Turbo/int8 first; choose another when several exist.
-- **Not yet:** shots that continue the previous one (they need H3 Continuity and are blocked with a reason), voices/music, and joining the shots into one film. Save the movie to keep the recorded results.
+- **Continued shots:** a shot marked *Continues the previous shot* is made together with the first shot of its chain — see [Chains](#chains-continued-shots). **Not yet:** voices and music. Save the movie to keep the recorded results.
 
 ### Joining the film
 
@@ -95,3 +95,14 @@ The **Film** step sits under the shots. It is enabled when every shot is made, u
 ### When files are missing on reopen
 
 After **Saved movies → open**, Movie Maker checks which recorded clips (shots and the film) and cast reference pictures are no longer on disk and lists them with the shot or cast name. It only checks that each file still exists; nothing is opened or changed. **Mark the missing clips as not made** resets those shots to *not made yet* and marks the film and anything built from them outdated (earlier results stay in the history); missing reference pictures stay as they are until you replace or remove them. A movie opens whether or not files are missing.
+
+### Chains (continued shots)
+
+A chain is the first shot after a cut plus every following shot marked *Continues the previous shot*. On the chain's first shot the buttons read **Prepare the chain in Generate** and **Make the chain (n shots)**; continued shots say they are made together with it.
+
+- **How it runs:** Generate uses H3 Continuity: shot 1 is a new first take (its camera/action text is the prompt), each following shot continues the clip before it with its own text as the action, with the default 22-frame overlap and *segment* output (each shot's file holds only its new footage). The cast pictures of **all** shots in the chain are the references of every step, so an actor who only appears later is available; without pictures the chain is text-to-video. Continued shots last in whole 17-frame steps (the *Will be made as …* line shows it).
+- **Your own plan is safe:** the chain runs on its own temporary plan. Continuity shows *This chain's plan (n shots) belongs to Movie Maker*; **Back to my plan** (disabled while a step runs) returns to yours, and starting any other hand-over does the same. Your saved Continuity plan is never changed.
+- **Progress and results:** each shot shows *making …* while its step runs and is recorded with its clip when it finishes; the chain stays busy until its last shot ends. A failing step marks that shot *failed*, the rest stay *not made*, and Stop in Generate stops the chain.
+- **Refused chains:** a first take over 362 frames, a continued step that leaves no room for the overlap in the 362-frame window, or a shot over 15 s is not sent; the message names the shot.
+- **Rerunning:** *Make the chain again* always remakes the whole chain from its first shot (a new session take); there is no restart from a middle shot yet.
+- **Film:** the join takes the chain's clips like any other (in plan order). Whether the seams of continued clips are invisible in the joined film has not been checked on real footage.

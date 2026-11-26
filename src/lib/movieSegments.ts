@@ -11,6 +11,21 @@ const IMAGE = /\.(png|jpe?g|webp)$/i;
 const fileName = (p: string) => p.split(/[\\/]/).pop() ?? p;
 const LABEL: Record<string, string | undefined> = { location: 'place', style: 'style' };
 
+/** Reference pictures of the given shots' cast entries, in order of first use, without repeats (images only; other files are counted). */
+export function shotPictures(m: MovieManifest, shots: MovieItem[]): { picks: { path: string; label?: string; note?: string }[]; skipped: number } {
+  const picks: { path: string; label?: string; note?: string }[] = [];
+  const skippedFiles = new Set<string>();
+  for (const shot of shots) for (const id of shot.deps) {
+    const c = m.items.find(i => i.id === id && i.kind === 'cast');
+    if (!c) continue;
+    for (const p of c.refs ?? []) {
+      if (!IMAGE.test(p)) { skippedFiles.add(p); continue; }
+      if (picks.some(x => x.path === p)) continue;
+      picks.push({ path: p, ...(LABEL[c.role ?? 'actor'] ? { label: LABEL[c.role ?? 'actor'] } : {}), note: `${c.title}${c.text.trim() ? `: ${c.text.trim()}` : ''}` });
+    }
+  }
+  return { picks, skipped: skippedFiles.size };
+}
 export type ShotHandoff = { handoff: Omit<WizardHandoff, 'n'>; skipped: number } | { blocked: string };
 /** Text of the shot as the model reads it: camera/action, the scene state it starts from and ends in, and the spoken lines. */
 export function shotPrompt(m: MovieManifest, shot: MovieItem, withCast: boolean): string {
@@ -34,13 +49,7 @@ export function shotHandoff(m: MovieManifest, segmentId: string, model: { name: 
   if (!shot) return { blocked: 'wizards.movie.shot.unknown' };
   const order = m.items.filter(i => i.kind === 'segment');
   if (shot.continuous && order[0]?.id !== shot.id) return { blocked: 'wizards.movie.shot.continued' };
-  const cast = shot.deps.map(d => m.items.find(i => i.id === d && i.kind === 'cast')).filter((c): c is MovieItem => !!c);
-  const picks: { path: string; label?: string; note?: string }[] = [];
-  let skipped = 0;
-  for (const c of cast) for (const p of c.refs ?? []) {
-    if (!IMAGE.test(p)) { skipped++; continue; }
-    picks.push({ path: p, ...(LABEL[c.role ?? 'actor'] ? { label: LABEL[c.role ?? 'actor'] } : {}), note: `${c.title}${c.text.trim() ? `: ${c.text.trim()}` : ''}` });
-  }
+  const { picks, skipped } = shotPictures(m, [shot]);
   if (picks.length > H3_REFERENCE_LIMIT) return { blocked: 'wizards.movie.shot.tooManyRefs' };
   const [w, h] = m.aspect.split(':').map(Number);
   const size = w > 0 && h > 0 ? wizardCanvas('minimax-h3', { width: w * 100, height: h * 100 }) : undefined;

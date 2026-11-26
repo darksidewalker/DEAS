@@ -169,7 +169,7 @@
   "wizards.movie.plan.line": "{name}: {line}",
   "wizards.movie.plan.total": "Geplant {planned} s · erzeugt {actual} s · Ziel {target} s",
   "wizards.movie.shot.unknown": "Diese Einstellung gehört nicht zum Plan.",
-  "wizards.movie.shot.continued": "Eine Einstellung, die die vorige fortsetzt, braucht H3-Kontinuität, die der Filmmacher noch nicht ausführt. Mach sie zu einem Schnitt oder setze sie im Generator fort.",
+  "wizards.movie.shot.continued": "Diese Einstellung setzt die vorige fort; sie wird zusammen mit der ersten Einstellung ihrer Kette erzeugt.",
   "wizards.movie.shot.tooManyRefs": "Eine Einstellung kann höchstens 12 Referenzbilder nutzen; entferne einige aus ihren Besetzungseinträgen.",
   "wizards.movie.shot.noModel": "Kein MiniMax-H3-Modell installiert.",
   "wizards.movie.shot.skipped": "{count} Referenzdatei(en), die keine Bilder sind, wurden weggelassen.",
@@ -207,5 +207,10 @@
   "wizards.movie.check.mark": "Fehlende Clips als nicht erzeugt markieren",
   "wizards.movie.check.dismiss": "Ausblenden",
   "wizards.movie.check.truncated": "Nur die ersten 2000 Dateien wurden geprüft.",
-  "wizards.movie.check.failed": "Die Dateien, auf die dieser Film verweist, konnten nicht geprüft werden."
+  "wizards.movie.check.failed": "Die Dateien, auf die dieser Film verweist, konnten nicht geprüft werden.",
+  "wizards.movie.shot.withChain": "Wird zusammen mit der ersten Einstellung ihrer Kette erzeugt.",
+  "wizards.movie.shot.chainProblem": "Diese Kette kann nicht wie geplant erzeugt werden:",
+  "wizards.movie.shot.prepareChain": "Kette im Generator vorbereiten",
+  "wizards.movie.shot.makeChain": "Kette erzeugen ({count} Einstellungen)",
+  "wizards.movie.shot.chainAgain": "Kette neu erzeugen ({count} Einstellungen)"
 }

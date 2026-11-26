@@ -8,16 +8,16 @@ import type { H3JoinIntentV1 } from './videoIntent.ts';
 
 const VIDEO = /\.(mp4|webm|mkv|mov)$/i;
 export interface AssemblyClip { id: string; title: string; path: string; seconds?: number }
-export type AssemblyPlan = { ok: true; clips: AssemblyClip[]; expectedSeconds: number | undefined } | { ok: false; missing: { id: string; title: string; why: 'none' | 'outdated' | 'failed' | 'not-a-clip' | 'continued' }[] };
+export type AssemblyPlan = { ok: true; clips: AssemblyClip[]; expectedSeconds: number | undefined } | { ok: false; missing: { id: string; title: string; why: 'none' | 'outdated' | 'failed' | 'not-a-clip' }[] };
 
 /** The ordered clips to join, or which shots keep the film from being assembled (not made, outdated, failed, not a video file, continued). */
 export function assemblyPlan(m: MovieManifest): AssemblyPlan {
   const shots = m.items.filter(i => i.kind === 'segment');
-  const missing: { id: string; title: string; why: 'none' | 'outdated' | 'failed' | 'not-a-clip' | 'continued' }[] = [];
+  const missing: { id: string; title: string; why: 'none' | 'outdated' | 'failed' | 'not-a-clip' }[] = [];
   const clips: AssemblyClip[] = [];
-  shots.forEach((s, n) => {
+  shots.forEach(s => {
     const result = s.revisions.find(r => r.n === s.revision)?.result;
-    const why = n > 0 && s.continuous ? 'continued' : s.state === 'stale' ? 'outdated' : s.state === 'failed' ? 'failed' : s.state !== 'done' || !result ? 'none' : !VIDEO.test(result.outputId) ? 'not-a-clip' : undefined;
+    const why = s.state === 'stale' ? 'outdated' : s.state === 'failed' ? 'failed' : s.state !== 'done' || !result ? 'none' : !VIDEO.test(result.outputId) ? 'not-a-clip' : undefined;
     if (why) missing.push({ id: s.id, title: s.title || s.id, why });
     else clips.push({ id: s.id, title: s.title, path: result!.outputId, ...(result!.seconds ? { seconds: result!.seconds } : {}) });
   });

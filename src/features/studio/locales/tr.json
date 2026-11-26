@@ -1501,5 +1501,7 @@
   "studio.run.backendOnlyLora": "ComfyUI tarafından listelendi. Yerel üst veriler kullanılamıyor.",
   "studio.run.backendOnlyLoras": "Yalnızca backend LoRA’ları",
   "studio.run.backendOnlyLorasHelp": "Yalnızca yerel dizinde bulunmayan LoRA’ları göster.",
-  "studio.run.opt.compile.noTriton": "Bu ortamda GPU'su için Triton yok, bu yüzden inductor backend'i çalışamaz. Backend → Güncelle onu kurar; diğer derleme backend'leri kullanılabilir kalır."
+  "studio.run.opt.compile.noTriton": "Bu ortamda GPU'su için Triton yok, bu yüzden inductor backend'i çalışamaz. Backend → Güncelle onu kurar; diğer derleme backend'leri kullanılabilir kalır.",
+  "studio.run.cont.movie": "Bu zincirin planı ({count} çekim) Film Yapıcı'ya aittir; kendi Süreklilik planınıza dokunulmadı.",
+  "studio.run.cont.movieRelease": "Planıma dön"
 }

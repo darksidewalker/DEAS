@@ -1501,5 +1501,7 @@
   "studio.run.backendOnlyLora": "ComfyUI が報告した LoRA です。ローカルメタデータはありません。",
   "studio.run.backendOnlyLoras": "バックエンドの LoRA のみ",
   "studio.run.backendOnlyLorasHelp": "ローカルインデックスにない LoRA のみ表示します。",
-  "studio.run.opt.compile.noTriton": "この環境には GPU 用の Triton がないため、inductor バックエンドは実行できません。「バックエンド → アップグレード」でインストールされます。他のコンパイルバックエンドは引き続き使用できます。"
+  "studio.run.opt.compile.noTriton": "この環境には GPU 用の Triton がないため、inductor バックエンドは実行できません。「バックエンド → アップグレード」でインストールされます。他のコンパイルバックエンドは引き続き使用できます。",
+  "studio.run.cont.movie": "このチェーンの計画（{count} ショット）はムービーメーカーのものです。あなたの連続性プランには手を加えていません。",
+  "studio.run.cont.movieRelease": "自分のプランに戻る"
 }

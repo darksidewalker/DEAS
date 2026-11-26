@@ -2,6 +2,7 @@ import data from '../wizards/builtin.json' with { type: 'json' };
 import families from '../families/builtin.json' with { type: 'json' };
 import { canvasSize, validCanvas, type Size } from './resolution.ts';
 import type { JobStatus } from './jobs.ts';
+import type { ContinuityPlan } from './continuity.ts';
 
 /**
  * Dark Wizards are data: each strategy names the model families it accepts in preference order, the ordinary
@@ -78,6 +79,8 @@ export interface WizardHandoff {
   sourceVideo?: WizardPicture; sourceStrength?: number; seconds?: number;
   /** Movie Maker shot (`source: 'movie'`, `t2v` or `ref2v`): there is no `picture`; `references` are the cast pictures, `labels`/`notes` the Director picture label and the description per reference (same order). */
   labels?: (string | undefined)[]; notes?: (string | undefined)[];
+  /** Movie Maker chain: the chain's own in-memory continuity plan (steps = shots, in order) and the shot ids, step for step. Generate holds it apart from the user's saved plan. */
+  continuity?: { plan: ContinuityPlan; shotIds: string[] };
 }
 /** The picture a wizard's own run produced, in that job's native-held output folder. */
 export interface WizardRunPicture { path: string; width: number; height: number; seed: number; checkpoint: string; ms?: number; video?: boolean }
@@ -88,6 +91,8 @@ export interface WizardRunPicture { path: string; width: number; height: number;
 export interface WizardRun {
   state: JobStatus['state']; value?: number; max?: number; preview?: string; error?: string;
   picture?: WizardRunPicture; job?: JobStatus;
+  /** Movie Maker chain: which shot of the chain this report is about (the chain's steps run one job after the other). */
+  step?: { index: number; shotId: string; total: number };
   /** SAM 3.1 is still finding the mask; the drawing job has not been submitted yet. */
   masking?: boolean;
 }

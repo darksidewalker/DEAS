@@ -1501,5 +1501,7 @@
   "studio.run.backendOnlyLora": "Signalé par ComfyUI. Les métadonnées locales sont indisponibles.",
   "studio.run.backendOnlyLoras": "LoRA du backend uniquement",
   "studio.run.backendOnlyLorasHelp": "Afficher uniquement les LoRA absentes de l’index local.",
-  "studio.run.opt.compile.noTriton": "Cet environnement n’a pas de Triton pour son GPU ; le backend inductor ne peut donc pas s’exécuter. Backend → Mettre à jour l’installe ; les autres backends de compilation restent disponibles."
+  "studio.run.opt.compile.noTriton": "Cet environnement n’a pas de Triton pour son GPU ; le backend inductor ne peut donc pas s’exécuter. Backend → Mettre à jour l’installe ; les autres backends de compilation restent disponibles.",
+  "studio.run.cont.movie": "Le plan de cette chaîne ({count} plans) appartient à Movie Maker ; votre propre plan de continuité n'est pas touché.",
+  "studio.run.cont.movieRelease": "Revenir à mon plan"
 }

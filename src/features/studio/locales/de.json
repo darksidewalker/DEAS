@@ -1501,5 +1501,7 @@
   "studio.run.backendOnlyLora": "Vom Backend gemeldet. Keine lokalen Metadaten im Index.",
   "studio.run.backendOnlyLoras": "Nur Backend-LoRAs",
   "studio.run.backendOnlyLorasHelp": "Nur LoRAs anzeigen, die im lokalen Index fehlen.",
-  "studio.run.opt.compile.noTriton": "Diese Umgebung hat kein Triton für ihre GPU, daher kann das inductor-Backend nicht laufen. Backend → Aktualisieren installiert es; andere Compile-Backends bleiben verfügbar."
+  "studio.run.opt.compile.noTriton": "Diese Umgebung hat kein Triton für ihre GPU, daher kann das inductor-Backend nicht laufen. Backend → Aktualisieren installiert es; andere Compile-Backends bleiben verfügbar.",
+  "studio.run.cont.movie": "Der Plan dieser Kette ({count} Einstellungen) gehört dem Filmmacher; dein eigener Kontinuitätsplan bleibt unberührt.",
+  "studio.run.cont.movieRelease": "Zurück zu meinem Plan"
 }

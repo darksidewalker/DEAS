@@ -169,7 +169,7 @@
   "wizards.movie.plan.line": "{name}: {line}",
   "wizards.movie.plan.total": "Planlanan {planned} sn · üretilen {actual} sn · hedef {target} sn",
   "wizards.movie.shot.unknown": "Bu çekim planda yok.",
-  "wizards.movie.shot.continued": "Öncekini sürdüren bir çekim H3 sürekliliği gerektirir; Film Yapıcı bunu henüz çalıştırmaz. Kesme yapın veya Generate'te sürdürün.",
+  "wizards.movie.shot.continued": "Bu çekim öncekinin devamıdır; zincirinin ilk çekimiyle birlikte üretilir.",
   "wizards.movie.shot.tooManyRefs": "Bir çekim en fazla 12 referans resmi kullanabilir; kadro girdilerinden bazılarını kaldırın.",
   "wizards.movie.shot.noModel": "Yüklü MiniMax H3 modeli yok.",
   "wizards.movie.shot.skipped": "Resim olmayan {count} referans dosyası dışarıda bırakıldı.",
@@ -207,5 +207,10 @@
   "wizards.movie.check.mark": "Eksik klipleri üretilmedi olarak işaretle",
   "wizards.movie.check.dismiss": "Kapat",
   "wizards.movie.check.truncated": "Yalnızca ilk 2000 dosya denetlendi.",
-  "wizards.movie.check.failed": "Bu filmin başvurduğu dosyalar denetlenemedi."
+  "wizards.movie.check.failed": "Bu filmin başvurduğu dosyalar denetlenemedi.",
+  "wizards.movie.shot.withChain": "Zincirinin ilk çekimiyle birlikte üretilir.",
+  "wizards.movie.shot.chainProblem": "Bu zincir planlandığı gibi üretilemez:",
+  "wizards.movie.shot.prepareChain": "Zinciri Generate'te hazırla",
+  "wizards.movie.shot.makeChain": "Zinciri üret ({count} çekim)",
+  "wizards.movie.shot.chainAgain": "Zinciri yeniden üret ({count} çekim)"
 }

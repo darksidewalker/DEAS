@@ -169,7 +169,7 @@
   "wizards.movie.plan.line": "{name}：{line}",
   "wizards.movie.plan.total": "計画 {planned} 秒 · 生成 {actual} 秒 · 目標 {target} 秒",
   "wizards.movie.shot.unknown": "このショットは計画にありません。",
-  "wizards.movie.shot.continued": "前のショットの続きにするには H3 の連続生成が必要ですが、ムービーメーカーはまだ実行できません。カットにするか、Generate で続けてください。",
+  "wizards.movie.shot.continued": "このショットは前のショットの続きで、チェーンの最初のショットと一緒に作成されます。",
   "wizards.movie.shot.tooManyRefs": "1 つのショットで使える参照画像は最大 12 枚です。キャスト項目から減らしてください。",
   "wizards.movie.shot.noModel": "MiniMax H3 モデルがインストールされていません。",
   "wizards.movie.shot.skipped": "画像ではない参照ファイル {count} 件を除外しました。",
@@ -207,5 +207,10 @@
   "wizards.movie.check.mark": "見つからないクリップを未作成にする",
   "wizards.movie.check.dismiss": "閉じる",
   "wizards.movie.check.truncated": "最初の 2000 件のみ確認しました。",
-  "wizards.movie.check.failed": "この映画が参照するファイルを確認できませんでした。"
+  "wizards.movie.check.failed": "この映画が参照するファイルを確認できませんでした。",
+  "wizards.movie.shot.withChain": "チェーンの最初のショットと一緒に作成されます。",
+  "wizards.movie.shot.chainProblem": "このチェーンは計画どおりには作成できません：",
+  "wizards.movie.shot.prepareChain": "Generate でチェーンを準備",
+  "wizards.movie.shot.makeChain": "チェーンを作成（{count} ショット）",
+  "wizards.movie.shot.chainAgain": "チェーンを作り直す（{count} ショット）"
 }

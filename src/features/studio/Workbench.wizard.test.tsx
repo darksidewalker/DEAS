@@ -1,11 +1,11 @@
 import { evidence, heldJob, ltxModels, referenceModels, referenceNodes, refsEvidence, collection, videoEvidence } from './Workbench.testHarness';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { expect, test, vi } from 'vitest';
 import { Workbench } from './Workbench';
 import { I18nProvider } from '../../i18n/I18nProvider';
 import { checkRecipePrerequisites } from '../../lib/recipePrerequisites';
 import { scanModels } from '../../lib/models';
-import { loadDiagnosticJobOutput, pollWorkbench, readCurrentWorkbench, runWorkbenchJob, uploadInput, uploadMask, waitForWorkbenchJob } from '../../lib/jobs';
+import { loadDiagnosticJobOutput, pollWorkbench, readCurrentWorkbench, readH3Session, runWorkbenchJob, uploadInput, uploadMask, waitForWorkbenchJob } from '../../lib/jobs';
 import type { WizardHandoff } from '../../lib/wizards';
 
 const picture = { name: 'street.png', path: '/pics/street.png', src: 'asset://localhost//pics/street.png' };
@@ -407,4 +407,67 @@ test('a Movie Maker shot with cast pictures runs H3 REF2VA with those pictures a
   expect(intent).toMatchObject({ family: 'minimax-h3', positivePrompt: 'Anna runs' });
   expect(intent.h3.mode).toBe('REF2VA');
   expect(intent.h3.media.filter((m: { type: string }) => m.type === 'image')).toHaveLength(2);
+});
+
+const chain: WizardHandoff = { n: 41, wizard: 'movie', strategy: 'seg-1', pipeline: 't2v', source: 'movie', model: { name: 'h3.safetensors', path: '/m/h3' }, seconds: 5, size: { width: 1216, height: 672 }, positive: 'Anna runs',
+  continuity: { shotIds: ['seg-1', 'seg-2'], plan: { enabled: true, session: 'mm-movie-x-c1', outputMode: 'segment', overlapFrames: 22, steps: [{ id: 'seg-1', seconds: 5, action: 'Anna runs' }, { id: 'seg-2', seconds: 4, action: 'Anna stops' }] } } };
+
+test('a Movie Maker chain runs on its own plan; the user\'s saved continuity plan is never touched and can be taken back', async () => {
+  const mine = { session: 'my-session', outputMode: 'full', steps: [{ id: 'm1', seconds: 3, action: 'mine' }] };
+  localStorage.setItem('deas.pref.studio.run.continuity', JSON.stringify(mine));
+  const { applied, props, view } = await videoWorkbench();
+  view.rerender(<I18nProvider><Workbench {...props} wizard={chain}/></I18nProvider>);
+  await waitFor(() => expect(applied).toHaveBeenCalledWith(41));
+  expect(document.querySelector('[data-movie-plan-notice]')!.textContent).toContain('2 shots');
+  expect(document.querySelector('[data-continuity-open]')!.getAttribute('data-continuity-enabled')).toBe('true');
+  expect(prompt()).toBe('Anna runs');
+  fireEvent.click(document.querySelector('[data-continuity-open]')!);
+  expect(document.querySelectorAll('[data-step]')).toHaveLength(2);
+  expect(screen.getByRole('textbox', { name: 'Session name' })).toBeTruthy();
+  expect((screen.getByRole('textbox', { name: 'Session name' }) as HTMLInputElement).value).toBe('mm-movie-x-c1');
+  expect(JSON.parse(localStorage.getItem('deas.pref.studio.run.continuity')!)).toEqual(mine);
+  fireEvent.click(within(screen.getByRole('dialog', { name: 'Continuity' })).getByRole('button', { name: 'Close' }));
+  fireEvent.click(document.querySelector('[data-movie-plan-release]')!);
+  expect(document.querySelector('[data-movie-plan-notice]')).toBeNull();
+  fireEvent.click(document.querySelector('[data-continuity-open]')!);
+  expect((screen.getByRole('textbox', { name: 'Session name' }) as HTMLInputElement).value).toBe('my-session');
+  expect(JSON.parse(localStorage.getItem('deas.pref.studio.run.continuity')!)).toEqual(mine);
+});
+
+test('Run all on a movie chain captures the first take, pins its clip, then continues from it with the next shot\'s action', async () => {
+  const { applied, props, view } = await videoWorkbench();
+  let n = 0;
+  vi.mocked(runWorkbenchJob).mockImplementation(async (base, intent) => ({ ...heldJob(`chain-${++n}`, 'queued', base), intent }));
+  vi.mocked(pollWorkbench).mockImplementation(async () => collection(await Promise.all(vi.mocked(runWorkbenchJob).mock.results.map(async r => ({ ...(await r.value), state: 'succeeded' as const })))));
+  vi.mocked(readH3Session).mockResolvedValue({ latestId: null, clips: [{ clipId: 'take1', parent: null, frames: 124, completed: 1, export: null }, { clipId: 'take2', parent: 'take1', frames: 221, completed: 2, export: null }] } as never);
+  view.rerender(<I18nProvider><Workbench {...props} wizard={chain}/></I18nProvider>);
+  await waitFor(() => expect(applied).toHaveBeenCalledWith(41));
+  fireEvent.click(document.querySelector('[data-continuity-open]')!);
+  fireEvent.click(screen.getByRole('button', { name: 'Run all' }));
+  await waitFor(() => expect(runWorkbenchJob).toHaveBeenCalledTimes(2), { timeout: 8000 });
+  const [first, second] = vi.mocked(runWorkbenchJob).mock.calls.map(c => c[1] as unknown as { positivePrompt: string; frames: number; h3: { mode: string; continuity: Record<string, unknown> } });
+  expect([first.positivePrompt, first.frames, first.h3.mode]).toEqual(['Anna runs', 124, 'T2VA']);
+  expect(first.h3.continuity).toMatchObject({ session: 'mm-movie-x-c1', sourceId: '', capture: true, outputMode: 'segment' });
+  expect(Object.hasOwn(first.h3.continuity, 'overlapFrames')).toBe(false); // a new take has no source to overlap
+  expect(second.h3.continuity).toMatchObject({ session: 'mm-movie-x-c1', sourceId: 'take1', capture: true, action: 'Anna stops', outputMode: 'segment', overlapFrames: 22 });
+  expect(second.frames).toBeGreaterThan(0);
+  expect(readH3Session).toHaveBeenCalledWith(expect.any(String), 'mm-movie-x-c1');
+  expect(localStorage.getItem('deas.pref.studio.run.continuity')).not.toContain('mm-movie-x-c1');
+});
+
+test('a Movie Maker chain hand-over that asks to run starts Run all by itself and reports every shot with its own clip', async () => {
+  const { applied, props, view } = await videoWorkbench();
+  let n = 0;
+  vi.mocked(runWorkbenchJob).mockImplementation(async (base, intent) => ({ ...heldJob(`chain-${++n}`, 'queued', base), intent }));
+  vi.mocked(pollWorkbench).mockImplementation(async () => collection(await Promise.all(vi.mocked(runWorkbenchJob).mock.results.map(async (r, i) => ({ ...(await r.value), state: 'succeeded' as const, outputRoot: '/out',
+    outputs: [{ filename: `shot${i + 1}.mp4`, subfolder: 'video', type: 'output' as const, format: 'video/h264-mp4' }, { filename: `shot${i + 1}-first-frame.png`, subfolder: 'video', type: 'output' as const }] })))));
+  vi.mocked(readH3Session).mockResolvedValue({ latestId: null, clips: [{ clipId: 'take1', parent: null, frames: 124, completed: 1, export: null }, { clipId: 'take2', parent: 'take1', frames: 221, completed: 2, export: null }] } as never);
+  view.rerender(<I18nProvider><Workbench {...props} wizard={{ ...chain, n: 42, run: true }}/></I18nProvider>);
+  await waitFor(() => expect(runWorkbenchJob).toHaveBeenCalledTimes(2), { timeout: 8000 });
+  const reports = () => applied.mock.calls.filter(c => c[0] === 42).map(c => c[2]).filter(Boolean);
+  await waitFor(() => expect(reports().filter(r => r.state === 'succeeded' && r.picture).map(r => [r.step.shotId, r.picture.path])).toEqual([['seg-1', '/out/video/shot1.mp4'], ['seg-2', '/out/video/shot2.mp4']]), { timeout: 8000 });
+  const steps = reports().filter(r => r.step).map(r => r.step.index);
+  expect(steps[0]).toBe(0);
+  expect(reports().find(r => r.state === 'succeeded')!.step.total).toBe(2);
+  expect(JSON.parse(localStorage.getItem('deas.pref.studio.run.continuity') ?? '{"session":"none"}').session).not.toBe('mm-movie-x-c1');
 });

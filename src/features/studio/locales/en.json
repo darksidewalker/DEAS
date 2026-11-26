@@ -1501,5 +1501,7 @@
   "studio.run.backendOnlyLora": "Listed by ComfyUI. Local metadata is unavailable.",
   "studio.run.backendOnlyLoras": "Backend-only LoRAs",
   "studio.run.backendOnlyLorasHelp": "Show only LoRAs that are missing from the local index.",
-  "studio.run.opt.compile.noTriton": "This environment has no Triton for its GPU, so the inductor backend cannot run. Backend → Upgrade installs it; other compile backends stay available."
+  "studio.run.opt.compile.noTriton": "This environment has no Triton for its GPU, so the inductor backend cannot run. Backend → Upgrade installs it; other compile backends stay available.",
+  "studio.run.cont.movie": "This chain's plan ({count} shots) belongs to Movie Maker; your own Continuity plan is untouched.",
+  "studio.run.cont.movieRelease": "Back to my plan"
 }

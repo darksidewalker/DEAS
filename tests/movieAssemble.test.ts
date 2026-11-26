@@ -38,7 +38,7 @@ test('the plan lists clips in order, or says which shots keep the film from bein
   const notClip = completeItem(made(), 'seg-1', { outputId: '/out/a.png' });
   assert.deepEqual((assemblyPlan(notClip) as any).missing, [{ id: 'seg-1', title: 'A', why: 'not-a-clip' }]);
   const cont = { ...made(), items: made().items.map(i => i.id === 'seg-2' ? { ...i, continuous: true } : i) };
-  assert.deepEqual((assemblyPlan(cont) as any).missing, [{ id: 'seg-2', title: 'B', why: 'continued' }]);
+  assert.equal(assemblyPlan(cont).ok, true); // continued shots are made with their chain and join like any other clip
   assert.deepEqual(assemblyPlan(newMovie('x', 'x')), { ok: false, missing: [] });
 });
 

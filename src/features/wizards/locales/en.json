@@ -169,7 +169,7 @@
   "wizards.movie.plan.line": "{name}: {line}",
   "wizards.movie.plan.total": "Planned {planned} s · produced {actual} s · target {target} s",
   "wizards.movie.shot.unknown": "This shot is not in the plan.",
-  "wizards.movie.shot.continued": "A shot that continues the previous one needs H3 Continuity, which Movie Maker does not run yet. Make it a cut, or continue it in Generate.",
+  "wizards.movie.shot.continued": "This shot continues the previous one; it is made together with the first shot of its chain.",
   "wizards.movie.shot.tooManyRefs": "A shot can use at most 12 reference pictures; remove some from its cast entries.",
   "wizards.movie.shot.noModel": "No MiniMax H3 model is installed.",
   "wizards.movie.shot.skipped": "{count} reference file(s) that are not pictures were left out.",
@@ -207,5 +207,10 @@
   "wizards.movie.check.mark": "Mark the missing clips as not made",
   "wizards.movie.check.dismiss": "Dismiss",
   "wizards.movie.check.truncated": "Only the first 2000 files were checked.",
-  "wizards.movie.check.failed": "The files this movie refers to could not be checked."
+  "wizards.movie.check.failed": "The files this movie refers to could not be checked.",
+  "wizards.movie.shot.withChain": "Made together with the first shot of its chain.",
+  "wizards.movie.shot.chainProblem": "This chain cannot be made as planned:",
+  "wizards.movie.shot.prepareChain": "Prepare the chain in Generate",
+  "wizards.movie.shot.makeChain": "Make the chain ({count} shots)",
+  "wizards.movie.shot.chainAgain": "Make the chain again ({count} shots)"
 }

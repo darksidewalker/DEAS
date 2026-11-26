@@ -169,7 +169,7 @@
   "wizards.movie.plan.line": "{name} : {line}",
   "wizards.movie.plan.total": "Prévu {planned} s · produit {actual} s · cible {target} s",
   "wizards.movie.shot.unknown": "Ce plan ne figure pas dans le plan.",
-  "wizards.movie.shot.continued": "Un plan qui poursuit le précédent nécessite la continuité H3, que Movie Maker n'exécute pas encore. Faites-en une coupe ou poursuivez-le dans Generate.",
+  "wizards.movie.shot.continued": "Ce plan poursuit le précédent ; il est créé avec le premier plan de sa chaîne.",
   "wizards.movie.shot.tooManyRefs": "Un plan peut utiliser au plus 12 images de référence ; retirez-en de ses entrées de distribution.",
   "wizards.movie.shot.noModel": "Aucun modèle MiniMax H3 installé.",
   "wizards.movie.shot.skipped": "{count} fichier(s) de référence qui ne sont pas des images ont été ignorés.",
@@ -207,5 +207,10 @@
   "wizards.movie.check.mark": "Marquer les clips manquants comme non créés",
   "wizards.movie.check.dismiss": "Ignorer",
   "wizards.movie.check.truncated": "Seuls les 2000 premiers fichiers ont été vérifiés.",
-  "wizards.movie.check.failed": "Les fichiers auxquels ce film fait référence n'ont pas pu être vérifiés."
+  "wizards.movie.check.failed": "Les fichiers auxquels ce film fait référence n'ont pas pu être vérifiés.",
+  "wizards.movie.shot.withChain": "Créé avec le premier plan de sa chaîne.",
+  "wizards.movie.shot.chainProblem": "Cette chaîne ne peut pas être créée comme prévu :",
+  "wizards.movie.shot.prepareChain": "Préparer la chaîne dans Generate",
+  "wizards.movie.shot.makeChain": "Créer la chaîne ({count} plans)",
+  "wizards.movie.shot.chainAgain": "Recréer la chaîne ({count} plans)"
 }

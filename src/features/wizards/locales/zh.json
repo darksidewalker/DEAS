@@ -169,7 +169,7 @@
   "wizards.movie.plan.line": "{name}：{line}",
   "wizards.movie.plan.total": "计划 {planned} 秒 · 实际生成 {actual} 秒 · 目标 {target} 秒",
   "wizards.movie.shot.unknown": "该镜头不在计划中。",
-  "wizards.movie.shot.continued": "接续上一个镜头需要 H3 连续性，电影制作暂不支持运行。请改为切镜，或在 Generate 中接续。",
+  "wizards.movie.shot.continued": "此镜头接续上一个镜头，将与其链条的第一个镜头一起生成。",
   "wizards.movie.shot.tooManyRefs": "一个镜头最多使用 12 张参考图片；请从其角色条目中移除一些。",
   "wizards.movie.shot.noModel": "未安装 MiniMax H3 模型。",
   "wizards.movie.shot.skipped": "已忽略 {count} 个不是图片的参考文件。",
@@ -207,5 +207,10 @@
   "wizards.movie.check.mark": "将缺失的片段标记为未生成",
   "wizards.movie.check.dismiss": "忽略",
   "wizards.movie.check.truncated": "仅检查了前 2000 个文件。",
-  "wizards.movie.check.failed": "无法检查此电影引用的文件。"
+  "wizards.movie.check.failed": "无法检查此电影引用的文件。",
+  "wizards.movie.shot.withChain": "与其链条的第一个镜头一起生成。",
+  "wizards.movie.shot.chainProblem": "此链条无法按计划生成：",
+  "wizards.movie.shot.prepareChain": "在 Generate 中准备链条",
+  "wizards.movie.shot.makeChain": "生成链条（{count} 个镜头）",
+  "wizards.movie.shot.chainAgain": "重新生成链条（{count} 个镜头）"
 }

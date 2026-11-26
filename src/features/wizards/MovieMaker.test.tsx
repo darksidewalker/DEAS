@@ -311,3 +311,60 @@ it('nothing is reported when every referenced file is there', async () => {
   await openFilm(filmMovie(true));
   expect(q('[data-movie-gone]')).toBeNull();
 });
+
+const chainReply = JSON.stringify({ lore: 'L', segments: [
+  { title: 'Start', prompt: 'Anna runs', seconds: 5, castIds: ['cast-1'], continuous: false },
+  { title: 'Alley', prompt: 'Ben hides', seconds: 4, castIds: ['cast-1'], continuous: true },
+  { title: 'Cut', prompt: 'Street', seconds: 5, castIds: ['cast-1'], continuous: false },
+] });
+const chainUi = async () => {
+  llmReply = chainReply; llmBase = 'http://127.0.0.1:11434'; generated = [];
+  planMock([{ id: 'q', provider: 'local', name: 'q' }]);
+  const onPrepare = vi.fn();
+  const ui = (outcome?: any, handoff?: number) => <I18nProvider><MovieMaker modelsRoot="/m" models={[h3] as any} onPrepare={onPrepare} outcome={outcome} handoff={handoff}/></I18nProvider>;
+  const view = render(ui());
+  fireEvent.change(q('[data-movie-seconds]'), { target: { value: '14' } });
+  fireEvent.change(q('[data-movie-story]'), { target: { value: 'Anna runs.' } });
+  fireEvent.change(q('[data-movie-new-name]'), { target: { value: 'Anna' } });
+  fireEvent.click(q('[data-movie-add]'));
+  await waitFor(() => expect(q('[data-movie-llm]')).toBeTruthy());
+  fireEvent.click(q('[data-movie-plan-run]'));
+  await waitFor(() => expect(q('[data-movie-plan-apply]')).toBeTruthy());
+  fireEvent.click(q('[data-movie-plan-apply]'));
+  return { onPrepare, ui, view };
+};
+const stateOf = (id: string) => document.querySelector(`[data-movie-shot="${id}"] [data-movie-shot-state]`)!.textContent;
+const vid = (path: string) => ({ path, video: true, width: 1, height: 1, seed: 1, checkpoint: 'h3' });
+
+it('a chain is made from its first shot: one hand-over with the plan, each shot recorded as it finishes, busy until the last one', async () => {
+  const { onPrepare, ui, view } = await chainUi();
+  const make = [...document.querySelectorAll('[data-movie-shot-make]')] as HTMLButtonElement[];
+  expect(make.map(b => [b.textContent, b.disabled])).toEqual([['Make the chain (2 shots)', false], ['Make this shot', true], ['Make this shot', false]]);
+  expect((document.querySelectorAll('[data-movie-shot-make]')[1] as HTMLButtonElement).title).toBe('Made together with the first shot of its chain.');
+  fireEvent.click(make[0]);
+  const h = onPrepare.mock.calls[0][0];
+  expect(h).toMatchObject({ wizard: 'movie', strategy: 'seg-1', run: true, continuity: { shotIds: ['seg-1', 'seg-2'], plan: { outputMode: 'segment', steps: [{ id: 'seg-1' }, { id: 'seg-2' }] } } });
+  view.rerender(ui({ n: 1, run: { state: 'running', step: { index: 0, shotId: 'seg-1', total: 2 } } }, 1));
+  await waitFor(() => expect(stateOf('seg-1')).toBe('making …'));
+  view.rerender(ui({ n: 1, run: { state: 'succeeded', job: { id: 'j1' }, picture: vid('/out/s1.mp4'), step: { index: 0, shotId: 'seg-1', total: 2 } } }, 1));
+  await waitFor(() => expect(stateOf('seg-1')).toBe('made'));
+  expect(stateOf('seg-2')).toBe('not made');
+  expect([...document.querySelectorAll('[data-movie-shot-make]')].every(b => (b as HTMLButtonElement).disabled)).toBe(true); // still busy between the steps
+  view.rerender(ui({ n: 1, run: { state: 'succeeded', job: { id: 'j2' }, picture: vid('/out/s2.mp4'), step: { index: 1, shotId: 'seg-2', total: 2 } } }, 1));
+  await waitFor(() => expect(stateOf('seg-2')).toBe('made'));
+  expect((document.querySelectorAll('[data-movie-shot-make]')[0] as HTMLButtonElement).disabled).toBe(false);
+  expect(document.querySelectorAll('[data-movie-shot-video]')).toHaveLength(2);
+  expect([...document.querySelectorAll('[data-movie-seg-actual]')].map(x => x.textContent)).toEqual(['Will be made as 5.17 s', 'Will be made as 4.25 s', 'Will be made as 5.17 s']);
+});
+
+it('a failing step marks that shot failed, leaves the rest of the chain not made, and frees the buttons', async () => {
+  const { ui, view } = await chainUi();
+  fireEvent.click(document.querySelectorAll('[data-movie-shot-make]')[0]);
+  view.rerender(ui({ n: 1, run: { state: 'succeeded', picture: vid('/out/s1.mp4'), step: { index: 0, shotId: 'seg-1', total: 2 } } }, 1));
+  await waitFor(() => expect(stateOf('seg-1')).toBe('made'));
+  view.rerender(ui({ n: 1, run: { state: 'failed', error: 'out of memory', step: { index: 1, shotId: 'seg-2', total: 2 } } }, 1));
+  await waitFor(() => expect(stateOf('seg-2')).toBe('failed'));
+  expect(q('[data-movie-shot-error]').textContent).toBe('out of memory');
+  expect((document.querySelectorAll('[data-movie-shot-make]')[0] as HTMLButtonElement).disabled).toBe(false);
+  expect(stateOf('seg-3')).toBe('not made');
+});

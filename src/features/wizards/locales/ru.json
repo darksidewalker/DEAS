@@ -169,7 +169,7 @@
   "wizards.movie.plan.line": "{name}: {line}",
   "wizards.movie.plan.total": "Запланировано {planned} с · получится {actual} с · цель {target} с",
   "wizards.movie.shot.unknown": "Этого кадра нет в плане.",
-  "wizards.movie.shot.continued": "Кадр, продолжающий предыдущий, требует непрерывности H3, которую Киностудия пока не запускает. Сделайте его склейкой или продолжите в Generate.",
+  "wizards.movie.shot.continued": "Этот кадр продолжает предыдущий; он создаётся вместе с первым кадром своей цепочки.",
   "wizards.movie.shot.tooManyRefs": "В кадре можно использовать не более 12 референсных картинок; уберите лишние из записей состава.",
   "wizards.movie.shot.noModel": "Модель MiniMax H3 не установлена.",
   "wizards.movie.shot.skipped": "Файлов-референсов, не являющихся картинками, пропущено: {count}.",
@@ -207,5 +207,10 @@
   "wizards.movie.check.mark": "Пометить отсутствующие клипы как не созданные",
   "wizards.movie.check.dismiss": "Скрыть",
   "wizards.movie.check.truncated": "Проверены только первые 2000 файлов.",
-  "wizards.movie.check.failed": "Не удалось проверить файлы, на которые ссылается фильм."
+  "wizards.movie.check.failed": "Не удалось проверить файлы, на которые ссылается фильм.",
+  "wizards.movie.shot.withChain": "Создаётся вместе с первым кадром своей цепочки.",
+  "wizards.movie.shot.chainProblem": "Эту цепочку нельзя создать по плану:",
+  "wizards.movie.shot.prepareChain": "Подготовить цепочку в Generate",
+  "wizards.movie.shot.makeChain": "Создать цепочку (кадров: {count})",
+  "wizards.movie.shot.chainAgain": "Создать цепочку заново (кадров: {count})"
 }

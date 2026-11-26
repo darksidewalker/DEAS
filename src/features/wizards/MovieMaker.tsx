@@ -7,6 +7,7 @@ import type { LlmModel } from '../../lib/llm';
 import { applyPlan, h3ActualSeconds, planDiff, segmentLimits, type PlanCheck } from '../../lib/movieStory';
 import { PLANNER_MAX_CHARS, listPlannerModels, logMovieNotice, plannerDestination, plannerPayload, requestPlan } from '../../lib/movieStoryRun';
 import { recordShotRun, shotHandoff } from '../../lib/movieSegments';
+import { chainHandoff, chainOf } from '../../lib/movieChainRun';
 import { AssemblyError, assemblyPlan, assembleMovie, recordFilm } from '../../lib/movieAssemble';
 import { realAssembleDeps, stopAssemblyJob } from '../../lib/movieAssembleRun';
 import type { JobStatus } from '../../lib/jobs';
@@ -55,7 +56,8 @@ export function MovieMaker({ modelsRoot, endpoint, models = null, onPrepare, out
   // The shot Generate is making for us: which hand-over number it has and which segment it belongs to.
   const sent = useRef<{ n: number; id: string } | null>(null);
   const [shotState, setShotState] = useState<{ id: string; state: string; error?: string } | null>(null);
-  const making = !!shotState && (shotState.state === 'queued' || shotState.state === 'running');
+  const [chainBusy, setChainBusy] = useState(false);
+  const making = chainBusy || (!!shotState && (shotState.state === 'queued' || shotState.state === 'running'));
   const makeShot = (id: string, run: boolean) => {
     if (!onPrepare || !h3Model) return;
     const r = shotHandoff(movie, id, { name: h3Model.name, path: h3Model.path }, run, convertFileSrc);
@@ -64,16 +66,29 @@ export function MovieMaker({ modelsRoot, endpoint, models = null, onPrepare, out
     sent.current = { n: (handoff ?? 0) + 1, id }; setShotState(run ? { id, state: 'queued' } : null);
     onPrepare(r.handoff);
   };
+  // A chain reports one shot after the other (`run.step`); a lone shot reports once. The chain is busy until its last shot ends or one fails.
+  const makeChain = (id: string, run: boolean) => {
+    const found = chainOf(movie, id);
+    if (!onPrepare || !h3Model || !found) return;
+    const r = chainHandoff(movie, found.chain, found.index, { name: h3Model.name, path: h3Model.path }, run, convertFileSrc);
+    if ('blocked' in r) { setError(r.detail ? `${t(r.blocked)} ${r.detail}` : t(r.blocked)); return; }
+    setError(''); setNote(r.skipped ? t('wizards.movie.shot.skipped', { count: String(r.skipped) }) : '');
+    sent.current = { n: (handoff ?? 0) + 1, id }; setChainBusy(run); setShotState(run ? { id, state: 'queued' } : null);
+    onPrepare(r.handoff);
+  };
   useEffect(() => {
     const s = sent.current, r = outcome?.run;
     if (!s || !outcome || outcome.n !== s.n) return;
-    if (outcome.error) { setShotState({ id: s.id, state: 'failed', error: outcome.error }); sent.current = null; return; }
+    if (outcome.error) { setShotState({ id: s.id, state: 'failed', error: outcome.error }); sent.current = null; setChainBusy(false); return; }
     if (!r) return;
-    setShotState({ id: s.id, state: r.state, ...(r.error ? { error: r.error } : {}) });
+    const id = r.step?.shotId || s.id;
+    setShotState({ id, state: r.state, ...(r.error ? { error: r.error } : {}) });
     if (r.state === 'queued' || r.state === 'running') return;
-    sent.current = null;
-    const seconds = movie.items.find(i => i.id === s.id)?.seconds;
-    setMovie(m => recordShotRun(m, s.id, r, seconds ? h3ActualSeconds(seconds, false) : undefined)); setDirty(true);
+    const lastShot = !r.step || r.step.index >= r.step.total - 1;
+    if (lastShot || r.state !== 'succeeded') { sent.current = null; setChainBusy(false); }
+    const shot = movie.items.find(i => i.id === id), found = chainOf(movie, id);
+    const continued = !!found && found.chain.ids[0] !== id;
+    setMovie(m => recordShotRun(m, id, r, shot?.seconds ? h3ActualSeconds(shot.seconds, continued) : undefined)); setDirty(true);
   }, [outcome]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const refresh = async () => { if (!native) return; try { setSaved(await listMovies()); } catch (e) { setError(e instanceof Error ? e.message : String(e)); } };
@@ -138,7 +153,10 @@ export function MovieMaker({ modelsRoot, endpoint, models = null, onPrepare, out
   useEffect(() => () => { const o = owned.current; if (o) { o.cancelled = true; if (o.job && (o.job.state === 'queued' || o.job.state === 'running')) void stopAssemblyJob(o.job).catch(() => undefined); } }, []);
   const filmClip = final?.state === 'done' ? final.revisions.find(r => r.n === final.revision)?.result?.outputId : undefined;
   const why = (w: string) => t(`wizards.movie.film.why.${w}`);
-  const shotBlock = (g: { continuous?: boolean }, n: number) => !h3Model ? t('wizards.movie.shot.noModel') : g.continuous && n > 0 ? t('wizards.movie.shot.continued') : undefined;
+  // The chain a shot belongs to: the first shot makes the whole chain; a continued shot is made together with it.
+  const chainLen = (id: string) => { const f = chainOf(movie, id); return f && f.chain.ids[0] === id ? f.chain.ids.length : 1; };
+  const continued = (id: string) => { const f = chainOf(movie, id); return !!f && f.chain.ids[0] !== id; };
+  const shotBlock = (g: { id: string }, _n: number) => !h3Model ? t('wizards.movie.shot.noModel') : continued(g.id) ? t('wizards.movie.shot.withChain') : undefined;
   const change = (f: (m: MovieManifest) => MovieManifest) => {
     setError(''); setNote('');
     try { setMovie(f(movie)); setDirty(true); } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
@@ -274,9 +292,9 @@ export function MovieMaker({ modelsRoot, endpoint, models = null, onPrepare, out
         </div>
         <textarea aria-label={t('wizards.movie.plan.segPrompt')} data-movie-seg-prompt rows={2} maxLength={4000} disabled={!!g.locked} value={g.text} onChange={e => change(m => editItem(m, g.id, e.target.value))}/>
         <div className="wizards-row" data-movie-shot={g.id}>
-          <span className="forge-note" data-movie-shot-state>{t(`wizards.movie.shot.state.${shotState?.id === g.id && making ? 'running' : g.state}`)}</span>
-          <button type="button" className="forge-ghost" data-movie-shot-prepare disabled={!native || !onPrepare || !h3Model || making || (g.continuous && n > 0)} title={shotBlock(g, n)} onClick={() => makeShot(g.id, false)}>{t('wizards.movie.shot.prepare')}</button>
-          <button type="button" className="action-button" data-movie-shot-make disabled={!native || !onPrepare || !h3Model || making || (g.continuous && n > 0)} title={shotBlock(g, n)} onClick={() => makeShot(g.id, true)}>{t(g.state === 'done' ? 'wizards.movie.shot.again' : 'wizards.movie.shot.make')}</button>
+          <span className="forge-note" data-movie-shot-state>{t(`wizards.movie.shot.state.${shotState?.id === g.id && (shotState.state === 'queued' || shotState.state === 'running') ? 'running' : g.state}`)}</span>
+          <button type="button" className="forge-ghost" data-movie-shot-prepare disabled={!native || !onPrepare || !h3Model || making || continued(g.id)} title={shotBlock(g, n)} onClick={() => chainLen(g.id) > 1 ? makeChain(g.id, false) : makeShot(g.id, false)}>{t(chainLen(g.id) > 1 ? 'wizards.movie.shot.prepareChain' : 'wizards.movie.shot.prepare')}</button>
+          <button type="button" className="action-button" data-movie-shot-make disabled={!native || !onPrepare || !h3Model || making || continued(g.id)} title={shotBlock(g, n)} onClick={() => chainLen(g.id) > 1 ? makeChain(g.id, true) : makeShot(g.id, true)}>{chainLen(g.id) > 1 ? t(g.state === 'done' ? 'wizards.movie.shot.chainAgain' : 'wizards.movie.shot.makeChain', { count: String(chainLen(g.id)) }) : t(g.state === 'done' ? 'wizards.movie.shot.again' : 'wizards.movie.shot.make')}</button>
         </div>
         {shotState?.id === g.id && shotState.error && <p className="error-message" role="alert" data-movie-shot-error>{shotState.error}</p>}
         {g.state === 'done' && (() => { const out = g.revisions.find(r => r.n === g.revision)?.result?.outputId; return out && /\.(mp4|webm|mkv|mov)$/i.test(out) ? <video className="wizards-preview" src={convertFileSrc(out)} controls preload="metadata" data-movie-shot-video/> : null; })()}

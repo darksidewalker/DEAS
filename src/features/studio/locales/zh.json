@@ -1501,5 +1501,7 @@
   "studio.run.backendOnlyLora": "由 ComfyUI 列出。本地元数据不可用。",
   "studio.run.backendOnlyLoras": "仅后端 LoRA",
   "studio.run.backendOnlyLorasHelp": "仅显示本地索引中缺失的 LoRA。",
-  "studio.run.opt.compile.noTriton": "此环境没有适用于其 GPU 的 Triton，因此 inductor 后端无法运行。“后端 → 升级”会安装它；其他编译后端仍可使用。"
+  "studio.run.opt.compile.noTriton": "此环境没有适用于其 GPU 的 Triton，因此 inductor 后端无法运行。“后端 → 升级”会安装它；其他编译后端仍可使用。",
+  "studio.run.cont.movie": "此链的计划（{count} 个镜头）属于电影制作；你自己的连续性计划保持不变。",
+  "studio.run.cont.movieRelease": "返回我的计划"
 }
