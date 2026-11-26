@@ -242,5 +242,17 @@
   "wizards.movie.music.generate": "Titel erzeugen ({seconds} s)",
   "wizards.movie.music.generating": "Erzeuge …",
   "wizards.movie.music.noModel": "Kein ACE-Step- oder YuE2-Musikmodell installiert.",
-  "wizards.movie.music.needPrompt": "Beschreibe zuerst die Musik."
+  "wizards.movie.music.needPrompt": "Beschreibe zuerst die Musik.",
+  "wizards.movie.shot.settings": "Modell und LoRAs ({count} LoRAs)",
+  "wizards.movie.shot.inherits": "Diese Einstellung setzt die Kette fort: Sie nutzt Modell und LoRAs der ersten Einstellung der Kette.",
+  "wizards.movie.shot.ownModel": "Modell für diese Einstellung",
+  "wizards.movie.shot.defaultModel": "Standard ({name})",
+  "wizards.movie.shot.modelMissing": "Das für diese Einstellung gewählte Modell ist nicht installiert:",
+  "wizards.movie.shot.loraMissing": "Ein für diese Einstellung gewähltes LoRA ist nicht installiert:",
+  "wizards.movie.shot.loraGone": "nicht installiert",
+  "wizards.movie.shot.loraName": "LoRA",
+  "wizards.movie.shot.loraStrength": "Stärke von {name}",
+  "wizards.movie.shot.loraRemove": "LoRA {name} entfernen",
+  "wizards.movie.shot.loraAdd": "LoRA hinzufügen",
+  "wizards.movie.shot.noLora": "Kein MiniMax-H3-LoRA installiert."
 }

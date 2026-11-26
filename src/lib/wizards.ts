@@ -83,6 +83,8 @@ export interface WizardHandoff {
   continuity?: { plan: ContinuityPlan; shotIds: string[] };
   /** Movie Maker music bed (`pipeline: 't2m'`): the style/tags, lyrics (empty = instrumental) and length of the track Generate should make. */
   music?: { style: string; lyrics: string; seconds: number };
+  /** Movie Maker shot: this shot's LoRAs for its model (installed names, strengths); Generate's LoRA list is replaced by them. */
+  loras?: { name: string; strength: number }[];
 }
 /** The picture a wizard's own run produced, in that job's native-held output folder. */
 export interface WizardRunPicture { path: string; width: number; height: number; seed: number; checkpoint: string; ms?: number; video?: boolean; /** A music job's audio file (width and height are 0). */ audio?: boolean }

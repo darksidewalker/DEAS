@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.3.39
+
+- **Movie Maker: every shot can have its own model and its own LoRAs.** Each shot has a **Model and LoRAs** block: pick another installed MiniMax H3 model than the default for that shot, and add up to 8 LoRAs of that model family with a strength each (−4…4). Making or preparing the shot hands Generate exactly that model and exactly those LoRAs — whatever LoRAs Generate had selected are replaced for that shot (in Advanced and in Beginner). A model or LoRA that is no longer installed blocks that shot and names the missing file; it is never silently dropped or swapped. Changing a shot's model or LoRAs makes that shot (and what follows it) outdated. **A chain is made with the first shot's model and LoRAs** — continued shots show that they inherit them, because Continuity keeps one model for the whole chain. Not included: LoRAs for the music clip — the music recipes have no LoRA support yet.
 ## 0.3.38
 
 - **Movie Maker: the music bed is levelled before it is mixed.** A real run showed that a generated ACE-Step track is very quiet (about −34 dB RMS), so the default *Music level* (−14 dB) left the bed some 20 dB below the speech — practically inaudible, 26 dB with ducking. The mix now first brings the track to a fixed loudness (EBU R128, −24 LUFS) and then applies your level, so the same setting means the same for a quiet generated track and a loudly mastered song; measured on the same film the bed now sits about 12 dB below the speech and about 17 dB below it while the film speaks (ducked). Level and ducking are still yours to tune by ear.

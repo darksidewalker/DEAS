@@ -23,6 +23,8 @@ export interface WizardDraft {
   maskBlur?: number;
   /** Movie Maker music bed: style, lyrics and length for Generate's Music draft. */
   music?: { style: string; lyrics: string; seconds: number };
+  /** Movie Maker shot: the LoRAs to switch on (undefined = leave Generate's list as the hand-over reset it, i.e. none). */
+  loras?: { name: string; strength: number }[];
 }
 const asImage = (p: WizardPicture): MediaItem => ({ name: p.name, path: p.path, src: p.src, media: 'image' });
 /**
@@ -47,7 +49,7 @@ export function wizardDraft(wizard: WizardHandoff, comfyName: (item: MediaItem) 
       item: asImage(r), second: 0, strength: 1, mediaMode: 'video' as const, uiKey: uiKey(),
       ...(wizard.labels?.[i] ? { label: wizard.labels[i] } : {}), ...(wizard.notes?.[i] ? { description: wizard.notes[i] } : {}),
     }));
-    return { imageRefs: [], media: null, wizardPicture: null, video: { refs, sourceVideo: null }, ...seconds };
+    return { imageRefs: [], media: null, wizardPicture: null, video: { refs, sourceVideo: null }, ...seconds, ...(wizard.loras?.length ? { loras: wizard.loras.map(l => ({ name: l.name, strength: l.strength })) } : {}) };
   }
   if (wizard.source === 'reference') return { imageRefs: [{ item: picture, strength: 0.6 }, ...references], media: null, wizardPicture: null };
   if (wizard.source === 'video') {

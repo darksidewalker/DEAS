@@ -4,7 +4,8 @@
  * and exact segment-duration arithmetic. No UI, no persistence and no generation live here; a stage later becomes an ordinary intent.
  */
 export const MOVIE_MANIFEST_VERSION = 1;
-export const MOVIE_LIMITS = { items: 400, deps: 32, revisions: 20, text: 20000, id: 80, castRefs: 16, dialogue: 32 } as const;
+export const MOVIE_LIMITS = { items: 400, deps: 32, revisions: 20, text: 20000, id: 80, castRefs: 16, dialogue: 32, loras: 8 } as const;
+export const LORA_STRENGTH = [-4, 4] as const;
 
 export type MovieItemKind = 'brief' | 'cast' | 'story' | 'voice' | 'music' | 'segment' | 'assemble' | 'score';
 export type MovieItemState = 'planned' | 'done' | 'stale' | 'failed';
@@ -38,6 +39,9 @@ export interface MovieItem {
   dialogue?: MovieDialogue[];
   entry?: string;
   exit?: string;
+  /** Segments only: this shot's own diffusion model (its file name as the model list shows it) and LoRAs for that model; unset = the movie's default model, no LoRAs. A continued shot inherits both from the first shot of its chain. */
+  model?: string;
+  loras?: MovieLora[];
   /** Music items only: the track (an absolute path picked or generated; the file itself is never copied or changed). */
   file?: string;
   /** Score items only: how the music bed is mixed onto the joined film. */
@@ -47,6 +51,7 @@ export interface MovieItem {
 export interface MovieMix { mode: 'mix' | 'h3-reference'; levelDb: number; duckDb: number; fadeSeconds: number }
 export const DEFAULT_MIX: MovieMix = { mode: 'mix', levelDb: -14, duckDb: 12, fadeSeconds: 2 };
 export const MIX_LIMITS = { levelDb: [-40, 6], duckDb: [0, 30], fadeSeconds: [0, 10] } as const;
+export interface MovieLora { name: string; strength: number }
 export interface MovieDialogue { castId: string; line: string; delivery?: string }
 export type MovieCastRole = 'actor' | 'location' | 'prop' | 'style';
 export const MOVIE_CAST_ROLES: readonly MovieCastRole[] = ['actor', 'location', 'prop', 'style'];
@@ -88,9 +93,13 @@ function itemProblem(i: unknown, ids: ReadonlySet<string>): string | undefined {
     if (typeof v.seconds !== 'number' || !(v.seconds > 0) || !Number.isFinite(v.seconds)) return `${at}: segment needs seconds`;
     if (v.continuous !== undefined && typeof v.continuous !== 'boolean') return `${at}: bad continuity flag`;
     if ((v.entry !== undefined && !textOk(v.entry)) || (v.exit !== undefined && !textOk(v.exit))) return `${at}: bad scene state`;
+    if (v.model !== undefined && (typeof v.model !== 'string' || v.model.length < 1 || v.model.length > 300 || v.model.includes('\0'))) return `${at}: bad shot model`;
+    if (v.loras !== undefined && (!Array.isArray(v.loras) || v.loras.length > MOVIE_LIMITS.loras
+      || v.loras.some(l => !l || typeof l.name !== 'string' || l.name.length < 1 || l.name.length > 300 || l.name.includes('\0') || typeof l.strength !== 'number' || !Number.isFinite(l.strength) || l.strength < LORA_STRENGTH[0] || l.strength > LORA_STRENGTH[1])
+      || new Set(v.loras.map(l => l.name)).size !== v.loras.length)) return `${at}: bad shot LoRAs`;
     if (v.dialogue !== undefined && (!Array.isArray(v.dialogue) || v.dialogue.length > MOVIE_LIMITS.dialogue
       || v.dialogue.some(d => !d || !idOk(d.castId) || !ids.has(d.castId) || typeof d.line !== 'string' || d.line.length < 1 || d.line.length > 1000 || (d.delivery !== undefined && (typeof d.delivery !== 'string' || d.delivery.length > 200))))) return `${at}: bad dialogue`;
-  } else if (v.seconds !== undefined || v.continuous !== undefined || v.dialogue !== undefined || v.entry !== undefined || v.exit !== undefined) return `${at}: seconds/continuity are segment-only`;
+  } else if (v.seconds !== undefined || v.continuous !== undefined || v.dialogue !== undefined || v.entry !== undefined || v.exit !== undefined || v.model !== undefined || v.loras !== undefined) return `${at}: seconds/continuity are segment-only`;
   return undefined;
 }
 /** The first problem found, or undefined for a valid manifest (schema, bounds, dangling or cyclic dependencies). */
@@ -239,6 +248,21 @@ export function reviseItem(m: MovieManifest, id: string, patch: Partial<Omit<Mov
 export function markResultsMissing(m: MovieManifest, ids: readonly string[]): MovieManifest {
   const gone = new Set(ids), stale = new Set(ids.flatMap(id => downstream(m, id)));
   return { ...m, items: m.items.map(i => gone.has(i.id) && i.state === 'done' ? { ...i, state: 'planned' as const } : stale.has(i.id) && !gone.has(i.id) && i.state === 'done' ? { ...i, state: 'stale' as const } : i) };
+}
+/** Sets (or clears, with null) a shot's own model; a revision, so the shot and what follows it go outdated. */
+export function setShotModel(m: MovieManifest, id: string, model: string | null): MovieManifest {
+  if (!m.items.some(i => i.id === id && i.kind === 'segment')) throw new Error(`Unknown shot ${id}.`);
+  return reviseItem(m, id, { model: model ?? undefined });
+}
+/** Replaces a shot's LoRAs (at most 8, no repeats, strength clamped to the limits); an empty list clears them. */
+export function setShotLoras(m: MovieManifest, id: string, loras: readonly MovieLora[]): MovieManifest {
+  if (!m.items.some(i => i.id === id && i.kind === 'segment')) throw new Error(`Unknown shot ${id}.`);
+  const seen = new Set<string>(), clean: MovieLora[] = [];
+  for (const l of loras) {
+    if (seen.has(l.name) || clean.length >= MOVIE_LIMITS.loras || !Number.isFinite(l.strength)) continue;
+    seen.add(l.name); clean.push({ name: l.name, strength: Math.min(LORA_STRENGTH[1], Math.max(LORA_STRENGTH[0], l.strength)) });
+  }
+  return reviseItem(m, id, { loras: clean.length ? clean : undefined });
 }
 const hasKind = (m: MovieManifest, kind: MovieItemKind) => m.items.find(i => i.kind === kind);
 /** Adds the score item (film + music → scored film) once the movie has both a final item and a music item. */

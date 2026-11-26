@@ -49,3 +49,10 @@ it('Movie Maker music bed: a text-to-music draft with style, lyrics and length, 
   expect([d.media, d.imageRefs, d.music, d.seconds, d.video]).toEqual([null, [], { style: 'calm piano', lyrics: '', seconds: 42 }, undefined, { refs: [], sourceVideo: null }]);
   expect(wizardDraft({ ...h, music: undefined }, none, key)).toBeNull();
 });
+
+it('Movie Maker shot LoRAs are carried into the draft; none means the list stays as the hand-over reset it', () => {
+  const h = { ...base, wizard: 'movie', strategy: 'seg-1', pipeline: 't2v', source: 'movie', seconds: 5, loras: [{ name: 'MiniMaxH3/style.safetensors', strength: 0.7 }] } as WizardHandoff;
+  expect(wizardDraft(h, none, key)!.loras).toEqual([{ name: 'MiniMaxH3/style.safetensors', strength: 0.7 }]);
+  expect(wizardDraft({ ...h, loras: [] }, none, key)!.loras).toBeUndefined();
+  expect(wizardDraft({ ...h, loras: undefined }, none, key)!.loras).toBeUndefined();
+});

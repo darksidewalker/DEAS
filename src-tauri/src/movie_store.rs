@@ -24,6 +24,7 @@ const KINDS: [&str; 8] = [
 const ROLES: [&str; 4] = ["actor", "location", "prop", "style"];
 const MAX_REFS: usize = 16;
 const MAX_DIALOGUE: usize = 32;
+const MAX_LORAS: usize = 8;
 const STATES: [&str; 4] = ["planned", "done", "stale", "failed"];
 
 fn id_ok(s: &str) -> bool {
@@ -179,9 +180,17 @@ pub fn problem(m: &Value) -> Option<&'static str> {
                 return Some("bad references");
             }
         }
-        let segment_only = ["seconds", "continuous", "dialogue", "entry", "exit"]
-            .iter()
-            .any(|k| i.get(*k).is_some());
+        let segment_only = [
+            "seconds",
+            "continuous",
+            "dialogue",
+            "entry",
+            "exit",
+            "model",
+            "loras",
+        ]
+        .iter()
+        .any(|k| i.get(*k).is_some());
         if kind == "segment" {
             if !positive(i.get("seconds")) || i.get("continuous").is_some_and(|c| !c.is_boolean()) {
                 return Some("bad segment");
@@ -191,6 +200,33 @@ pub fn problem(m: &Value) -> Option<&'static str> {
                 .any(|k| i.get(*k).is_some_and(|v| !text_ok(v)))
             {
                 return Some("bad scene state");
+            }
+            if i.get("model").is_some_and(|m| {
+                !m.as_str()
+                    .is_some_and(|m| (1..=300).contains(&m.len()) && !m.contains('\0'))
+            }) {
+                return Some("bad shot model");
+            }
+            if let Some(l) = i.get("loras") {
+                let ok = l.as_array().is_some_and(|a| {
+                    let names: HashSet<&str> = a
+                        .iter()
+                        .filter_map(|x| x.get("name").and_then(Value::as_str))
+                        .collect();
+                    a.len() <= MAX_LORAS
+                        && names.len() == a.len()
+                        && a.iter().all(|x| {
+                            x.get("name")
+                                .and_then(Value::as_str)
+                                .is_some_and(|n| (1..=300).contains(&n.len()) && !n.contains('\0'))
+                                && x.get("strength")
+                                    .and_then(Value::as_f64)
+                                    .is_some_and(|s| s.is_finite() && (-4.0..=4.0).contains(&s))
+                        })
+                });
+                if !ok {
+                    return Some("bad shot LoRAs");
+                }
             }
             if let Some(d) = i.get("dialogue") {
                 let ok = d.as_array().is_some_and(|a| {

@@ -485,3 +485,22 @@ test('a Movie Maker music bed hand-over fills the ACE-Step draft (style, no lyri
   expect(vi.mocked(runWorkbenchJob).mock.calls[0][1]).toMatchObject({ recipeId: 'music-generation', family: 'ace-step-1-5-turbo', checkpoint: 'ace-step-1-5-turbo.safetensors', style: 'calm cinematic piano', lyrics: '', maxDuration: 42 });
   await waitFor(() => expect(applied).toHaveBeenCalledWith(51, undefined, expect.objectContaining({ state: 'succeeded', picture: expect.objectContaining({ path: '/out/audio/bed_00001_.flac', audio: true, width: 0, height: 0, checkpoint: 'ace-step-1-5-turbo.safetensors' }) })), { timeout: 8000 });
 });
+
+test('a Movie Maker shot with LoRAs runs with exactly those LoRAs on its model and replaces whatever Generate had selected', async () => {
+  localStorage.setItem('deas.pref.studio.run.loras', JSON.stringify([{ name: 'other.safetensors', strength: 1, enabled: true }]));
+  const lora = { category: 'loras', name: 'MiniMaxH3/style.safetensors', path: '/m/loras/MiniMaxH3/style.safetensors', size: 1, info: null, family: 'minimax-h3' };
+  const ms = [...ltxModels, ...h3Set, lora];
+  vi.mocked(scanModels).mockResolvedValue(ms as never);
+  vi.mocked(checkRecipePrerequisites).mockResolvedValue({ ...videoEvidence, allowlist: { ...videoEvidence.allowlist, nodes: [...videoEvidence.allowlist.nodes, 'UNETLoader', 'CLIPLoader', 'DualCLIPLoader', 'VAELoader', 'LoraLoaderModelOnly'], loras: ['MiniMaxH3/style.safetensors', 'other.safetensors'],
+    diffusionModels: ms.filter(m => 'family' in m && m.family && m.category !== 'loras').map(m => m.name), textEncoders: ms.filter(m => m.category === 'text_encoders').map(m => m.name), vaes: ms.filter(m => m.category === 'vae').map(m => m.name), clipTypes: ['ltxv', 'minimax'] } });
+  vi.mocked(runWorkbenchJob).mockImplementation(async (base, intent) => ({ ...heldJob('lora-shot', 'running', base), intent }));
+  const applied = vi.fn(), props = { endpoint: evidence.baseUrl, roots: { models: '/m', output: '/out' }, onWizardApplied: applied };
+  const view = render(<I18nProvider><Workbench {...props}/></I18nProvider>);
+  await waitFor(() => expect(document.querySelector('[data-model-picker]')?.textContent).toMatch(/ltx|h3/));
+  const handoff: WizardHandoff = { n: 61, wizard: 'movie', strategy: 'seg-1', pipeline: 't2v', source: 'movie', model: { name: 'h3.safetensors', path: '/m/h3' }, seconds: 5,
+    size: { width: 1216, height: 672 }, positive: 'Anna runs', run: true, loras: [{ name: 'MiniMaxH3/style.safetensors', strength: 0.7 }] };
+  view.rerender(<I18nProvider><Workbench {...props} wizard={handoff}/></I18nProvider>);
+  await waitFor(() => expect(applied).toHaveBeenCalledWith(61, undefined, expect.objectContaining({ state: 'running' })), { timeout: 5000 });
+  const intent = vi.mocked(runWorkbenchJob).mock.calls.at(-1)![1] as unknown as Record<string, any>;
+  expect(intent).toMatchObject({ family: 'minimax-h3', model: 'h3.safetensors', positivePrompt: 'Anna runs', loras: [{ name: 'MiniMaxH3/style.safetensors', strength: 0.7 }] });
+});

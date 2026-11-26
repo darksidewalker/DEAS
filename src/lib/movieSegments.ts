@@ -26,7 +26,23 @@ export function shotPictures(m: MovieManifest, shots: MovieItem[]): { picks: { p
   }
   return { picks, skipped: skippedFiles.size };
 }
-export type ShotHandoff = { handoff: Omit<WizardHandoff, 'n'>; skipped: number } | { blocked: string };
+/** What Generate has installed, so a shot's own model and LoRAs can be checked before anything is handed over. */
+export interface ShotEnv { resolveModel: (name: string) => { name: string; path: string } | undefined; hasLora: (name: string) => boolean }
+export type ShotBlock = { blocked: 'wizards.movie.shot.modelMissing' | 'wizards.movie.shot.loraMissing'; detail: string };
+/** The model and LoRAs a shot is made with: its own model when set (it must be installed), else the default; its LoRAs must all be installed. */
+export function shotSettings(shot: MovieItem, defaultModel: { name: string; path: string }, env?: ShotEnv): { model: { name: string; path: string }; loras: { name: string; strength: number }[] } | ShotBlock {
+  let model = defaultModel;
+  if (shot.model) {
+    const own = env?.resolveModel(shot.model);
+    if (env && !own) return { blocked: 'wizards.movie.shot.modelMissing', detail: shot.model };
+    if (own) model = own;
+  }
+  const loras = (shot.loras ?? []).map(l => ({ name: l.name, strength: l.strength }));
+  const gone = env ? loras.find(l => !env.hasLora(l.name)) : undefined;
+  if (gone) return { blocked: 'wizards.movie.shot.loraMissing', detail: gone.name };
+  return { model, loras };
+}
+export type ShotHandoff = { handoff: Omit<WizardHandoff, 'n'>; skipped: number } | { blocked: string; detail?: string };
 /** Text of the shot as the model reads it: camera/action, the scene state it starts from and ends in, and the spoken lines. */
 export function shotPrompt(m: MovieManifest, shot: MovieItem, withCast: boolean): string {
   const name = (id: string) => m.items.find(i => i.id === id)?.title || id;
@@ -44,11 +60,14 @@ export function shotPrompt(m: MovieManifest, shot: MovieItem, withCast: boolean)
  * The hand-over for one shot. `blocked` is an i18n key. Pictures come from the shot's cast entries in order (images only; other files are
  * counted in `skipped`); with none the shot is plain text-to-video. `toSrc` makes a webview URL for a path.
  */
-export function shotHandoff(m: MovieManifest, segmentId: string, model: { name: string; path: string }, run: boolean, toSrc: (path: string) => string): ShotHandoff {
+export function shotHandoff(m: MovieManifest, segmentId: string, defaultModel: { name: string; path: string }, run: boolean, toSrc: (path: string) => string, env?: ShotEnv): ShotHandoff {
   const shot = m.items.find(i => i.id === segmentId && i.kind === 'segment');
   if (!shot) return { blocked: 'wizards.movie.shot.unknown' };
   const order = m.items.filter(i => i.kind === 'segment');
   if (shot.continuous && order[0]?.id !== shot.id) return { blocked: 'wizards.movie.shot.continued' };
+  const settings = shotSettings(shot, defaultModel, env);
+  if ('blocked' in settings) return settings;
+  const { model, loras } = settings;
   const { picks, skipped } = shotPictures(m, [shot]);
   if (picks.length > H3_REFERENCE_LIMIT) return { blocked: 'wizards.movie.shot.tooManyRefs' };
   const [w, h] = m.aspect.split(':').map(Number);
@@ -59,7 +78,7 @@ export function shotHandoff(m: MovieManifest, segmentId: string, model: { name: 
     handoff: {
       wizard: 'movie', strategy: shot.id, pipeline: refs.length ? 'ref2v' : 't2v', source: 'movie', model,
       ...(refs.length ? { references: refs, labels: picks.map(p => p.label), notes: picks.map(p => p.note) } : {}),
-      positive: shotPrompt(m, shot, !refs.length), ...(size ? { size } : {}), seconds: shot.seconds, run,
+      positive: shotPrompt(m, shot, !refs.length), ...(size ? { size } : {}), seconds: shot.seconds, run, ...(loras.length ? { loras } : {}),
     },
   };
 }

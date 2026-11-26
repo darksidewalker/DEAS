@@ -4,7 +4,7 @@
  * This builds the hand-over only; nothing runs here.
  */
 import { chainPlan, chains, chainSession, type Chain } from './movieChains.ts';
-import { H3_REFERENCE_LIMIT, shotPictures, shotPrompt } from './movieSegments.ts';
+import { H3_REFERENCE_LIMIT, shotPictures, shotPrompt, shotSettings, type ShotEnv } from './movieSegments.ts';
 import type { MovieManifest } from './movieManifest.ts';
 import { wizardCanvas, type WizardHandoff, type WizardPicture } from './wizards.ts';
 
@@ -19,9 +19,13 @@ export function chainOf(m: MovieManifest, shotId: string): { chain: Chain; index
  * them for the continuations), so an actor who only appears in a later shot is still available; with no pictures the chain is text-to-video.
  * `blocked` is an i18n key; `detail` carries the first refusal of the family rules for display.
  */
-export function chainHandoff(m: MovieManifest, chain: Chain, index: number, model: { name: string; path: string }, run: boolean, toSrc: (path: string) => string): ChainHandoff {
+export function chainHandoff(m: MovieManifest, chain: Chain, index: number, defaultModel: { name: string; path: string }, run: boolean, toSrc: (path: string) => string, env?: ShotEnv): ChainHandoff {
   const shots = chain.ids.map(id => m.items.find(i => i.id === id && i.kind === 'segment')!);
   if (shots.some(s => !s)) return { blocked: 'wizards.movie.shot.unknown' };
+  // The continuity plan carries one model and one LoRA set for the whole chain: the first shot's (continued shots inherit them).
+  const settings = shotSettings(shots[0], defaultModel, env);
+  if ('blocked' in settings) return settings;
+  const { model, loras } = settings;
   const planned = chainPlan(m, chain, chainSession(m.id, index));
   if (planned.problems.length) return { blocked: 'wizards.movie.shot.chainProblem', detail: planned.problems[0] };
   const { picks, skipped } = shotPictures(m, shots);
@@ -35,7 +39,7 @@ export function chainHandoff(m: MovieManifest, chain: Chain, index: number, mode
     handoff: {
       wizard: 'movie', strategy: first.id, pipeline: refs.length ? 'ref2v' : 't2v', source: 'movie', model,
       ...(refs.length ? { references: refs, labels: picks.map(p => p.label), notes: picks.map(p => p.note) } : {}),
-      positive: shotPrompt(m, first, !refs.length), ...(size ? { size } : {}), seconds: first.seconds, run,
+      positive: shotPrompt(m, first, !refs.length), ...(size ? { size } : {}), seconds: first.seconds, run, ...(loras.length ? { loras } : {}),
       continuity: { plan: planned.plan, shotIds: chain.ids },
     },
   };

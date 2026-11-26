@@ -242,5 +242,17 @@
   "wizards.movie.music.generate": "Générer la piste ({seconds} s)",
   "wizards.movie.music.generating": "Génération …",
   "wizards.movie.music.noModel": "Aucun modèle musical ACE-Step ou YuE2 n'est installé.",
-  "wizards.movie.music.needPrompt": "Décrivez d'abord la musique."
+  "wizards.movie.music.needPrompt": "Décrivez d'abord la musique.",
+  "wizards.movie.shot.settings": "Modèle et LoRA ({count} LoRA)",
+  "wizards.movie.shot.inherits": "Ce plan poursuit la chaîne : il utilise le modèle et les LoRA du premier plan de la chaîne.",
+  "wizards.movie.shot.ownModel": "Modèle pour ce plan",
+  "wizards.movie.shot.defaultModel": "Par défaut ({name})",
+  "wizards.movie.shot.modelMissing": "Le modèle choisi pour ce plan n'est pas installé :",
+  "wizards.movie.shot.loraMissing": "Un LoRA choisi pour ce plan n'est pas installé :",
+  "wizards.movie.shot.loraGone": "non installé",
+  "wizards.movie.shot.loraName": "LoRA",
+  "wizards.movie.shot.loraStrength": "Force de {name}",
+  "wizards.movie.shot.loraRemove": "Retirer le LoRA {name}",
+  "wizards.movie.shot.loraAdd": "Ajouter un LoRA",
+  "wizards.movie.shot.noLora": "Aucun LoRA MiniMax H3 n'est installé."
 }

@@ -242,5 +242,17 @@
   "wizards.movie.music.generate": "生成音轨（{seconds} 秒）",
   "wizards.movie.music.generating": "生成中 …",
   "wizards.movie.music.noModel": "未安装 ACE-Step 或 YuE2 音乐模型。",
-  "wizards.movie.music.needPrompt": "请先描述音乐。"
+  "wizards.movie.music.needPrompt": "请先描述音乐。",
+  "wizards.movie.shot.settings": "模型与 LoRA（{count} 个 LoRA）",
+  "wizards.movie.shot.inherits": "此镜头接续链条：使用链条第一个镜头的模型和 LoRA。",
+  "wizards.movie.shot.ownModel": "此镜头的模型",
+  "wizards.movie.shot.defaultModel": "默认（{name}）",
+  "wizards.movie.shot.modelMissing": "为此镜头选择的模型未安装：",
+  "wizards.movie.shot.loraMissing": "为此镜头选择的 LoRA 未安装：",
+  "wizards.movie.shot.loraGone": "未安装",
+  "wizards.movie.shot.loraName": "LoRA",
+  "wizards.movie.shot.loraStrength": "{name} 的强度",
+  "wizards.movie.shot.loraRemove": "移除 LoRA {name}",
+  "wizards.movie.shot.loraAdd": "添加 LoRA",
+  "wizards.movie.shot.noLora": "未安装 MiniMax H3 LoRA。"
 }

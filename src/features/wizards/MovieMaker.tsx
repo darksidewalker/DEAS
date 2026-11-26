@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { convertFileSrc, isTauri } from '@tauri-apps/api/core';
 import { useI18n } from '../../i18n/I18nProvider';
 import { pickMedia } from '../../lib/analysis';
-import { MIX_LIMITS, MOVIE_CAST_ROLES, addCast, markResultsMissing, setMix, setMusicFile, deliveredSeconds, reviseItem, newMovie, removeCast, setBrief, setCastRefs, setCastRole, setItemTitle, setLocked, editItem, type MovieCastRole, type MovieManifest } from '../../lib/movieManifest';
+import { LORA_STRENGTH, MIX_LIMITS, MOVIE_CAST_ROLES, addCast, markResultsMissing, setMix, setMusicFile, setShotLoras, setShotModel, deliveredSeconds, reviseItem, newMovie, removeCast, setBrief, setCastRefs, setCastRole, setItemTitle, setLocked, editItem, type MovieCastRole, type MovieManifest } from '../../lib/movieManifest';
 import type { LlmModel } from '../../lib/llm';
 import { applyPlan, h3ActualSeconds, planDiff, segmentLimits, type PlanCheck } from '../../lib/movieStory';
 import { PLANNER_MAX_CHARS, listPlannerModels, logMovieNotice, plannerDestination, plannerPayload, requestPlan } from '../../lib/movieStoryRun';
@@ -59,10 +59,16 @@ export function MovieMaker({ modelsRoot, endpoint, models = null, onPrepare, out
   const [shotState, setShotState] = useState<{ id: string; state: string; error?: string } | null>(null);
   const [chainBusy, setChainBusy] = useState(false);
   const making = chainBusy || (!!shotState && (shotState.state === 'queued' || shotState.state === 'running'));
+  // A shot's own model and LoRAs are checked against what is installed before anything is handed over.
+  const h3Loras = models ? models.filter(x => x.category === 'loras' && x.family === PLAN_FAMILY) : [];
+  const env = {
+    resolveModel: (name: string) => { const x = h3Models.find(y => y.name === name); return x && { name: x.name, path: x.path }; },
+    hasLora: (name: string) => h3Loras.some(x => x.name === name),
+  };
   const makeShot = (id: string, run: boolean) => {
     if (!onPrepare || !h3Model) return;
-    const r = shotHandoff(movie, id, { name: h3Model.name, path: h3Model.path }, run, convertFileSrc);
-    if ('blocked' in r) { setError(t(r.blocked)); return; }
+    const r = shotHandoff(movie, id, { name: h3Model.name, path: h3Model.path }, run, convertFileSrc, env);
+    if ('blocked' in r) { setError(r.detail ? `${t(r.blocked)} ${r.detail}` : t(r.blocked)); return; }
     setError(''); setNote(r.skipped ? t('wizards.movie.shot.skipped', { count: String(r.skipped) }) : '');
     sent.current = { n: (handoff ?? 0) + 1, id }; setShotState(run ? { id, state: 'queued' } : null);
     onPrepare(r.handoff);
@@ -71,7 +77,7 @@ export function MovieMaker({ modelsRoot, endpoint, models = null, onPrepare, out
   const makeChain = (id: string, run: boolean) => {
     const found = chainOf(movie, id);
     if (!onPrepare || !h3Model || !found) return;
-    const r = chainHandoff(movie, found.chain, found.index, { name: h3Model.name, path: h3Model.path }, run, convertFileSrc);
+    const r = chainHandoff(movie, found.chain, found.index, { name: h3Model.name, path: h3Model.path }, run, convertFileSrc, env);
     if ('blocked' in r) { setError(r.detail ? `${t(r.blocked)} ${r.detail}` : t(r.blocked)); return; }
     setError(''); setNote(r.skipped ? t('wizards.movie.shot.skipped', { count: String(r.skipped) }) : '');
     sent.current = { n: (handoff ?? 0) + 1, id }; setChainBusy(run); setShotState(run ? { id, state: 'queued' } : null);
@@ -329,6 +335,29 @@ export function MovieMaker({ modelsRoot, endpoint, models = null, onPrepare, out
           <label className="forge-note"><input type="checkbox" data-movie-seg-lock checked={!!g.locked} onChange={e => change(m => setLocked(m, g.id, e.target.checked))}/> {t('wizards.movie.lock')}</label>
         </div>
         <textarea aria-label={t('wizards.movie.plan.segPrompt')} data-movie-seg-prompt rows={2} maxLength={4000} disabled={!!g.locked} value={g.text} onChange={e => change(m => editItem(m, g.id, e.target.value))}/>
+        <details data-movie-shot-settings={g.id}>
+          <summary className="forge-note">{t('wizards.movie.shot.settings', { count: String(g.loras?.length ?? 0) })}</summary>
+          {continued(g.id) ? <p className="forge-note" data-movie-shot-inherits>{t('wizards.movie.shot.inherits')}</p> : <>
+            <label className="forge-field"><span>{t('wizards.movie.shot.ownModel')}</span>
+              <select data-movie-shot-own-model value={g.model ?? ''} disabled={!!g.locked} onChange={e => change(m => setShotModel(m, g.id, e.target.value || null))}>
+                <option value="">{t('wizards.movie.shot.defaultModel', { name: h3Model?.name ?? '—' })}</option>
+                {g.model && !h3Models.some(x => x.name === g.model) && <option value={g.model}>{g.model}</option>}
+                {h3Models.map(x => <option key={x.path} value={x.name}>{x.name}</option>)}
+              </select></label>
+            {(g.loras ?? []).map(l => <div className="wizards-row" key={l.name} data-movie-lora={l.name}>
+              <select aria-label={t('wizards.movie.shot.loraName')} data-movie-lora-name value={l.name} disabled={!!g.locked}
+                onChange={e => change(m => setShotLoras(m, g.id, (g.loras ?? []).map(x => x.name === l.name ? { ...x, name: e.target.value } : x)))}>
+                <option value={l.name}>{l.name}{h3Loras.some(x => x.name === l.name) ? '' : ` — ${t('wizards.movie.shot.loraGone')}`}</option>
+                {h3Loras.filter(x => x.name !== l.name && !(g.loras ?? []).some(y => y.name === x.name)).map(x => <option key={x.path} value={x.name}>{x.name}</option>)}
+              </select>
+              <input type="number" aria-label={t('wizards.movie.shot.loraStrength', { name: l.name })} data-movie-lora-strength min={LORA_STRENGTH[0]} max={LORA_STRENGTH[1]} step={0.05} value={l.strength} disabled={!!g.locked}
+                onChange={e => { const v = Number(e.target.value); if (Number.isFinite(v)) change(m => setShotLoras(m, g.id, (g.loras ?? []).map(x => x.name === l.name ? { ...x, strength: v } : x))); }}/>
+              <button type="button" className="forge-ghost" data-movie-lora-remove disabled={!!g.locked} aria-label={t('wizards.movie.shot.loraRemove', { name: l.name })} onClick={() => change(m => setShotLoras(m, g.id, (g.loras ?? []).filter(x => x.name !== l.name)))}>{t('wizards.movie.castRemove')}</button>
+            </div>)}
+            {(() => { const free = h3Loras.find(x => !(g.loras ?? []).some(l => l.name === x.name)); return <button type="button" className="forge-ghost" data-movie-lora-add disabled={!!g.locked || !free || (g.loras?.length ?? 0) >= 8} title={h3Loras.length ? undefined : t('wizards.movie.shot.noLora')}
+              onClick={() => free && change(m => setShotLoras(m, g.id, [...(g.loras ?? []), { name: free.name, strength: 1 }]))}>{t('wizards.movie.shot.loraAdd')}</button>; })()}
+          </>}
+        </details>
         <div className="wizards-row" data-movie-shot={g.id}>
           <span className="forge-note" data-movie-shot-state>{t(`wizards.movie.shot.state.${shotState?.id === g.id && (shotState.state === 'queued' || shotState.state === 'running') ? 'running' : g.state}`)}</span>
           <button type="button" className="forge-ghost" data-movie-shot-prepare disabled={!native || !onPrepare || !h3Model || making || continued(g.id)} title={shotBlock(g, n)} onClick={() => chainLen(g.id) > 1 ? makeChain(g.id, false) : makeShot(g.id, false)}>{t(chainLen(g.id) > 1 ? 'wizards.movie.shot.prepareChain' : 'wizards.movie.shot.prepare')}</button>

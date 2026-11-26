@@ -242,5 +242,17 @@
   "wizards.movie.music.generate": "トラックを生成（{seconds} 秒）",
   "wizards.movie.music.generating": "生成中 …",
   "wizards.movie.music.noModel": "ACE-Step または YuE2 の音楽モデルがインストールされていません。",
-  "wizards.movie.music.needPrompt": "先に音楽を説明してください。"
+  "wizards.movie.music.needPrompt": "先に音楽を説明してください。",
+  "wizards.movie.shot.settings": "モデルと LoRA（LoRA {count} 件）",
+  "wizards.movie.shot.inherits": "このショットはチェーンの続きです。チェーンの最初のショットのモデルと LoRA を使います。",
+  "wizards.movie.shot.ownModel": "このショットのモデル",
+  "wizards.movie.shot.defaultModel": "デフォルト（{name}）",
+  "wizards.movie.shot.modelMissing": "このショットに選んだモデルがインストールされていません：",
+  "wizards.movie.shot.loraMissing": "このショットに選んだ LoRA がインストールされていません：",
+  "wizards.movie.shot.loraGone": "未インストール",
+  "wizards.movie.shot.loraName": "LoRA",
+  "wizards.movie.shot.loraStrength": "{name} の強度",
+  "wizards.movie.shot.loraRemove": "LoRA {name} を削除",
+  "wizards.movie.shot.loraAdd": "LoRA を追加",
+  "wizards.movie.shot.noLora": "MiniMax H3 の LoRA がインストールされていません。"
 }

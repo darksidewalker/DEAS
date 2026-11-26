@@ -1899,6 +1899,7 @@ const promptTools=forgeContext&&<>
   if(draft.edit)setEdit(draft.edit);
   if(draft.denoise)(draft.denoise.inpaint?setInpaintDenoise:setDenoise)(draft.denoise.value);
   if(draft.maskBlur!==undefined)setMaskBlur(draft.maskBlur);
+  if(draft.loras){const picked=draft.loras.map(l=>({name:l.name,strength:l.strength}));setLoras(picked.map(l=>({...l,enabled:true})));if(beginner){beginnerLoraDraft.current={model:identity(m),loras:picked};writePref('beginner.loras',beginnerLoraDraft.current);}}
   if(draft.music){const mu=draft.music;setMusicStyle(mu.style);setMusicLyrics(mu.lyrics);if(aceMusicProfile(m.family))setAceDuration(mu.seconds);else setMusicDuration(d=>({...d,t2m:mu.seconds}));}
   if(wizard.size){setWidth(wizard.size.width);setHeight(wizard.size.height);setResolution('fixed');}
   // The strategy's measured CFG for this family (set after switchDraft's starting values; Beginner reapplies it below after its model reset).

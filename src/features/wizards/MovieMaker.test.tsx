@@ -493,3 +493,67 @@ it('a failed generation shows the reason; YuE2 comes with its licence note; no m
   expect(q('[data-movie-music-nomodel]').textContent).toBe('No ACE-Step or YuE2 music model is installed.');
   expect((q('[data-movie-music-generate]') as HTMLButtonElement).disabled).toBe(true);
 });
+
+const h3b = { ...h3, name: 'h3_other.safetensors', path: '/m/h3_other' };
+const loraA = { category: 'loras', name: 'MiniMaxH3/style-a.safetensors', path: '/m/loras/a', size: 1, info: null, family: 'minimax-h3' };
+const loraB = { category: 'loras', name: 'MiniMaxH3/style-b.safetensors', path: '/m/loras/b', size: 1, info: null, family: 'minimax-h3' };
+const loraOther = { category: 'loras', name: 'sdxl/other.safetensors', path: '/m/loras/o', size: 1, info: null, family: 'sdxl' };
+
+it('every shot can have its own model and LoRAs; continued shots inherit; the hand-over carries them', async () => {
+  llmReply = chainReply; llmBase = 'http://127.0.0.1:11434'; generated = [];
+  planMock([{ id: 'q', provider: 'local', name: 'q' }]);
+  const onPrepare = vi.fn();
+  render(<I18nProvider><MovieMaker modelsRoot="/m" models={[h3, h3b, loraA, loraB, loraOther] as any} onPrepare={onPrepare}/></I18nProvider>);
+  fireEvent.change(q('[data-movie-seconds]'), { target: { value: '14' } });
+  fireEvent.change(q('[data-movie-story]'), { target: { value: 'Anna runs.' } });
+  fireEvent.change(q('[data-movie-new-name]'), { target: { value: 'Anna' } });
+  fireEvent.click(q('[data-movie-add]'));
+  await waitFor(() => expect(q('[data-movie-llm]')).toBeTruthy());
+  fireEvent.click(q('[data-movie-plan-run]'));
+  await waitFor(() => expect(q('[data-movie-plan-apply]')).toBeTruthy());
+  fireEvent.click(q('[data-movie-plan-apply]'));
+  const box = (id: string) => document.querySelector(`[data-movie-shot-settings="${id}"]`)!;
+  expect(box('seg-2').querySelector('[data-movie-shot-inherits]')).toBeTruthy(); // continued: no controls of its own
+  expect(box('seg-2').querySelector('[data-movie-shot-own-model]')).toBeNull();
+  const own = box('seg-3').querySelector('[data-movie-shot-own-model]') as HTMLSelectElement;
+  expect([...own.options].map(o => o.textContent)).toEqual(['Default (h3_turbo.safetensors)', 'h3_turbo.safetensors', 'h3_other.safetensors']);
+  fireEvent.change(own, { target: { value: 'h3_other.safetensors' } });
+  fireEvent.click(box('seg-3').querySelector('[data-movie-lora-add]')!);
+  const row = () => box('seg-3').querySelector('[data-movie-lora]')!;
+  expect(row().getAttribute('data-movie-lora')).toBe('MiniMaxH3/style-a.safetensors'); // only LoRAs of this model's family are offered
+  const names = [...(row().querySelector('[data-movie-lora-name]') as HTMLSelectElement).options].map(o => o.value);
+  expect(names).toEqual(['MiniMaxH3/style-a.safetensors', 'MiniMaxH3/style-b.safetensors']);
+  fireEvent.change(row().querySelector('[data-movie-lora-strength]')!, { target: { value: '0.6' } });
+  fireEvent.change(row().querySelector('[data-movie-lora-name]')!, { target: { value: 'MiniMaxH3/style-b.safetensors' } });
+  expect(box('seg-3').querySelector('summary')!.textContent).toBe('Model and LoRAs (1 LoRAs)');
+  // The third shot is a single cut shot: its hand-over carries its own model and LoRA.
+  fireEvent.click(document.querySelector('[data-movie-shot="seg-3"] [data-movie-shot-prepare]')!);
+  expect(onPrepare.mock.calls[0][0]).toMatchObject({ strategy: 'seg-3', model: { name: 'h3_other.safetensors', path: '/m/h3_other' }, loras: [{ name: 'MiniMaxH3/style-b.safetensors', strength: 0.6 }] });
+  // The chain's first shot defines its chain; a shot without settings uses the default model and no LoRAs.
+  fireEvent.click(document.querySelector('[data-movie-shot="seg-1"] [data-movie-shot-prepare]')!);
+  expect(onPrepare.mock.calls[1][0].model.name).toBe('h3_turbo.safetensors');
+  expect(onPrepare.mock.calls[1][0].loras).toBeUndefined();
+  fireEvent.click(box('seg-3').querySelector('[data-movie-lora-remove]')!);
+  expect(box('seg-3').querySelector('[data-movie-lora]')).toBeNull();
+});
+
+it('a LoRA or model that is no longer installed blocks that shot with its name', async () => {
+  llmReply = chainReply; llmBase = 'http://127.0.0.1:11434'; generated = [];
+  planMock([{ id: 'q', provider: 'local', name: 'q' }]);
+  const onPrepare = vi.fn();
+  const ui = (models: unknown[]) => <I18nProvider><MovieMaker modelsRoot="/m" models={models as any} onPrepare={onPrepare}/></I18nProvider>;
+  const view = render(ui([h3, loraA]));
+  fireEvent.change(q('[data-movie-story]'), { target: { value: 'Anna runs.' } });
+  fireEvent.change(q('[data-movie-new-name]'), { target: { value: 'Anna' } });
+  fireEvent.click(q('[data-movie-add]'));
+  await waitFor(() => expect(q('[data-movie-llm]')).toBeTruthy());
+  fireEvent.click(q('[data-movie-plan-run]'));
+  await waitFor(() => expect(q('[data-movie-plan-apply]')).toBeTruthy());
+  fireEvent.click(q('[data-movie-plan-apply]'));
+  fireEvent.click(document.querySelector('[data-movie-settings="seg-3"] [data-movie-lora-add]') ?? document.querySelector('[data-movie-shot-settings="seg-3"] [data-movie-lora-add]')!);
+  view.rerender(ui([h3]));
+  fireEvent.click(document.querySelector('[data-movie-shot="seg-3"] [data-movie-shot-make]')!);
+  expect(q('[data-movie-error]').textContent).toBe('A LoRA chosen for this shot is not installed: MiniMaxH3/style-a.safetensors');
+  expect(document.querySelector('[data-movie-shot-settings="seg-3"] [data-movie-lora-name] option')!.textContent).toContain('not installed');
+  expect(onPrepare).not.toHaveBeenCalled();
+});

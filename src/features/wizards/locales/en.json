@@ -242,5 +242,17 @@
   "wizards.movie.music.generate": "Generate the track ({seconds} s)",
   "wizards.movie.music.generating": "Generating …",
   "wizards.movie.music.noModel": "No ACE-Step or YuE2 music model is installed.",
-  "wizards.movie.music.needPrompt": "Describe the music first."
+  "wizards.movie.music.needPrompt": "Describe the music first.",
+  "wizards.movie.shot.settings": "Model and LoRAs ({count} LoRAs)",
+  "wizards.movie.shot.inherits": "This shot continues the chain: it uses the model and LoRAs of the chain's first shot.",
+  "wizards.movie.shot.ownModel": "Model for this shot",
+  "wizards.movie.shot.defaultModel": "Default ({name})",
+  "wizards.movie.shot.modelMissing": "The model chosen for this shot is not installed:",
+  "wizards.movie.shot.loraMissing": "A LoRA chosen for this shot is not installed:",
+  "wizards.movie.shot.loraGone": "not installed",
+  "wizards.movie.shot.loraName": "LoRA",
+  "wizards.movie.shot.loraStrength": "Strength of {name}",
+  "wizards.movie.shot.loraRemove": "Remove LoRA {name}",
+  "wizards.movie.shot.loraAdd": "Add a LoRA",
+  "wizards.movie.shot.noLora": "No MiniMax H3 LoRA is installed."
 }

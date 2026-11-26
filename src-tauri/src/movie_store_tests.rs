@@ -179,6 +179,29 @@ fn segment_dialogue_and_scene_state_follow_the_rules() {
 }
 
 #[test]
+fn shot_model_and_loras_follow_the_rules() {
+    let mut m = movie("a");
+    m["items"][1]["model"] = json!("MiniMaxH3/h3.safetensors");
+    m["items"][1]["loras"] = json!([{ "name": "MiniMaxH3/style.safetensors", "strength": 0.8 }, { "name": "other.safetensors", "strength": -1.5 }]);
+    assert_eq!(problem(&m), None);
+    m["items"][1]["loras"][1]["strength"] = json!(4.5);
+    assert_eq!(problem(&m), Some("bad shot LoRAs"));
+    m["items"][1]["loras"] =
+        json!([{ "name": "a", "strength": 1 }, { "name": "a", "strength": 1 }]);
+    assert_eq!(problem(&m), Some("bad shot LoRAs"));
+    m["items"][1]["loras"] = json!((0..9)
+        .map(|i| json!({ "name": format!("l{i}"), "strength": 1 }))
+        .collect::<Vec<_>>());
+    assert_eq!(problem(&m), Some("bad shot LoRAs"));
+    m["items"][1]["loras"] = json!([]);
+    m["items"][1]["model"] = json!("");
+    assert_eq!(problem(&m), Some("bad shot model"));
+    m["items"][1].as_object_mut().unwrap().remove("model");
+    m["items"][0]["loras"] = json!([]);
+    assert_eq!(problem(&m), Some("seconds/continuity are segment-only"));
+}
+
+#[test]
 fn check_reports_missing_results_and_references_from_the_stored_manifest_only() {
     let d = private();
     let files = private();

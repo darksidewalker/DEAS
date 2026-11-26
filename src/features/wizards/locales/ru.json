@@ -242,5 +242,17 @@
   "wizards.movie.music.generate": "Создать дорожку ({seconds} с)",
   "wizards.movie.music.generating": "Создание …",
   "wizards.movie.music.noModel": "Музыкальная модель ACE-Step или YuE2 не установлена.",
-  "wizards.movie.music.needPrompt": "Сначала опишите музыку."
+  "wizards.movie.music.needPrompt": "Сначала опишите музыку.",
+  "wizards.movie.shot.settings": "Модель и LoRA (LoRA: {count})",
+  "wizards.movie.shot.inherits": "Этот кадр продолжает цепочку: он использует модель и LoRA первого кадра цепочки.",
+  "wizards.movie.shot.ownModel": "Модель для этого кадра",
+  "wizards.movie.shot.defaultModel": "По умолчанию ({name})",
+  "wizards.movie.shot.modelMissing": "Выбранная для этого кадра модель не установлена:",
+  "wizards.movie.shot.loraMissing": "Выбранная для этого кадра LoRA не установлена:",
+  "wizards.movie.shot.loraGone": "не установлена",
+  "wizards.movie.shot.loraName": "LoRA",
+  "wizards.movie.shot.loraStrength": "Сила {name}",
+  "wizards.movie.shot.loraRemove": "Удалить LoRA {name}",
+  "wizards.movie.shot.loraAdd": "Добавить LoRA",
+  "wizards.movie.shot.noLora": "LoRA для MiniMax H3 не установлены."
 }

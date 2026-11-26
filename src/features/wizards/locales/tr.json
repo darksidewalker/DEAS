@@ -242,5 +242,17 @@
   "wizards.movie.music.generate": "Parçayı üret ({seconds} sn)",
   "wizards.movie.music.generating": "Üretiliyor …",
   "wizards.movie.music.noModel": "Yüklü ACE-Step veya YuE2 müzik modeli yok.",
-  "wizards.movie.music.needPrompt": "Önce müziği tarif edin."
+  "wizards.movie.music.needPrompt": "Önce müziği tarif edin.",
+  "wizards.movie.shot.settings": "Model ve LoRA'lar ({count} LoRA)",
+  "wizards.movie.shot.inherits": "Bu çekim zinciri sürdürür: zincirin ilk çekiminin modelini ve LoRA'larını kullanır.",
+  "wizards.movie.shot.ownModel": "Bu çekim için model",
+  "wizards.movie.shot.defaultModel": "Varsayılan ({name})",
+  "wizards.movie.shot.modelMissing": "Bu çekim için seçilen model yüklü değil:",
+  "wizards.movie.shot.loraMissing": "Bu çekim için seçilen bir LoRA yüklü değil:",
+  "wizards.movie.shot.loraGone": "yüklü değil",
+  "wizards.movie.shot.loraName": "LoRA",
+  "wizards.movie.shot.loraStrength": "{name} gücü",
+  "wizards.movie.shot.loraRemove": "{name} LoRA'sını kaldır",
+  "wizards.movie.shot.loraAdd": "LoRA ekle",
+  "wizards.movie.shot.noLora": "Yüklü MiniMax H3 LoRA'sı yok."
 }
