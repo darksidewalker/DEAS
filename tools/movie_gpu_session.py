@@ -65,6 +65,15 @@ def intent_music():
                     'lmCfg': 2, 'temperature': 0.85, 'topP': 0.9, 'topK': 0, 'minP': 0}}
 
 
+def intent_audio_ref(trim_start=2.0, trim_end=7.0):
+    """A REF2VA shot with a cast picture and a slice of the music track as audio reference (the H3-reference mode of UX-22d5d1)."""
+    base = gas.h3_base()
+    base.update({'positivePrompt': PROMPT1, 'seed': 4713, 'frames': 124, 'outputPrefix': 'video/movie/audioref'})
+    base['h3'] = {'mode': 'REF2VA', 'audioVae': gas.H3_AUDIO_VAE, 'shiftVideo': 10, 'shiftAudio': 3, 'references': [],
+                  'media': [{'type': 'image', 'file': gas.PROBE_IMAGE, 'slot': 0}, {'type': 'audio', 'file': 'deas-inputs/movie-bed.flac', 'slot': 0, 'trimStart': trim_start, 'trimEnd': trim_end}]}
+    return base
+
+
 def intent_join(names):
     return {'recipeId': 'h3-join', 'version': 1, 'h3': {'join': {'kind': 'files', 'files': [{'filename': n} for n in names], 'smoothAudioSeams': True}}}
 
@@ -201,10 +210,88 @@ def measure_mix(film, a3, outdir, level=-14.0, duck_db=12.0, fade=2.0):
     return result
 
 
+def chroma(path, start=0.0, length=None, rate=16000):
+    """Mean 12-bin chroma vector of an audio file (or a slice of it), L2-normalised — a rough 'same harmony?' fingerprint."""
+    cmd = ['ffmpeg', '-v', 'error', '-ss', str(start)] + (['-t', str(length)] if length else []) + ['-i', str(path), '-vn', '-ac', '1', '-ar', str(rate), '-f', 'f32le', '-']
+    x = np.frombuffer(subprocess.run(cmd, capture_output=True).stdout, dtype=np.float32)
+    n = 4096
+    win = np.hanning(n)
+    freqs = np.fft.rfftfreq(n, 1 / rate)
+    ok = (freqs > 55) & (freqs < 2000)
+    pc = (np.round(12 * np.log2(freqs[ok] / 440.0)) % 12).astype(int)
+    acc = np.zeros(12)
+    for i in range(0, max(len(x) - n, 1), n // 2):
+        seg = x[i:i + n]
+        if len(seg) < n:
+            break
+        mag = np.abs(np.fft.rfft(seg * win))[ok]
+        np.add.at(acc, pc, mag)
+    norm = float(np.linalg.norm(acc))
+    return acc / norm if norm > 0 else acc
+
+
+def audio_reference_gate(session_dir, logbuf, outdir):
+    """M-6: a REF2VA shot with a picture and a 5 s slice of the session's music track as audio reference, versus the session's un-referenced first take."""
+    d = Path(session_dir).resolve()
+    bed = next((d / 'scratch/output').rglob('bed*.flac'))
+    first = next((d / 'scratch/output/video/movie').glob('mm-gpu-*_00001_audio.mp4'))
+    blockers = gas.gpu_blockers(25, 1024, samples=3)
+    if blockers:
+        raise SystemExit('GPU busy, nothing started: ' + '; '.join(blockers))
+    host = gas.host_memory_state()
+    reason = gas.headroom_refusal(host, True) if host else None
+    if reason:
+        raise SystemExit(reason)
+    pool = sorted([f for f in (gas.RESOURCES / 'input').rglob('*') if f.is_file() and f.suffix.lower() in ('.png', '.jpg', '.jpeg', '.webp') and 300_000 < f.stat().st_size < 20 * 1024 * 1024], key=lambda f: f.stat().st_size, reverse=True)
+    if not pool:
+        raise SystemExit('no probe picture in the AI-Ressources input folder')
+    port = gas.pick_port()
+    scratch = outdir / 'scratch'
+    for sub in ('input/deas-inputs', 'output', 'temp'):
+        (scratch / sub).mkdir(parents=True, exist_ok=True)
+    from PIL import Image
+    im = Image.open(pool[0]).convert('RGB')
+    im.thumbnail((1536, 1536))
+    im.save(scratch / 'input/deas-inputs/acceptance-a.png', 'PNG')
+    shutil.copy2(bed, scratch / 'input/deas-inputs/movie-bed.flac')
+    graph = gas.compile_intent(intent_audio_ref(), logbuf)
+    backend = subprocess.Popen([str(gas.VENV_PY), '-u', 'main.py', '--port', str(port), '--listen', '127.0.0.1', '--extra-model-paths-config', str(gas.MODELS_YAML),
+                                '--input-directory', str(scratch / 'input'), '--output-directory', str(scratch / 'output'), '--temp-directory', str(scratch / 'temp')],
+                               cwd=gas.COMFY, stdout=open(outdir / 'backend.log', 'w'), stderr=subprocess.STDOUT)
+    try:
+        base = f'http://127.0.0.1:{port}'
+        for _ in range(90):
+            try:
+                gas.http_json(base, '/system_stats')
+                break
+            except Exception:
+                time.sleep(2)
+        else:
+            raise SystemExit('throwaway backend never became ready')
+        gas.log(logbuf, f'throwaway backend ready on :{port}')
+        files, meta = submit(base, graph, scratch, 'M-6 audio-reference shot', logbuf)
+    finally:
+        backend.terminate()
+        try:
+            backend.wait(20)
+        except Exception:  # noqa: BLE001
+            backend.kill()
+        gas.log(logbuf, 'throwaway backend stopped')
+    v = newest(files, {'.mp4', '.webm', '.mkv'})
+    ref = chroma(bed, 2.0, 5.0)
+    with_ref, without_ref = chroma(v), chroma(first)
+    cos = lambda a, b: round(float(np.dot(a, b)), 3)
+    res = {**meta, 'file': v.name if v else None, 'probe': gas.ffprobe(v) if v else {}, 'slice': [2.0, 7.0],
+           'chroma_similarity_to_slice': {'with_audio_reference': cos(with_ref, ref), 'first_take_without_reference': cos(without_ref, ref)}}
+    res['pass'] = bool(v and res['probe'].get('audio'))
+    return res
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--precheck', action='store_true')
     ap.add_argument('--run', action='store_true')
+    ap.add_argument('--audio-ref', metavar='SESSION_DIR', help='run only M-6 (a REF2VA shot with a slice of that session\'s music as audio reference)')
     ap.add_argument('--remix', metavar='SESSION_DIR', help='re-run only M-5 on a finished session\'s film and track (no GPU)')
     ap.add_argument('--max-util', type=int, default=25)
     ap.add_argument('--max-app-mib', type=int, default=1024)
@@ -221,8 +308,23 @@ def main():
         finally:
             mix_path.write_text(mix_orig, encoding='utf-8')
         return
+    if args.audio_ref:
+        stamp = dt.datetime.now(dt.timezone.utc).strftime('%Y%m%dT%H%M%SZ')
+        out = gas.OUT_ROOT / f'movie-gpu-audioref-{stamp}'
+        out.mkdir(parents=True, exist_ok=True)
+        logbuf = []
+        marker_path, marker_orig = gas.install_marker_test()
+        try:
+            result = audio_reference_gate(args.audio_ref, logbuf, out)
+        finally:
+            gas.remove_marker_test(marker_path, marker_orig)
+            (out / 'session.log').write_text('\n'.join(logbuf), encoding='utf-8')
+        (out / 'results.json').write_text(json.dumps({'M-6': result}, indent=1, default=str), encoding='utf-8')
+        print(json.dumps(result, indent=1, default=str))
+        print(f'artifacts: {out}')
+        return
     if not (args.precheck or args.run):
-        ap.error('--precheck, --run or --remix')
+        ap.error('--precheck, --run, --remix or --audio-ref')
     stamp = dt.datetime.now(dt.timezone.utc).strftime('%Y%m%dT%H%M%SZ')
     outdir = gas.OUT_ROOT / f'movie-gpu-{stamp}'
     outdir.mkdir(parents=True, exist_ok=True)
@@ -233,7 +335,8 @@ def main():
     try:
         gas.log(logbuf, f'session {SESSION}; compiling the intents with the current Rust compiler')
         graphs = {'M-1': gas.compile_intent(intent_first(), logbuf), 'M-2': gas.compile_intent(intent_next('PLACEHOLDERCLIP'), logbuf),
-                  'M-3': gas.compile_intent(intent_music(), logbuf), 'M-4': gas.compile_intent(intent_join(['a.mp4', 'b.mp4']), logbuf)}
+                  'M-3': gas.compile_intent(intent_music(), logbuf), 'M-4': gas.compile_intent(intent_join(['a.mp4', 'b.mp4']), logbuf),
+                  'M-6': gas.compile_intent(intent_audio_ref(), logbuf)}
         gas.log(logbuf, f'all {len(graphs)} intents compile offline')
         if args.precheck:
             return

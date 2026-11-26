@@ -262,6 +262,58 @@ fn report(code: &str) {
         &format!("WARN: Movie Maker music mix failed code={code}"),
     );
 }
+/// Length of a music file in seconds (ffprobe), for slicing it into per-shot audio references. Same file checks as the mix.
+pub fn audio_seconds(path: &str) -> Result<f64, String> {
+    let p = PathBuf::from(path);
+    if !regular(&p) || !MUSIC_EXT.contains(&extension(&p).as_str()) {
+        return Err(fail("MOVIE_MIX_MUSIC"));
+    }
+    let mut probe = Command::new("ffprobe");
+    probe
+        .args([
+            "-v",
+            "error",
+            "-protocol_whitelist",
+            "file",
+            "-select_streams",
+            "a:0",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "csv=p=0",
+            "-i",
+        ])
+        .arg(&p);
+    let out = run_tool(
+        probe,
+        Duration::from_secs(60),
+        &AtomicBool::new(false),
+        None,
+    )
+    .map_err(|_| fail("MOVIE_MIX_MUSIC"))?;
+    String::from_utf8_lossy(&out)
+        .trim()
+        .parse::<f64>()
+        .ok()
+        .filter(|s| s.is_finite() && *s > 0.0 && *s <= 24.0 * 3600.0)
+        .ok_or_else(|| fail("MOVIE_MIX_MUSIC"))
+}
+#[derive(Debug, Serialize, PartialEq)]
+pub struct MusicInfo {
+    pub seconds: f64,
+}
+#[tauri::command]
+pub async fn native_movie_music_info(path: String) -> Result<MusicInfo, String> {
+    let out = tauri::async_runtime::spawn_blocking(move || {
+        audio_seconds(&path).map(|seconds| MusicInfo { seconds })
+    })
+    .await
+    .map_err(|_| fail("MOVIE_MIX_MUSIC"))?;
+    if let Err(code) = &out {
+        report(code);
+    }
+    out
+}
 /// Choose…: a music file from disk, by path (nothing copied); `None` on cancel.
 #[tauri::command]
 pub async fn native_movie_pick_music(title: String) -> Result<Option<String>, String> {

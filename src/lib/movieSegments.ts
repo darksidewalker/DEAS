@@ -4,6 +4,7 @@
  * (a cut) are handled; continued shots need H3 Continuity and are reported as not supported yet. Nothing here runs anything.
  */
 import { completeItem, failItem, type MovieItem, type MovieManifest } from './movieManifest.ts';
+import { h3ActualSeconds } from './movieStory.ts';
 import { wizardCanvas, type WizardHandoff, type WizardPicture } from './wizards.ts';
 
 export const H3_REFERENCE_LIMIT = 12;
@@ -42,6 +43,21 @@ export function shotSettings(shot: MovieItem, defaultModel: { name: string; path
   if (gone) return { blocked: 'wizards.movie.shot.loraMissing', detail: gone.name };
   return { model, loras };
 }
+/** Where a shot starts in the finished film: the made length of every shot before it (a continued shot counts its whole-17-frame extension). */
+export function shotOffset(m: MovieManifest, shotId: string): number {
+  const shots = m.items.filter(i => i.kind === 'segment');
+  const at = shots.findIndex(s => s.id === shotId);
+  return shots.slice(0, Math.max(at, 0)).reduce((a, s, n) => a + h3ActualSeconds(s.seconds ?? 0, !!s.continuous && n > 0), 0);
+}
+export type AudioBlock = { blocked: 'wizards.movie.shot.audioNeedsPicture' | 'wizards.movie.shot.audioTrackShort' | 'wizards.movie.shot.audioNoChain' | 'wizards.movie.shot.audioClipLength'; detail?: string };
+/** The music track as the shot's audio reference: its slice of the track (start = the shot's place in the film, length = the shot's seconds). Reference mode only. */
+export function shotAudio(m: MovieManifest, shot: MovieItem, hasPictures: boolean, track: { path: string; seconds: number }, toSrc: (p: string) => string): { audioRef: NonNullable<WizardHandoff['audioRef']> } | AudioBlock {
+  if (!hasPictures) return { blocked: 'wizards.movie.shot.audioNeedsPicture' };
+  const len = shot.seconds ?? 0, start = Math.round(shotOffset(m, shot.id) * 1000) / 1000, end = Math.round((start + len) * 1000) / 1000;
+  if (len < 2 || len > 15) return { blocked: 'wizards.movie.shot.audioClipLength', detail: `${len} s` };
+  if (end > track.seconds + 1e-6) return { blocked: 'wizards.movie.shot.audioTrackShort', detail: `${track.seconds.toFixed(1)} s / ${end.toFixed(1)} s` };
+  return { audioRef: { name: track.path.split(/[\\/]/).pop() ?? track.path, path: track.path, src: toSrc(track.path), trimStart: start, trimEnd: end } };
+}
 export type ShotHandoff = { handoff: Omit<WizardHandoff, 'n'>; skipped: number } | { blocked: string; detail?: string };
 /** Text of the shot as the model reads it: camera/action, the scene state it starts from and ends in, and the spoken lines. */
 export function shotPrompt(m: MovieManifest, shot: MovieItem, withCast: boolean): string {
@@ -60,7 +76,7 @@ export function shotPrompt(m: MovieManifest, shot: MovieItem, withCast: boolean)
  * The hand-over for one shot. `blocked` is an i18n key. Pictures come from the shot's cast entries in order (images only; other files are
  * counted in `skipped`); with none the shot is plain text-to-video. `toSrc` makes a webview URL for a path.
  */
-export function shotHandoff(m: MovieManifest, segmentId: string, defaultModel: { name: string; path: string }, run: boolean, toSrc: (path: string) => string, env?: ShotEnv): ShotHandoff {
+export function shotHandoff(m: MovieManifest, segmentId: string, defaultModel: { name: string; path: string }, run: boolean, toSrc: (path: string) => string, env?: ShotEnv, track?: { path: string; seconds: number }): ShotHandoff {
   const shot = m.items.find(i => i.id === segmentId && i.kind === 'segment');
   if (!shot) return { blocked: 'wizards.movie.shot.unknown' };
   const order = m.items.filter(i => i.kind === 'segment');
@@ -73,12 +89,14 @@ export function shotHandoff(m: MovieManifest, segmentId: string, defaultModel: {
   const [w, h] = m.aspect.split(':').map(Number);
   const size = w > 0 && h > 0 ? wizardCanvas('minimax-h3', { width: w * 100, height: h * 100 }) : undefined;
   const refs: WizardPicture[] = picks.map(p => ({ name: fileName(p.path), path: p.path, src: toSrc(p.path) }));
+  const audio = track ? shotAudio(m, shot, refs.length > 0, track, toSrc) : undefined;
+  if (audio && 'blocked' in audio) return audio;
   return {
     skipped,
     handoff: {
       wizard: 'movie', strategy: shot.id, pipeline: refs.length ? 'ref2v' : 't2v', source: 'movie', model,
       ...(refs.length ? { references: refs, labels: picks.map(p => p.label), notes: picks.map(p => p.note) } : {}),
-      positive: shotPrompt(m, shot, !refs.length), ...(size ? { size } : {}), seconds: shot.seconds, run, ...(loras.length ? { loras } : {}),
+      positive: shotPrompt(m, shot, !refs.length), ...(size ? { size } : {}), seconds: shot.seconds, run, ...(loras.length ? { loras } : {}), ...(audio ? audio : {}),
     },
   };
 }

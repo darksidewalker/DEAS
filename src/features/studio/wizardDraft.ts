@@ -49,6 +49,8 @@ export function wizardDraft(wizard: WizardHandoff, comfyName: (item: MediaItem) 
       item: asImage(r), second: 0, strength: 1, mediaMode: 'video' as const, uiKey: uiKey(),
       ...(wizard.labels?.[i] ? { label: wizard.labels[i] } : {}), ...(wizard.notes?.[i] ? { description: wizard.notes[i] } : {}),
     }));
+    const ar = wizard.audioRef;
+    if (ar && wizard.pipeline === 'ref2v') refs.push({ item: { name: ar.name, path: ar.path, src: ar.src, media: 'audio' }, second: 0, strength: 1, mediaMode: 'audio', trimStart: ar.trimStart, trimEnd: ar.trimEnd, uiKey: uiKey() });
     return { imageRefs: [], media: null, wizardPicture: null, video: { refs, sourceVideo: null }, ...seconds, ...(wizard.loras?.length ? { loras: wizard.loras.map(l => ({ name: l.name, strength: l.strength })) } : {}) };
   }
   if (wizard.source === 'reference') return { imageRefs: [{ item: picture, strength: 0.6 }, ...references], media: null, wizardPicture: null };

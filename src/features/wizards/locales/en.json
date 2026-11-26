@@ -254,5 +254,14 @@
   "wizards.movie.shot.loraStrength": "Strength of {name}",
   "wizards.movie.shot.loraRemove": "Remove LoRA {name}",
   "wizards.movie.shot.loraAdd": "Add a LoRA",
-  "wizards.movie.shot.noLora": "No MiniMax H3 LoRA is installed."
+  "wizards.movie.shot.noLora": "No MiniMax H3 LoRA is installed.",
+  "wizards.movie.music.mode": "How the music joins the film",
+  "wizards.movie.music.modeMix": "Mix it under the finished film (your exact track)",
+  "wizards.movie.music.modeH3": "Give it to H3 as an audio reference of each shot",
+  "wizards.movie.music.hintH3": "H3 gets each cut shot's slice of the track as an audio reference and makes its own sound from it: it is guided by the music, not a copy of it, and no mix is added afterwards (the two ways are never combined, so the music is not doubled). Only cut shots with cast pictures can use it, and a slice must be 2–15 s.",
+  "wizards.movie.music.trackUnknown": "The length of the music file could not be read yet; try again in a moment.",
+  "wizards.movie.shot.audioNeedsPicture": "This shot has no cast picture; H3's audio reference needs a picture reference too.",
+  "wizards.movie.shot.audioTrackShort": "The music track is shorter than this shot's place in the film (track / needed):",
+  "wizards.movie.shot.audioNoChain": "Chains of continued shots cannot take the music as an audio reference (each step would need its own slice); make them cuts or use the mix.",
+  "wizards.movie.shot.audioClipLength": "H3 takes audio references of 2–15 s; this shot lasts"
 }

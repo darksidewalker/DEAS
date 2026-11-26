@@ -277,3 +277,27 @@ fn a_file_without_audio_is_refused_as_music() {
         Err("MOVIE_MIX_MUSIC".into())
     );
 }
+
+#[test]
+fn reads_a_tracks_length_and_refuses_what_is_not_music() {
+    if !ffmpeg() {
+        return;
+    }
+    let d = private();
+    let (_, music) = fixture(d.path(), true);
+    let s = audio_seconds(music.to_str().unwrap()).unwrap();
+    assert!((s - 1.0).abs() < 0.05, "{s}");
+    assert_eq!(audio_seconds("relative.wav"), Err("MOVIE_MIX_MUSIC".into()));
+    let text = d.path().join("a.txt");
+    std::fs::write(&text, b"x").unwrap();
+    assert_eq!(
+        audio_seconds(text.to_str().unwrap()),
+        Err("MOVIE_MIX_MUSIC".into())
+    );
+    let fake = d.path().join("fake.wav");
+    std::fs::write(&fake, b"not audio").unwrap();
+    assert_eq!(
+        audio_seconds(fake.to_str().unwrap()),
+        Err("MOVIE_MIX_MUSIC".into())
+    );
+}

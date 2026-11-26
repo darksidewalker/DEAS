@@ -254,5 +254,14 @@
   "wizards.movie.shot.loraStrength": "{name} の強度",
   "wizards.movie.shot.loraRemove": "LoRA {name} を削除",
   "wizards.movie.shot.loraAdd": "LoRA を追加",
-  "wizards.movie.shot.noLora": "MiniMax H3 の LoRA がインストールされていません。"
+  "wizards.movie.shot.noLora": "MiniMax H3 の LoRA がインストールされていません。",
+  "wizards.movie.music.mode": "音楽を映画に入れる方法",
+  "wizards.movie.music.modeMix": "完成した映画の下にミックスする（あなたの曲そのまま）",
+  "wizards.movie.music.modeH3": "各ショットの音声参照として H3 に渡す",
+  "wizards.movie.music.hintH3": "H3 はカットごとのショットに、曲のその部分を音声参照として受け取り、それをもとに自分の音を作ります。音楽に導かれますがコピーではなく、その後のミックスも行いません（2 つの方法は併用されないので音楽が二重になりません）。キャスト画像のあるカットのショットだけが使え、スライスは 2〜15 秒である必要があります。",
+  "wizards.movie.music.trackUnknown": "音楽ファイルの長さをまだ読み取れていません。少し待ってからもう一度試してください。",
+  "wizards.movie.shot.audioNeedsPicture": "このショットにはキャスト画像がありません。H3 の音声参照には画像参照も必要です。",
+  "wizards.movie.shot.audioTrackShort": "曲がこのショットの映画内の位置より短いです（曲 / 必要）：",
+  "wizards.movie.shot.audioNoChain": "続きのショットのチェーンは音楽を音声参照にできません（各ステップに専用のスライスが必要）。カットにするかミックスを使ってください。",
+  "wizards.movie.shot.audioClipLength": "H3 の音声参照は 2〜15 秒です。このショットの長さは"
 }

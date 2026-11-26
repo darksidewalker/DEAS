@@ -254,5 +254,14 @@
   "wizards.movie.shot.loraStrength": "Stärke von {name}",
   "wizards.movie.shot.loraRemove": "LoRA {name} entfernen",
   "wizards.movie.shot.loraAdd": "LoRA hinzufügen",
-  "wizards.movie.shot.noLora": "Kein MiniMax-H3-LoRA installiert."
+  "wizards.movie.shot.noLora": "Kein MiniMax-H3-LoRA installiert.",
+  "wizards.movie.music.mode": "Wie die Musik in den Film kommt",
+  "wizards.movie.music.modeMix": "Unter den fertigen Film mischen (dein exakter Titel)",
+  "wizards.movie.music.modeH3": "H3 als Audio-Referenz jeder Einstellung geben",
+  "wizards.movie.music.hintH3": "H3 bekommt für jede geschnittene Einstellung deren Ausschnitt des Titels als Audio-Referenz und macht daraus seinen eigenen Ton: Er wird von der Musik geleitet, ist aber keine Kopie, und danach wird nichts gemischt (beide Wege werden nie kombiniert, die Musik wird also nicht verdoppelt). Nur geschnittene Einstellungen mit Besetzungsbildern können es nutzen, und ein Ausschnitt muss 2–15 s lang sein.",
+  "wizards.movie.music.trackUnknown": "Die Länge der Musikdatei konnte noch nicht gelesen werden; versuche es gleich noch einmal.",
+  "wizards.movie.shot.audioNeedsPicture": "Diese Einstellung hat kein Besetzungsbild; die Audio-Referenz von H3 braucht auch eine Bildreferenz.",
+  "wizards.movie.shot.audioTrackShort": "Der Musiktitel ist kürzer als der Platz dieser Einstellung im Film (Titel / benötigt):",
+  "wizards.movie.shot.audioNoChain": "Ketten fortgesetzter Einstellungen können die Musik nicht als Audio-Referenz bekommen (jeder Schritt bräuchte einen eigenen Ausschnitt); mach sie zu Schnitten oder nutze das Mischen.",
+  "wizards.movie.shot.audioClipLength": "H3 nimmt Audio-Referenzen von 2–15 s; diese Einstellung dauert"
 }

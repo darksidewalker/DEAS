@@ -114,3 +114,43 @@ test('a chain is made with the first shot\'s model and LoRAs; continued shots ca
   assert.ok('handoff' in r);
   if ('handoff' in r) assert.deepEqual([r.handoff.model.name, r.handoff.loras], ['first.safetensors', [{ name: 'L1', strength: 1 }]]);
 });
+
+import { shotOffset } from '../src/lib/movieSegments.ts';
+
+test('a shot\'s place in the film is the made length of the shots before it', () => {
+  const m = film(); // shots: 10 s cut, 5 s cut, 5 s continued
+  assert.equal(shotOffset(m, 'seg-1'), 0);
+  assert.equal(shotOffset(m, 'seg-2'), 243 / 24); // 10 s as a first take is 243 frames
+  assert.equal(shotOffset(m, 'seg-3'), 243 / 24 + 124 / 24);
+  assert.equal(shotOffset(m, 'nope'), 0);
+});
+
+test('reference mode hands H3 the shot\'s slice of the track, and refuses what H3 cannot take', () => {
+  const track = { path: '/music/bed.flac', seconds: 40 };
+  const m = setCastRefs(film(), 'cast-3', ['/p/ben.png']); // seg-2 now has a picture
+  const r = shotHandoff(m, 'seg-2', model, false, src, undefined, track);
+  assert.ok('handoff' in r);
+  if (!('handoff' in r)) return;
+  const a = r.handoff.audioRef!;
+  assert.deepEqual([a.name, a.path, a.src, a.trimStart, a.trimEnd], ['bed.flac', '/music/bed.flac', 'asset:///music/bed.flac', 243 / 24, 243 / 24 + 5]);
+  assert.equal(r.handoff.pipeline, 'ref2v');
+  // no pictures → no audio reference possible (Ben has none in the plain film)
+  assert.deepEqual(shotHandoff(film(), 'seg-2', model, false, src, undefined, track), { blocked: 'wizards.movie.shot.audioNeedsPicture' });
+  // track too short for this shot's place
+  const short = shotHandoff(m, 'seg-2', model, false, src, undefined, { path: '/m.wav', seconds: 12 });
+  assert.ok('blocked' in short && short.blocked === 'wizards.movie.shot.audioTrackShort' && /12\.0 s \/ 15\.1 s/.test(short.detail!));
+  // a slice must be 2–15 s
+  const tiny = { ...m, items: m.items.map(i => i.id === 'seg-1' ? { ...i, seconds: 1.5 } : i) };
+  assert.deepEqual(shotHandoff(tiny, 'seg-1', model, false, src, undefined, track), { blocked: 'wizards.movie.shot.audioClipLength', detail: '1.5 s' });
+  // without reference mode nothing changes
+  const plain = shotHandoff(m, 'seg-2', model, false, src);
+  assert.ok('handoff' in plain && plain.handoff.audioRef === undefined);
+});
+
+test('a chain of continued shots cannot take the music as audio reference', () => {
+  let m = film();
+  m = { ...m, items: m.items.map(i => i.id === 'seg-2' ? { ...i, continuous: true } : i) };
+  const found = chainOf(m, 'seg-1')!;
+  assert.deepEqual(chainHandoff(m, found.chain, found.index, model, true, src, undefined, true), { blocked: 'wizards.movie.shot.audioNoChain' });
+  assert.ok('handoff' in chainHandoff(m, found.chain, found.index, model, true, src, undefined, false));
+});

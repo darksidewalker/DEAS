@@ -56,3 +56,11 @@ it('Movie Maker shot LoRAs are carried into the draft; none means the list stays
   expect(wizardDraft({ ...h, loras: [] }, none, key)!.loras).toBeUndefined();
   expect(wizardDraft({ ...h, loras: undefined }, none, key)!.loras).toBeUndefined();
 });
+
+it('Movie Maker reference mode: the music slice is an audio reference after the pictures, trimmed to the shot', () => {
+  const h = { ...base, wizard: 'movie', strategy: 'seg-1', pipeline: 'ref2v', source: 'movie', seconds: 5, references: [pic('a.png')], labels: [undefined], notes: ['Anna'],
+    audioRef: { name: 'bed.flac', path: '/music/bed.flac', src: 'asset://bed', trimStart: 10.125, trimEnd: 15.125 } } as WizardHandoff;
+  const refs = wizardDraft(h, none, key)!.video!.refs;
+  expect(refs.map(r => [r.item.media, r.item.name, r.mediaMode, r.trimStart, r.trimEnd])).toEqual([['image', 'a.png', 'video', undefined, undefined], ['audio', 'bed.flac', 'audio', 10.125, 15.125]]);
+  expect(wizardDraft({ ...h, pipeline: 't2v', references: undefined }, none, key)!.video!.refs).toEqual([]);
+});

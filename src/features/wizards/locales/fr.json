@@ -254,5 +254,14 @@
   "wizards.movie.shot.loraStrength": "Force de {name}",
   "wizards.movie.shot.loraRemove": "Retirer le LoRA {name}",
   "wizards.movie.shot.loraAdd": "Ajouter un LoRA",
-  "wizards.movie.shot.noLora": "Aucun LoRA MiniMax H3 n'est installé."
+  "wizards.movie.shot.noLora": "Aucun LoRA MiniMax H3 n'est installé.",
+  "wizards.movie.music.mode": "Comment la musique rejoint le film",
+  "wizards.movie.music.modeMix": "La mixer sous le film terminé (votre piste exacte)",
+  "wizards.movie.music.modeH3": "La donner à H3 comme référence audio de chaque plan",
+  "wizards.movie.music.hintH3": "H3 reçoit pour chaque plan coupé son extrait de la piste comme référence audio et en fait son propre son : il est guidé par la musique, sans en être une copie, et aucun mixage n'est ajouté ensuite (les deux voies ne sont jamais combinées, la musique n'est donc pas doublée). Seuls les plans coupés avec images de distribution peuvent l'utiliser, et un extrait doit durer 2–15 s.",
+  "wizards.movie.music.trackUnknown": "La durée du fichier musical n'a pas encore pu être lue ; réessayez dans un instant.",
+  "wizards.movie.shot.audioNeedsPicture": "Ce plan n'a pas d'image de distribution ; la référence audio de H3 nécessite aussi une référence d'image.",
+  "wizards.movie.shot.audioTrackShort": "La piste musicale est plus courte que la place de ce plan dans le film (piste / nécessaire) :",
+  "wizards.movie.shot.audioNoChain": "Les chaînes de plans continués ne peuvent pas recevoir la musique comme référence audio (chaque étape aurait besoin de son extrait) ; faites-en des coupes ou utilisez le mixage.",
+  "wizards.movie.shot.audioClipLength": "H3 accepte des références audio de 2–15 s ; ce plan dure"
 }

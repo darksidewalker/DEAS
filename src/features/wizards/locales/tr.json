@@ -254,5 +254,14 @@
   "wizards.movie.shot.loraStrength": "{name} gücü",
   "wizards.movie.shot.loraRemove": "{name} LoRA'sını kaldır",
   "wizards.movie.shot.loraAdd": "LoRA ekle",
-  "wizards.movie.shot.noLora": "Yüklü MiniMax H3 LoRA'sı yok."
+  "wizards.movie.shot.noLora": "Yüklü MiniMax H3 LoRA'sı yok.",
+  "wizards.movie.music.mode": "Müziğin filme katılma biçimi",
+  "wizards.movie.music.modeMix": "Bitmiş filmin altına karıştır (tam olarak sizin parçanız)",
+  "wizards.movie.music.modeH3": "Her çekimin ses referansı olarak H3'e ver",
+  "wizards.movie.music.hintH3": "H3, her kesme çekimi için parçanın o çekime düşen kısmını ses referansı olarak alır ve ondan kendi sesini üretir: müzik tarafından yönlendirilir ama onun kopyası değildir ve sonradan karıştırma yapılmaz (iki yol hiç birleştirilmez, müzik iki kez eklenmez). Yalnızca kadro resmi olan kesme çekimleri kullanabilir ve bir kesit 2–15 sn olmalıdır.",
+  "wizards.movie.music.trackUnknown": "Müzik dosyasının uzunluğu henüz okunamadı; birazdan tekrar deneyin.",
+  "wizards.movie.shot.audioNeedsPicture": "Bu çekimin kadro resmi yok; H3'ün ses referansı bir resim referansı da ister.",
+  "wizards.movie.shot.audioTrackShort": "Müzik parçası bu çekimin filmdeki yerinden kısa (parça / gereken):",
+  "wizards.movie.shot.audioNoChain": "Devam eden çekim zincirleri müziği ses referansı olarak alamaz (her adımın kendi kesiti gerekir); onları kesme yapın veya karıştırmayı kullanın.",
+  "wizards.movie.shot.audioClipLength": "H3 2–15 sn'lik ses referansı alır; bu çekim"
 }

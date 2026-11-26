@@ -8,7 +8,7 @@ import { applyPlan, h3ActualSeconds, planDiff, segmentLimits, type PlanCheck } f
 import { PLANNER_MAX_CHARS, listPlannerModels, logMovieNotice, plannerDestination, plannerPayload, requestPlan } from '../../lib/movieStoryRun';
 import { recordShotRun, shotHandoff } from '../../lib/movieSegments';
 import { chainHandoff, chainOf } from '../../lib/movieChainRun';
-import { MUSIC_FAMILIES, isRestrictedMusicFamily, mixMusic, mixPlan, musicHandoff, musicSeconds, pickMusic, recordGeneratedMusic, recordScore, setMusicPrompt } from '../../lib/movieMusic';
+import { MUSIC_FAMILIES, isRestrictedMusicFamily, mixMusic, musicInfo, mixPlan, musicHandoff, musicSeconds, pickMusic, recordGeneratedMusic, recordScore, setMusicPrompt } from '../../lib/movieMusic';
 import { AssemblyError, assemblyPlan, assembleMovie, recordFilm } from '../../lib/movieAssemble';
 import { realAssembleDeps, stopAssemblyJob } from '../../lib/movieAssembleRun';
 import type { JobStatus } from '../../lib/jobs';
@@ -67,7 +67,8 @@ export function MovieMaker({ modelsRoot, endpoint, models = null, onPrepare, out
   };
   const makeShot = (id: string, run: boolean) => {
     if (!onPrepare || !h3Model) return;
-    const r = shotHandoff(movie, id, { name: h3Model.name, path: h3Model.path }, run, convertFileSrc, env);
+    if (referenceMode && !track) { setError(t('wizards.movie.music.trackUnknown')); return; }
+    const r = shotHandoff(movie, id, { name: h3Model.name, path: h3Model.path }, run, convertFileSrc, env, track);
     if ('blocked' in r) { setError(r.detail ? `${t(r.blocked)} ${r.detail}` : t(r.blocked)); return; }
     setError(''); setNote(r.skipped ? t('wizards.movie.shot.skipped', { count: String(r.skipped) }) : '');
     sent.current = { n: (handoff ?? 0) + 1, id }; setShotState(run ? { id, state: 'queued' } : null);
@@ -77,7 +78,7 @@ export function MovieMaker({ modelsRoot, endpoint, models = null, onPrepare, out
   const makeChain = (id: string, run: boolean) => {
     const found = chainOf(movie, id);
     if (!onPrepare || !h3Model || !found) return;
-    const r = chainHandoff(movie, found.chain, found.index, { name: h3Model.name, path: h3Model.path }, run, convertFileSrc, env);
+    const r = chainHandoff(movie, found.chain, found.index, { name: h3Model.name, path: h3Model.path }, run, convertFileSrc, env, referenceMode);
     if ('blocked' in r) { setError(r.detail ? `${t(r.blocked)} ${r.detail}` : t(r.blocked)); return; }
     setError(''); setNote(r.skipped ? t('wizards.movie.shot.skipped', { count: String(r.skipped) }) : '');
     sent.current = { n: (handoff ?? 0) + 1, id }; setChainBusy(run); setShotState(run ? { id, state: 'queued' } : null);
@@ -169,6 +170,17 @@ export function MovieMaker({ modelsRoot, endpoint, models = null, onPrepare, out
   const music = movie.items.find(i => i.kind === 'music'), score = movie.items.find(i => i.kind === 'score');
   const musicPlan = mixPlan(movie);
   const [mixing, setMixing] = useState(false);
+  // Reference mode: the music goes to H3 as an audio reference of each cut shot (its slice of the track) instead of being mixed in afterwards.
+  const referenceMode = score?.mix?.mode === 'h3-reference' && !!music?.file;
+  const [trackSeconds, setTrackSeconds] = useState<number | null>(null);
+  useEffect(() => {
+    setTrackSeconds(null);
+    if (!native || !music?.file || score?.mix?.mode !== 'h3-reference') return;
+    let alive = true;
+    musicInfo(music.file).then(r => { if (alive) setTrackSeconds(r.seconds); }, () => undefined);
+    return () => { alive = false; };
+  }, [native, music?.file, score?.mix?.mode]); // eslint-disable-line react-hooks/exhaustive-deps
+  const track = referenceMode && music?.file && trackSeconds ? { path: music.file, seconds: trackSeconds } : undefined;
   const musicModels = models ? modelsForFamilies(MUSIC_FAMILIES, models) : [];
   const [musicPath, setMusicPath] = useState('');
   const musicModel = musicModels.find(x => x.path === musicPath) ?? musicModels[0];
@@ -404,12 +416,16 @@ export function MovieMaker({ modelsRoot, endpoint, models = null, onPrepare, out
         {music?.file && <span className="forge-note wizards-name" title={music.file} data-movie-music-file>{fileName(music.file)}</span>}
         {music?.file && <button type="button" className="forge-ghost" data-movie-music-clear onClick={() => change(m => setMusicFile(m, null))}>{t('wizards.movie.music.clear')}</button>}
       </div>
-      {score?.mix && <div className="wizards-fields">
+      {score?.mix?.mode === 'mix' && <div className="wizards-fields">
         {([['levelDb', 'level'], ['duckDb', 'duck'], ['fadeSeconds', 'fade']] as const).map(([key, label]) => <label className="forge-field" key={key}><span>{t(`wizards.movie.music.${label}`)}</span>
           <input type="number" data-movie-mix={key} min={MIX_LIMITS[key][0]} max={MIX_LIMITS[key][1]} step={key === 'fadeSeconds' ? 0.5 : 1} value={score.mix![key]}
             onChange={e => { const v = Number(e.target.value); if (Number.isFinite(v)) change(m => setMix(m, { [key]: v })); }}/></label>)}
       </div>}
-      {score?.mix && <p className="forge-note" data-movie-music-hint>{t('wizards.movie.music.hint')}</p>}
+      {score?.mix && <label className="forge-field"><span>{t('wizards.movie.music.mode')}</span>
+        <select data-movie-mix-mode value={score.mix.mode} onChange={e => change(m => setMix(m, { mode: e.target.value as 'mix' | 'h3-reference' }))}>
+          <option value="mix">{t('wizards.movie.music.modeMix')}</option><option value="h3-reference">{t('wizards.movie.music.modeH3')}</option>
+        </select></label>}
+      {score?.mix && <p className="forge-note" data-movie-music-hint>{t(score.mix.mode === 'mix' ? 'wizards.movie.music.hint' : 'wizards.movie.music.hintH3')}</p>}
       <div className="wizards-row">
         <button type="button" className="action-button" data-movie-music-run disabled={!!mixBlocked || mixing} title={mixBlocked || undefined} onClick={() => void mixIt()}>{t(mixing ? 'wizards.movie.music.mixing' : score?.state === 'done' ? 'wizards.movie.music.again' : 'wizards.movie.music.run')}</button>
         {mixBlocked && <span className="forge-note" data-movie-music-blocked>{mixBlocked}</span>}

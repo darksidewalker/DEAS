@@ -833,7 +833,7 @@ dependencies = [
 
 [[package]]
 name = "deas"
-version = "0.3.39"
+version = "0.3.40"
 dependencies = [
  "axum",
  "base64 0.22.1",

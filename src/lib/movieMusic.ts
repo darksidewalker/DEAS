@@ -18,6 +18,8 @@ export function mixPlan(m: MovieManifest): MixPlan {
 /** Mixes the music onto the film beside it under a fresh name; the original film is never changed. */
 export const mixMusic = (p: Extract<MixPlan, { ok: true }>) =>
   invoke<MixAnswer>('native_movie_mix', { request: { film: p.film, music: p.music, levelDb: p.mix.levelDb, duckDb: p.mix.duckDb, fadeSeconds: p.mix.fadeSeconds } });
+/** Length of a music file in seconds (native ffprobe; same file checks as the mix). */
+export const musicInfo = (path: string) => invoke<{ seconds: number }>('native_movie_music_info', { path });
 export const pickMusic = (title: string) => invoke<string | null>('native_movie_pick_music', { title });
 /** Records the scored film on the score item. */
 export function recordScore(m: MovieManifest, r: MixAnswer): MovieManifest {

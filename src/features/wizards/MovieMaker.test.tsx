@@ -557,3 +557,45 @@ it('a LoRA or model that is no longer installed blocks that shot with its name',
   expect(document.querySelector('[data-movie-shot-settings="seg-3"] [data-movie-lora-name] option')!.textContent).toContain('not installed');
   expect(onPrepare).not.toHaveBeenCalled();
 });
+
+it('reference mode: the music goes to H3 as each cut shot\'s slice of the track (no mix), chains are refused, the mix says why it is off', async () => {
+  llmReply = chainReply; llmBase = 'http://127.0.0.1:11434'; generated = [];
+  planMock([{ id: 'q', provider: 'local', name: 'q' }]);
+  const inner = vi.mocked(invoke).getMockImplementation()!;
+  vi.mocked(invoke).mockImplementation(async (command, args) => {
+    if (command === 'native_movie_pick_music') return '/music/bed.flac';
+    if (command === 'native_movie_music_info') return { seconds: 40 };
+    if (command === 'native_analysis_pick') return '/pics/anna.png';
+    return inner(command, args);
+  });
+  const onPrepare = vi.fn();
+  render(<I18nProvider><MovieMaker modelsRoot="/m" models={[h3] as any} onPrepare={onPrepare}/></I18nProvider>);
+  fireEvent.change(q('[data-movie-story]'), { target: { value: 'Anna runs.' } });
+  fireEvent.change(q('[data-movie-new-name]'), { target: { value: 'Anna' } });
+  fireEvent.click(q('[data-movie-add]'));
+  fireEvent.click(q('[data-movie-add-ref]'));
+  await waitFor(() => expect(document.querySelectorAll('[data-movie-ref]')).toHaveLength(1));
+  await waitFor(() => expect(q('[data-movie-llm]')).toBeTruthy());
+  fireEvent.click(q('[data-movie-plan-run]'));
+  await waitFor(() => expect(q('[data-movie-plan-apply]')).toBeTruthy());
+  fireEvent.click(q('[data-movie-plan-apply]'));
+  fireEvent.click(q('[data-movie-music-pick]'));
+  await waitFor(() => expect(q('[data-movie-music-file]').textContent).toBe('bed.flac'));
+  fireEvent.change(q('[data-movie-mix-mode]'), { target: { value: 'h3-reference' } });
+  expect(q('[data-movie-mix="levelDb"]')).toBeNull(); // mix settings do not apply in this mode
+  expect(q('[data-movie-music-hint]').textContent).toContain('audio reference');
+  expect(q('[data-movie-music-blocked]').textContent).toBe('This movie uses the H3-reference mode, which does not mix.');
+  await waitFor(() => expect(calls('native_movie_music_info')).toHaveLength(1));
+  // The chain of seg-1 + seg-2 cannot take the music as a reference.
+  fireEvent.click(document.querySelector('[data-movie-shot="seg-1"] [data-movie-shot-prepare]')!);
+  expect(q('[data-movie-error]').textContent).toContain('Chains of continued shots cannot take the music');
+  expect(onPrepare).not.toHaveBeenCalled();
+  // The cut shot seg-3 gets its slice: it starts where the chain ends (124 + 102 frames = 9.417 s).
+  fireEvent.click(document.querySelector('[data-movie-shot="seg-3"] [data-movie-shot-prepare]')!);
+  const h = onPrepare.mock.calls[0][0];
+  expect(h).toMatchObject({ strategy: 'seg-3', pipeline: 'ref2v', audioRef: { name: 'bed.flac', path: '/music/bed.flac', trimStart: 9.417, trimEnd: 14.417 } });
+  // Back to the mix: normal hand-over without an audio reference.
+  fireEvent.change(q('[data-movie-mix-mode]'), { target: { value: 'mix' } });
+  fireEvent.click(document.querySelector('[data-movie-shot="seg-3"] [data-movie-shot-prepare]')!);
+  expect(onPrepare.mock.calls[1][0].audioRef).toBeUndefined();
+});

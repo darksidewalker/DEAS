@@ -85,6 +85,8 @@ export interface WizardHandoff {
   music?: { style: string; lyrics: string; seconds: number };
   /** Movie Maker shot: this shot's LoRAs for its model (installed names, strengths); Generate's LoRA list is replaced by them. */
   loras?: { name: string; strength: number }[];
+  /** Movie Maker shot in the H3 audio-reference mode: the slice of the music track given to REF2VA as an audio reference (seconds into the track). */
+  audioRef?: { name: string; path: string; src: string; trimStart: number; trimEnd: number };
 }
 /** The picture a wizard's own run produced, in that job's native-held output folder. */
 export interface WizardRunPicture { path: string; width: number; height: number; seed: number; checkpoint: string; ms?: number; video?: boolean; /** A music job's audio file (width and height are 0). */ audio?: boolean }

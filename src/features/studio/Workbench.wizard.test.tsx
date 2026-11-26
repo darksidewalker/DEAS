@@ -504,3 +504,17 @@ test('a Movie Maker shot with LoRAs runs with exactly those LoRAs on its model a
   const intent = vi.mocked(runWorkbenchJob).mock.calls.at(-1)![1] as unknown as Record<string, any>;
   expect(intent).toMatchObject({ family: 'minimax-h3', model: 'h3.safetensors', positivePrompt: 'Anna runs', loras: [{ name: 'MiniMaxH3/style.safetensors', strength: 0.7 }] });
 });
+
+test('a Movie Maker shot in reference mode runs REF2VA with its pictures and its slice of the music track as an audio reference', async () => {
+  const { applied, props, view } = await videoWorkbench();
+  const pic = (n: string) => ({ name: n, path: `/pics/${n}`, src: `asset://localhost//pics/${n}` });
+  const handoff: WizardHandoff = { n: 71, wizard: 'movie', strategy: 'seg-2', pipeline: 'ref2v', source: 'movie', model: { name: 'h3.safetensors', path: '/m/h3' }, references: [pic('anna.png')], labels: [undefined], notes: ['Anna'],
+    audioRef: { name: 'bed.flac', path: '/music/bed.flac', src: 'asset://localhost//music/bed.flac', trimStart: 10.125, trimEnd: 15.125 }, seconds: 5, size: { width: 1216, height: 672 }, positive: 'Anna runs', run: true };
+  view.rerender(<I18nProvider><Workbench {...props} wizard={handoff}/></I18nProvider>);
+  await waitFor(() => expect(applied).toHaveBeenCalledWith(71, undefined, expect.objectContaining({ state: 'running' })), { timeout: 5000 });
+  const intent = vi.mocked(runWorkbenchJob).mock.calls.at(-1)![1] as unknown as Record<string, any>;
+  expect(intent.h3.mode).toBe('REF2VA');
+  const media = intent.h3.media as { type: string; file: string; trimStart?: number; trimEnd?: number }[];
+  expect(media.map(m => m.type)).toEqual(['image', 'audio']);
+  expect(media[1]).toMatchObject({ file: 'deas-inputs/bed.flac', trimStart: 10.125, trimEnd: 15.125 });
+});

@@ -254,5 +254,14 @@
   "wizards.movie.shot.loraStrength": "{name} 的强度",
   "wizards.movie.shot.loraRemove": "移除 LoRA {name}",
   "wizards.movie.shot.loraAdd": "添加 LoRA",
-  "wizards.movie.shot.noLora": "未安装 MiniMax H3 LoRA。"
+  "wizards.movie.shot.noLora": "未安装 MiniMax H3 LoRA。",
+  "wizards.movie.music.mode": "音乐如何加入影片",
+  "wizards.movie.music.modeMix": "混入成片下方（你的原曲）",
+  "wizards.movie.music.modeH3": "作为每个镜头的音频参考交给 H3",
+  "wizards.movie.music.hintH3": "H3 会为每个切镜镜头获得该镜头对应的音轨片段作为音频参考，并据此生成自己的声音：它受音乐引导，但不是音乐的拷贝，之后也不再混音（两种方式绝不会合用，因此音乐不会重复）。只有带角色图片的切镜镜头才能使用，且片段必须为 2–15 秒。",
+  "wizards.movie.music.trackUnknown": "暂时无法读取音乐文件的长度；请稍后再试。",
+  "wizards.movie.shot.audioNeedsPicture": "此镜头没有角色图片；H3 的音频参考还需要图片参考。",
+  "wizards.movie.shot.audioTrackShort": "音乐轨道比此镜头在影片中的位置短（轨道 / 需要）：",
+  "wizards.movie.shot.audioNoChain": "接续镜头链无法把音乐作为音频参考（每一步都需要自己的片段）；请改为切镜或使用混音。",
+  "wizards.movie.shot.audioClipLength": "H3 接受 2–15 秒的音频参考；此镜头时长为"
 }
