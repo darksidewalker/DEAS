@@ -233,5 +233,14 @@
   "wizards.movie.music.why.noFilm": "请先把镜头合成一部影片。",
   "wizards.movie.music.why.filmOutdated": "影片已过期；请先重新合成镜头。",
   "wizards.movie.music.why.mode": "此电影使用 H3 参考模式，该模式不混音。",
-  "wizards.movie.check.music": "{title}：音乐文件“{name}”缺失"
+  "wizards.movie.check.music": "{title}：音乐文件“{name}”缺失",
+  "wizards.movie.music.prompt": "描述音乐",
+  "wizards.movie.music.promptPlaceholder": "例如：平静的电影感钢琴与弦乐，缓慢、温暖、无人声",
+  "wizards.movie.music.model": "音乐模型",
+  "wizards.movie.music.licence": "此模型的权重采用 CC-BY-NC（非商业）许可。在已查阅的来源中，ACE-Step 1.5 没有这样的限制。",
+  "wizards.movie.music.prepare": "在 Generate 中准备",
+  "wizards.movie.music.generate": "生成音轨（{seconds} 秒）",
+  "wizards.movie.music.generating": "生成中 …",
+  "wizards.movie.music.noModel": "未安装 ACE-Step 或 YuE2 音乐模型。",
+  "wizards.movie.music.needPrompt": "请先描述音乐。"
 }

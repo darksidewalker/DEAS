@@ -439,3 +439,57 @@ it('a failed mix shows the error and records nothing', async () => {
   await waitFor(() => expect(q('[data-movie-error]').textContent).toBe('MOVIE_MIX_FFMPEG'));
   expect(q('[data-movie-scored-video]')).toBeNull();
 });
+
+const ace = { category: 'checkpoints', name: 'ace-step-1-5-turbo.safetensors', path: '/m/ace_turbo', size: 1, info: null, family: 'ace-step-1-5-turbo' };
+const yue = { category: 'checkpoints', name: 'yue2_3b.safetensors', path: '/m/yue2', size: 1, info: null, family: 'yue2' };
+const openMusic = async (models: unknown[]) => {
+  const m = scoredMovie(true);
+  stored[m.id] = JSON.stringify(m);
+  vi.mocked(invoke).mockImplementation(async (command, args) => {
+    if (command === 'native_movie_list') return { movies: [{ id: m.id, title: m.title, items: m.items.length, targetSeconds: m.targetSeconds, updated: 1 }], damaged: 0 };
+    if (command === 'native_movie_open') return stored[(args as any).id];
+    if (command === 'native_movie_check') return { missing: [], checked: 1, truncated: false };
+    return null;
+  });
+  const onPrepare = vi.fn();
+  const ui = (outcome?: any, handoff?: number) => <I18nProvider><MovieMaker modelsRoot="/m" endpoint="http://backend" models={models as any} onPrepare={onPrepare} outcome={outcome} handoff={handoff}/></I18nProvider>;
+  const view = render(ui());
+  fireEvent.click(await waitFor(() => { const b = q(`[data-movie-open="${m.id}"]`); expect(b).toBeTruthy(); return b; }));
+  await waitFor(() => expect(q('[data-movie-music]')).toBeTruthy());
+  return { onPrepare, ui, view };
+};
+
+it('music bed generation: needs a prompt, hands an instrumental ACE-Step draft of the film\'s length to Generate, and keeps the finished track as the music file', async () => {
+  const { onPrepare, ui, view } = await openMusic([ace, yue]);
+  expect(q('[data-movie-music-licence]')).toBeNull(); // ACE-Step first: no restriction note
+  fireEvent.click(q('[data-movie-music-generate]'));
+  expect(q('[data-movie-error]').textContent).toBe('Describe the music first.');
+  expect(onPrepare).not.toHaveBeenCalled();
+  fireEvent.change(q('[data-movie-music-prompt]'), { target: { value: 'calm piano' } });
+  fireEvent.click(q('[data-movie-music-generate]'));
+  expect(onPrepare.mock.calls[0][0]).toMatchObject({ wizard: 'movie', pipeline: 't2m', run: true, model: { path: '/m/ace_turbo' }, music: { style: 'calm piano', lyrics: '', seconds: 10 } });
+  expect(q('[data-movie-music-generate]').textContent).toBe('Generating …');
+  view.rerender(ui({ n: 1, run: { state: 'running' } }, 1));
+  expect((q('[data-movie-music-generate]') as HTMLButtonElement).disabled).toBe(true);
+  view.rerender(ui({ n: 1, run: { state: 'succeeded', job: { id: 'jm' }, picture: { path: '/out/audio/bed.flac', audio: true, width: 0, height: 0, seed: 1, checkpoint: 'ace' } } }, 1));
+  await waitFor(() => expect(q('[data-movie-music-file]').textContent).toBe('bed.flac'));
+  expect((q('[data-movie-music-generate]') as HTMLButtonElement).disabled).toBe(false);
+  expect(q('[data-movie-dirty]')).toBeTruthy();
+  // The choose button still works and replaces the generated track.
+  fireEvent.click(q('[data-movie-music-prepare]'));
+  expect(onPrepare.mock.calls[1][0]).toMatchObject({ run: false });
+});
+
+it('a failed generation shows the reason; YuE2 comes with its licence note; no music model says so', async () => {
+  const { ui, view } = await openMusic([yue]);
+  expect(q('[data-movie-music-licence]').textContent).toContain('CC-BY-NC');
+  fireEvent.change(q('[data-movie-music-prompt]'), { target: { value: 'x' } });
+  fireEvent.click(q('[data-movie-music-generate]'));
+  view.rerender(ui({ n: 1, run: { state: 'failed', error: 'out of memory' } }, 1));
+  await waitFor(() => expect(q('[data-movie-music-error]').textContent).toBe('out of memory'));
+  expect(q('[data-movie-music-file]')).toBeNull();
+  cleanup();
+  await openMusic([]);
+  expect(q('[data-movie-music-nomodel]').textContent).toBe('No ACE-Step or YuE2 music model is installed.');
+  expect((q('[data-movie-music-generate]') as HTMLButtonElement).disabled).toBe(true);
+});

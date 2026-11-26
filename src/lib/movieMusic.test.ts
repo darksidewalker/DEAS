@@ -27,3 +27,39 @@ it('the scored film is recorded on the score item', () => {
   expect([s.state, s.revisions.at(-1)!.result]).toEqual(['done', { outputId: '/out/final-scored.mp4', seconds: 10 }]);
   expect(() => recordScore(newMovie('x', 'x'), { path: '/p', seconds: 1, ducked: false })).toThrow(/no score/);
 });
+
+import { MUSIC_FAMILIES, isRestrictedMusicFamily, musicHandoff, musicSeconds, recordGeneratedMusic, setMusicPrompt } from './movieMusic';
+
+it('the bed is as long as the made film, else the planned shots, else the target', () => {
+  const planned = film(false);
+  expect(musicSeconds(planned)).toBe(5);
+  const made = completeItem(film(true), 'final', { outputId: '/out/final.mp4', seconds: 41.3 });
+  expect(musicSeconds(made)).toBe(42);
+  expect(musicSeconds(newMovie('x', 'x', 90))).toBe(90);
+  expect(musicSeconds(newMovie('x', 'x', 5000))).toBe(1000);
+});
+
+it('the hand-over is an instrumental text-to-music draft from the music prompt, and needs the prompt', () => {
+  const model = { name: 'ace-step-1-5-turbo.safetensors', path: '/m/ace' };
+  expect(musicHandoff(film(true), model, true)).toEqual({ blocked: 'wizards.movie.music.needPrompt' });
+  const m = setMusicPrompt(film(true), '  calm piano  ');
+  const r = musicHandoff(m, model, false);
+  expect(r).toEqual({ handoff: { wizard: 'movie', strategy: 'music', pipeline: 't2m', source: 'movie', model, positive: '', run: false, music: { style: 'calm piano', lyrics: '', seconds: 5 } } });
+  expect(setMusicPrompt(m, '  calm piano  ')).toBe(m); // unchanged text is not a new revision
+  expect(setMusicPrompt(newMovie('x', 'x'), 'a').items.map(i => i.id)).toEqual(['brief', 'music']);
+  expect(MUSIC_FAMILIES[0]).toBe('ace-step-1-5-turbo');
+  expect([isRestrictedMusicFamily('yue2'), isRestrictedMusicFamily('ace-step-1-5-turbo'), isRestrictedMusicFamily(null)]).toEqual([true, false, false]);
+});
+
+it('a generated track becomes the music file and result, makes the scored film outdated, and a failure marks the item failed', () => {
+  let m = setMusicPrompt(film(true), 'calm piano');
+  m = completeItem(m, 'score', { outputId: '/out/old-scored.mp4' });
+  const ok = recordGeneratedMusic(m, { state: 'succeeded', job: { id: 'j9' }, picture: { path: '/out/audio/bed.flac', audio: true } });
+  const music = ok.items.find(i => i.kind === 'music')!;
+  expect([music.file, music.state, music.revisions.at(-1)!.result]).toEqual(['/out/audio/bed.flac', 'done', { outputId: '/out/audio/bed.flac', jobId: 'j9' }]);
+  expect(ok.items.find(i => i.kind === 'score')!.state).toBe('stale');
+  expect(recordGeneratedMusic(m, { state: 'running' })).toBe(m);
+  expect(recordGeneratedMusic(m, { state: 'failed' }).items.find(i => i.kind === 'music')!.state).toBe('failed');
+  expect(recordGeneratedMusic(m, { state: 'succeeded', picture: { path: '/out/x.png' } }).items.find(i => i.kind === 'music')!.state).toBe('failed');
+  expect(recordGeneratedMusic(newMovie('x', 'x'), { state: 'failed' }).items.length).toBe(1);
+});

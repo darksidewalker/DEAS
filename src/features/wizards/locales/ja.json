@@ -233,5 +233,14 @@
   "wizards.movie.music.why.noFilm": "先にショットを 1 本の映画に結合してください。",
   "wizards.movie.music.why.filmOutdated": "映画が古くなっています。先にショットをもう一度結合してください。",
   "wizards.movie.music.why.mode": "この映画は H3 参照モードを使っており、ミックスしません。",
-  "wizards.movie.check.music": "{title}：音楽ファイル「{name}」がありません"
+  "wizards.movie.check.music": "{title}：音楽ファイル「{name}」がありません",
+  "wizards.movie.music.prompt": "音楽を説明",
+  "wizards.movie.music.promptPlaceholder": "例：落ち着いた映画的なピアノとストリングス、ゆっくり、温かい、ボーカルなし",
+  "wizards.movie.music.model": "音楽モデル",
+  "wizards.movie.music.licence": "このモデルの重みは CC-BY-NC（非商用）でライセンスされています。確認した資料では ACE-Step 1.5 にそのような制限はありません。",
+  "wizards.movie.music.prepare": "Generate で準備",
+  "wizards.movie.music.generate": "トラックを生成（{seconds} 秒）",
+  "wizards.movie.music.generating": "生成中 …",
+  "wizards.movie.music.noModel": "ACE-Step または YuE2 の音楽モデルがインストールされていません。",
+  "wizards.movie.music.needPrompt": "先に音楽を説明してください。"
 }

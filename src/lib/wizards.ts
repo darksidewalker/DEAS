@@ -69,7 +69,7 @@ export interface WizardPicture { name: string; path: string; src: string }
  * `mask` (masked edits with `run` only) is the *Replace what* text: Generate first masks the picture with its own SAM 3.1 text path, one mask layer per target, and starts the run only when a mask was found.
  */
 export interface WizardHandoff {
-  n: number; wizard: string; strategy: string; pipeline: 't2i' | 'i2i' | 'v2v' | 'i2v' | 't2v' | 'ref2v'; source: 'reference' | 'edit' | 'video' | 'movie'; edit?: 'inpaint' | 'resample';
+  n: number; wizard: string; strategy: string; pipeline: 't2i' | 'i2i' | 'v2v' | 'i2v' | 't2v' | 'ref2v' | 't2m'; source: 'reference' | 'edit' | 'video' | 'movie'; edit?: 'inpaint' | 'resample';
   model: { name: string; path: string }; picture?: WizardPicture; references?: WizardPicture[]; positive: string; size?: Size; run?: boolean; mask?: string; denoise?: number;
   /** Masked edits: grow the SAM mask by this many pixels and set Generate's Mask blur. */
   maskGrow?: number; maskBlur?: number;
@@ -81,9 +81,11 @@ export interface WizardHandoff {
   labels?: (string | undefined)[]; notes?: (string | undefined)[];
   /** Movie Maker chain: the chain's own in-memory continuity plan (steps = shots, in order) and the shot ids, step for step. Generate holds it apart from the user's saved plan. */
   continuity?: { plan: ContinuityPlan; shotIds: string[] };
+  /** Movie Maker music bed (`pipeline: 't2m'`): the style/tags, lyrics (empty = instrumental) and length of the track Generate should make. */
+  music?: { style: string; lyrics: string; seconds: number };
 }
 /** The picture a wizard's own run produced, in that job's native-held output folder. */
-export interface WizardRunPicture { path: string; width: number; height: number; seed: number; checkpoint: string; ms?: number; video?: boolean }
+export interface WizardRunPicture { path: string; width: number; height: number; seed: number; checkpoint: string; ms?: number; video?: boolean; /** A music job's audio file (width and height are 0). */ audio?: boolean }
 /**
  * Progress and outcome of a wizard run. Generate owns the submission, the queue and the polling; the wizard only shows
  * what its hand-over became and can stop that one job. `job` is the native-held status, kept so Stop targets it.

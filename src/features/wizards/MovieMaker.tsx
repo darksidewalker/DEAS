@@ -8,7 +8,7 @@ import { applyPlan, h3ActualSeconds, planDiff, segmentLimits, type PlanCheck } f
 import { PLANNER_MAX_CHARS, listPlannerModels, logMovieNotice, plannerDestination, plannerPayload, requestPlan } from '../../lib/movieStoryRun';
 import { recordShotRun, shotHandoff } from '../../lib/movieSegments';
 import { chainHandoff, chainOf } from '../../lib/movieChainRun';
-import { mixMusic, mixPlan, pickMusic, recordScore } from '../../lib/movieMusic';
+import { MUSIC_FAMILIES, isRestrictedMusicFamily, mixMusic, mixPlan, musicHandoff, musicSeconds, pickMusic, recordGeneratedMusic, recordScore, setMusicPrompt } from '../../lib/movieMusic';
 import { AssemblyError, assemblyPlan, assembleMovie, recordFilm } from '../../lib/movieAssemble';
 import { realAssembleDeps, stopAssemblyJob } from '../../lib/movieAssembleRun';
 import type { JobStatus } from '../../lib/jobs';
@@ -82,6 +82,13 @@ export function MovieMaker({ modelsRoot, endpoint, models = null, onPrepare, out
     if (!s || !outcome || outcome.n !== s.n) return;
     if (outcome.error) { setShotState({ id: s.id, state: 'failed', error: outcome.error }); sent.current = null; setChainBusy(false); return; }
     if (!r) return;
+    if (s.id === 'music') {
+      setShotState({ id: 'music', state: r.state, ...(r.error ? { error: r.error } : {}) });
+      if (r.state === 'queued' || r.state === 'running') return;
+      sent.current = null;
+      setMovie(m => recordGeneratedMusic(m, r)); setDirty(true);
+      return;
+    }
     const id = r.step?.shotId || s.id;
     setShotState({ id, state: r.state, ...(r.error ? { error: r.error } : {}) });
     if (r.state === 'queued' || r.state === 'running') return;
@@ -156,6 +163,18 @@ export function MovieMaker({ modelsRoot, endpoint, models = null, onPrepare, out
   const music = movie.items.find(i => i.kind === 'music'), score = movie.items.find(i => i.kind === 'score');
   const musicPlan = mixPlan(movie);
   const [mixing, setMixing] = useState(false);
+  const musicModels = models ? modelsForFamilies(MUSIC_FAMILIES, models) : [];
+  const [musicPath, setMusicPath] = useState('');
+  const musicModel = musicModels.find(x => x.path === musicPath) ?? musicModels[0];
+  const makeMusic = (run: boolean) => {
+    if (!onPrepare || !musicModel) return;
+    const r = musicHandoff(movie, { name: musicModel.name, path: musicModel.path }, run);
+    if ('blocked' in r) { setError(t(r.blocked)); return; }
+    setError(''); setNote('');
+    sent.current = { n: (handoff ?? 0) + 1, id: 'music' }; setShotState(run ? { id: 'music', state: 'queued' } : null);
+    onPrepare(r.handoff);
+  };
+  const generating = shotState?.id === 'music' && (shotState.state === 'queued' || shotState.state === 'running');
   const mixBlocked = !native ? t('wizards.movie.music.native') : musicPlan.ok ? '' : t(`wizards.movie.music.why.${musicPlan.why}`);
   const chooseMusic = async () => {
     try { const path = await pickMusic(t('wizards.movie.music.pickTitle')); if (path) change(m => setMusicFile(m, path)); }
@@ -168,6 +187,7 @@ export function MovieMaker({ modelsRoot, endpoint, models = null, onPrepare, out
     catch (e) { setError(e instanceof Error ? e.message : String(e)); }
     finally { setMixing(false); }
   };
+  const musicSecs = musicSeconds(movie);
   const scoredClip = score?.state === 'done' ? score.revisions.find(r => r.n === score.revision)?.result?.outputId : undefined;
   const filmClip = final?.state === 'done' ? final.revisions.find(r => r.n === final.revision)?.result?.outputId : undefined;
   const why = (w: string) => t(`wizards.movie.film.why.${w}`);
@@ -339,6 +359,17 @@ export function MovieMaker({ modelsRoot, endpoint, models = null, onPrepare, out
     {final && <div className="wizards-step" data-movie-music>
       <span className="forge-note">{t('wizards.movie.music.title')}</span>
       <p className="forge-note">{t('wizards.movie.music.intro')}</p>
+      <label className="forge-field"><span>{t('wizards.movie.music.prompt')}</span>
+        <textarea data-movie-music-prompt rows={2} maxLength={2000} value={music?.text ?? ''} placeholder={t('wizards.movie.music.promptPlaceholder')} onChange={e => change(m => setMusicPrompt(m, e.target.value))}/></label>
+      {musicModels.length > 1 && <label className="forge-field"><span>{t('wizards.movie.music.model')}</span>
+        <select data-movie-music-model value={musicModel?.path ?? ''} onChange={e => setMusicPath(e.target.value)}>{musicModels.map(x => <option key={x.path} value={x.path}>{x.name}</option>)}</select></label>}
+      {isRestrictedMusicFamily(musicModel?.family) && <p className="forge-note" data-movie-music-licence>{t('wizards.movie.music.licence')}</p>}
+      <div className="wizards-row">
+        <button type="button" className="forge-ghost" data-movie-music-prepare disabled={!native || !onPrepare || !musicModel || making} onClick={() => makeMusic(false)}>{t('wizards.movie.music.prepare')}</button>
+        <button type="button" className="action-button" data-movie-music-generate disabled={!native || !onPrepare || !musicModel || making} title={musicModel ? undefined : t('wizards.movie.music.noModel')} onClick={() => makeMusic(true)}>{t(generating ? 'wizards.movie.music.generating' : 'wizards.movie.music.generate', { seconds: String(musicSecs) })}</button>
+        {!musicModel && <span className="forge-note" data-movie-music-nomodel>{t('wizards.movie.music.noModel')}</span>}
+      </div>
+      {shotState?.id === 'music' && shotState.error && <p className="error-message" role="alert" data-movie-music-error>{shotState.error}</p>}
       <div className="wizards-row">
         <button type="button" className="forge-ghost" data-movie-music-pick disabled={!native} onClick={() => void chooseMusic()}>{t(music?.file ? 'wizards.movie.music.change' : 'wizards.movie.music.pick')}</button>
         {music?.file && <span className="forge-note wizards-name" title={music.file} data-movie-music-file>{fileName(music.file)}</span>}

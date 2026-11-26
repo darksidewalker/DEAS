@@ -1,4 +1,4 @@
-import { evidence, heldJob, ltxModels, referenceModels, referenceNodes, refsEvidence, collection, videoEvidence } from './Workbench.testHarness';
+import { evidence, heldJob, ltxModels, referenceModels, referenceNodes, refsEvidence, collection, videoEvidence, mountAce } from './Workbench.testHarness';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { expect, test, vi } from 'vitest';
 import { Workbench } from './Workbench';
@@ -470,4 +470,18 @@ test('a Movie Maker chain hand-over that asks to run starts Run all by itself an
   expect(steps[0]).toBe(0);
   expect(reports().find(r => r.state === 'succeeded')!.step.total).toBe(2);
   expect(JSON.parse(localStorage.getItem('deas.pref.studio.run.continuity') ?? '{"session":"none"}').session).not.toBe('mm-movie-x-c1');
+});
+
+test('a Movie Maker music bed hand-over fills the ACE-Step draft (style, no lyrics, the film\'s length), runs it, and reports the audio file', async () => {
+  const view = await mountAce();
+  const props = { endpoint: evidence.baseUrl, root: '/env', roots: { models: '/m' } };
+  const applied = vi.fn();
+  vi.mocked(pollWorkbench).mockImplementation(async () => collection(await Promise.all(vi.mocked(runWorkbenchJob).mock.results.map(async r => ({ ...(await r.value), state: 'succeeded' as const, outputRoot: '/out',
+    outputs: [{ filename: 'bed_00001_.flac', subfolder: 'audio', type: 'output' as const, format: 'audio/flac' }] })))));
+  const handoff: WizardHandoff = { n: 51, wizard: 'movie', strategy: 'music', pipeline: 't2m', source: 'movie', positive: '', run: true,
+    model: { name: 'ace-step-1-5-turbo.safetensors', path: '/m/checkpoints/ace-step-1-5-turbo.safetensors' }, music: { style: 'calm cinematic piano', lyrics: '', seconds: 42 } };
+  view.rerender(<I18nProvider><Workbench {...props} onWizardApplied={applied} wizard={handoff}/></I18nProvider>);
+  await waitFor(() => expect(runWorkbenchJob).toHaveBeenCalledTimes(1), { timeout: 6000 });
+  expect(vi.mocked(runWorkbenchJob).mock.calls[0][1]).toMatchObject({ recipeId: 'music-generation', family: 'ace-step-1-5-turbo', checkpoint: 'ace-step-1-5-turbo.safetensors', style: 'calm cinematic piano', lyrics: '', maxDuration: 42 });
+  await waitFor(() => expect(applied).toHaveBeenCalledWith(51, undefined, expect.objectContaining({ state: 'succeeded', picture: expect.objectContaining({ path: '/out/audio/bed_00001_.flac', audio: true, width: 0, height: 0, checkpoint: 'ace-step-1-5-turbo.safetensors' }) })), { timeout: 8000 });
 });

@@ -42,3 +42,10 @@ it('a hand-over that needs a picture and has none is refused', () => {
   expect(wizardDraft({ ...base, strategy: 'x', pipeline: 'i2i', source: 'edit' } as WizardHandoff, none, key)).toBeNull();
   expect(wizardDraft({ ...base, strategy: 'x', pipeline: 'i2v', source: 'video' } as WizardHandoff, none, key)).toBeNull();
 });
+
+it('Movie Maker music bed: a text-to-music draft with style, lyrics and length, no pictures or references', () => {
+  const h = { ...base, wizard: 'movie', strategy: 'music', pipeline: 't2m', source: 'movie', positive: '', music: { style: 'calm piano', lyrics: '', seconds: 42 } } as WizardHandoff;
+  const d = wizardDraft(h, none, key)!;
+  expect([d.media, d.imageRefs, d.music, d.seconds, d.video]).toEqual([null, [], { style: 'calm piano', lyrics: '', seconds: 42 }, undefined, { refs: [], sourceVideo: null }]);
+  expect(wizardDraft({ ...h, music: undefined }, none, key)).toBeNull();
+});

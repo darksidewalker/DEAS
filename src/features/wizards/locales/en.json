@@ -233,5 +233,14 @@
   "wizards.movie.music.why.noFilm": "Join the shots into one film first.",
   "wizards.movie.music.why.filmOutdated": "The film is outdated; join the shots again first.",
   "wizards.movie.music.why.mode": "This movie uses the H3-reference mode, which does not mix.",
-  "wizards.movie.check.music": "{title}: the music file “{name}” is missing"
+  "wizards.movie.check.music": "{title}: the music file “{name}” is missing",
+  "wizards.movie.music.prompt": "Describe the music",
+  "wizards.movie.music.promptPlaceholder": "e.g. calm cinematic piano and strings, slow, warm, no vocals",
+  "wizards.movie.music.model": "Music model",
+  "wizards.movie.music.licence": "This model's weights are licensed CC-BY-NC (non-commercial). ACE-Step 1.5 has no such restriction in the sources checked.",
+  "wizards.movie.music.prepare": "Prepare in Generate",
+  "wizards.movie.music.generate": "Generate the track ({seconds} s)",
+  "wizards.movie.music.generating": "Generating …",
+  "wizards.movie.music.noModel": "No ACE-Step or YuE2 music model is installed.",
+  "wizards.movie.music.needPrompt": "Describe the music first."
 }

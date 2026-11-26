@@ -1017,7 +1017,7 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
   if(size===null){fail(t('chat.render.badSize',{aspect:ask.aspect??'',resolution:ask.resolution??''}));return;}
   lastError.current='';
   void run(undefined,undefined,{positive:ask.positive,negative:ask.negative,...(size?{size}:{})}).then(started=>{
-   if(started)onChatRender?.(ask.id,{job:started.job,width:started.intent.width,height:started.intent.height,seed:started.intent.seed,checkpoint:'checkpoint' in started.intent?started.intent.checkpoint:started.intent.model});
+   if(started)onChatRender?.(ask.id,{job:started.job,width:'width' in started.intent?started.intent.width:0,height:'height' in started.intent?started.intent.height:0,seed:started.intent.seed,checkpoint:'checkpoint' in started.intent?started.intent.checkpoint:started.intent.model});
    else fail(lastError.current||t('chat.render.notStarted'));
   },e=>fail(e instanceof Error?e.message:String(e)));
  },[chatRender?.id]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -1047,7 +1047,7 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
  }
  /** `only` = Post-process: the refine/upscale pass alone on that image (an image-to-image job), without a first generation. */
  /** `step` = a continuity planner step (H3): its seconds and action replace the controls, and the finished job's clip is pinned to it. */
- async function run(only?:{image:string;size:Size;src:string;item:MediaItem;upscaleOnly?:boolean},step?:{index:number;all:boolean},chat?:{positive:string;negative:string;size?:Size}):Promise<{job:JobStatus;intent:DiagnosticImageIntentV1|VideoIntentV1}|undefined>{
+ async function run(only?:{image:string;size:Size;src:string;item:MediaItem;upscaleOnly?:boolean},step?:{index:number;all:boolean},chat?:{positive:string;negative:string;size?:Size}):Promise<{job:JobStatus;intent:DiagnosticImageIntentV1|VideoIntentV1|MusicIntentV1}|undefined>{
   if(!native||stopLock.current||admissionBlocked||samBusy||nativeRefining||scanning||((step||autoPlan||planRun.current||resolving)&&(!step||serialBlocked))||(moss&&only))return;
   if(step&&!continuityOn)return;
   if(!checkpoint){setError(t('studio.run.noModels'));return;}
@@ -1063,7 +1063,7 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
   if(naming===null){setError(t('studio.run.opt.outputNaming.invalid'));return;}
   const out=optionsPref.output??defaultVideoOutput;
   if(seedMode==='random'){nextSeed.current=randomSeed();setSeed(nextSeed.current);}
-  if(isMusic&&!only){await runMusic(naming,capturedSeed);return;}
+  if(isMusic&&!only)return await runMusic(naming,capturedSeed);
   // The started video job is returned like a picture job, so a wizard run can follow it.
   if(isVideo&&!only)return await runVideo(naming,out,capturedSeed,step);
   const layerSnapshot=layers.filter(l=>l.visible).map(l=>({...l}));const inputLayers=visibleImages(layerSnapshot);
@@ -1184,7 +1184,7 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
   if(pipeline==='cover')return {...base,mode:'cover',planning:'melody',maxDuration:musicDuration.cover,sourceAudio:sourceAudio??'',audioEncoder:musicEncoder};
   return musicPlanning==='off'?{...base,mode:'t2m',planning:'off',maxDuration:musicDuration.t2m}:{...base,mode:'t2m',planning:musicPlanning,maxDuration:musicDuration.t2m,abc:structuredClone(musicAbc)};
  }
- async function runMusic(naming:string,capturedSeed:number){
+ async function runMusic(naming:string,capturedSeed:number):Promise<{job:JobStatus;intent:MusicIntentV1}|undefined>{
   if(needsInput){setError(t(needsInput));return;}
   const sourcePath=pipeline==='cover'?musicSource?.path:undefined;
   if(pipeline==='cover'&&(!sourcePath||!musicEncoder)){setError(t(sourcePath?'studio.music.needsEncoder':'studio.music.needsSource'));return;}
@@ -1201,6 +1201,7 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
    admitted=true;
    const job=await runWorkbenchJob(endpoint,Object.freeze(intent),ticket.admissionEpoch);
    if(activeRun(ticket)){setJobs(list=>[job,...list.filter(j=>j.id!==job.id)]);setBrowsed(null);setSelectedOutput(0);setSlider(false);setSelectedJob(job.id);setRecentSeeds(list=>[intent.seed,...list.filter(s=>s!==intent.seed)].slice(0,10));}
+   return activeRun(ticket)?{job,intent}:undefined;
   }catch(e){if(activeRun(ticket))setError(e instanceof Error?e.message:String(e));}
   finally{finishRun(ticket,admitted);}
  }
@@ -1866,7 +1867,7 @@ const promptTools=forgeContext&&<>
  const [wizardStart,setWizardStart]=useState<number>();
  // A masked one-click run first waits for the editor to hold the picture, then masks it with SAM 3.1 from *Replace what*.
  const [wizardMask,setWizardMask]=useState<{n:number;targets:string[];grow:number}>();
- const wizardJob=useRef<{n:number;job:JobStatus;intent:DiagnosticImageIntentV1|VideoIntentV1}|undefined>(undefined);
+ const wizardJob=useRef<{n:number;job:JobStatus;intent:DiagnosticImageIntentV1|VideoIntentV1|MusicIntentV1}|undefined>(undefined);
  useEffect(()=>{
   if(!wizard||wizardApplied.current===wizard.n||models===null)return;
   wizardApplied.current=wizard.n;wizardJob.current=undefined;setWizardStart(undefined);setWizardMask(undefined);
@@ -1898,6 +1899,7 @@ const promptTools=forgeContext&&<>
   if(draft.edit)setEdit(draft.edit);
   if(draft.denoise)(draft.denoise.inpaint?setInpaintDenoise:setDenoise)(draft.denoise.value);
   if(draft.maskBlur!==undefined)setMaskBlur(draft.maskBlur);
+  if(draft.music){const mu=draft.music;setMusicStyle(mu.style);setMusicLyrics(mu.lyrics);if(aceMusicProfile(m.family))setAceDuration(mu.seconds);else setMusicDuration(d=>({...d,t2m:mu.seconds}));}
   if(wizard.size){setWidth(wizard.size.width);setHeight(wizard.size.height);setResolution('fixed');}
   // The strategy's measured CFG for this family (set after switchDraft's starting values; Beginner reapplies it below after its model reset).
   if(wizard.cfg!==undefined&&Number.isFinite(wizard.cfg))setCfg(wizard.cfg);
@@ -1951,12 +1953,12 @@ const promptTools=forgeContext&&<>
   if(found.state==='queued'||found.state==='running'){onWizardApplied?.(held.n,undefined,{state:found.state,job:found,...(found.progress?{value:found.progress.value,max:found.progress.max}:{}),...(found.preview?{preview:found.preview}:{})});return;}
   wizardJob.current=undefined;
   // A video step's result is its video; picture runs keep their picture (a video job's first-frame PNG is not the result).
-  const isVideoRun=held.intent.recipeId==='video-generation';
-  const output=isVideoRun?found.outputs.find(o=>o.format?.startsWith('video/')||/\.(mp4|webm|mkv|mov)$/i.test(o.filename)):found.outputs.find(o=>!o.format?.startsWith('video/'));
+  const isVideoRun=held.intent.recipeId==='video-generation',isMusicRun=held.intent.recipeId==='music-generation';
+  const output=isMusicRun?found.outputs.find(o=>o.format?.startsWith('audio/')||/\.(flac|wav|mp3|ogg|opus|m4a)$/i.test(o.filename)):isVideoRun?found.outputs.find(o=>o.format?.startsWith('video/')||/\.(mp4|webm|mkv|mov)$/i.test(o.filename)):found.outputs.find(o=>!o.format?.startsWith('video/'));
   const path=output&&found.state==='succeeded'?jobOutputPath(found,output):undefined;
   const problem=found.state!=='succeeded'?(found.error||t(found.state==='cancelled'?'wizards.run.cancelled':'wizards.run.failed')):(path?undefined:t('wizards.run.noFile'));
   onWizardApplied?.(held.n,undefined,{state:found.state,job:found,
-   ...(path?{picture:{path,width:held.intent.width,height:held.intent.height,seed:held.intent.seed,checkpoint:'checkpoint' in held.intent?held.intent.checkpoint:held.intent.model,...(found.metadata?.generationMs!=null?{ms:found.metadata.generationMs}:{}),...(isVideoRun?{video:true}:{})}}:{}),
+   ...(path?{picture:{path,width:'width' in held.intent?held.intent.width:0,height:'height' in held.intent?held.intent.height:0,seed:held.intent.seed,checkpoint:'checkpoint' in held.intent?held.intent.checkpoint:held.intent.model,...(found.metadata?.generationMs!=null?{ms:found.metadata.generationMs}:{}),...(isVideoRun?{video:true}:{}),...(isMusicRun?{audio:true}:{})}}:{}),
    ...(problem?{error:problem}:{})});
  },[jobs]); // eslint-disable-line react-hooks/exhaustive-deps
  // Movie Maker chain: report every step's job (progress, then the finished clip) with the shot it belongs to.

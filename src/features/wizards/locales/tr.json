@@ -233,5 +233,14 @@
   "wizards.movie.music.why.noFilm": "Önce çekimleri tek filmde birleştirin.",
   "wizards.movie.music.why.filmOutdated": "Film eskimiş; önce çekimleri yeniden birleştirin.",
   "wizards.movie.music.why.mode": "Bu film karıştırma yapmayan H3 referans modunu kullanıyor.",
-  "wizards.movie.check.music": "{title}: “{name}” müzik dosyası yok"
+  "wizards.movie.check.music": "{title}: “{name}” müzik dosyası yok",
+  "wizards.movie.music.prompt": "Müziği tarif edin",
+  "wizards.movie.music.promptPlaceholder": "örn. sakin, sinematik piyano ve yaylılar, yavaş, sıcak, vokalsiz",
+  "wizards.movie.music.model": "Müzik modeli",
+  "wizards.movie.music.licence": "Bu modelin ağırlıkları CC-BY-NC (ticari olmayan) lisanslıdır. ACE-Step 1.5'te incelenen kaynaklarda böyle bir kısıt yok.",
+  "wizards.movie.music.prepare": "Generate'te hazırla",
+  "wizards.movie.music.generate": "Parçayı üret ({seconds} sn)",
+  "wizards.movie.music.generating": "Üretiliyor …",
+  "wizards.movie.music.noModel": "Yüklü ACE-Step veya YuE2 müzik modeli yok.",
+  "wizards.movie.music.needPrompt": "Önce müziği tarif edin."
 }

@@ -233,5 +233,14 @@
   "wizards.movie.music.why.noFilm": "Сначала склейте кадры в один фильм.",
   "wizards.movie.music.why.filmOutdated": "Фильм устарел; сначала склейте кадры заново.",
   "wizards.movie.music.why.mode": "Этот фильм использует режим референса H3, который не микширует.",
-  "wizards.movie.check.music": "{title}: музыкальный файл «{name}» отсутствует"
+  "wizards.movie.check.music": "{title}: музыкальный файл «{name}» отсутствует",
+  "wizards.movie.music.prompt": "Опишите музыку",
+  "wizards.movie.music.promptPlaceholder": "например: спокойное кинематографичное фортепиано и струнные, медленно, тепло, без вокала",
+  "wizards.movie.music.model": "Музыкальная модель",
+  "wizards.movie.music.licence": "Веса этой модели распространяются по лицензии CC-BY-NC (некоммерческая). У ACE-Step 1.5 в проверенных источниках такого ограничения нет.",
+  "wizards.movie.music.prepare": "Подготовить в Generate",
+  "wizards.movie.music.generate": "Создать дорожку ({seconds} с)",
+  "wizards.movie.music.generating": "Создание …",
+  "wizards.movie.music.noModel": "Музыкальная модель ACE-Step или YuE2 не установлена.",
+  "wizards.movie.music.needPrompt": "Сначала опишите музыку."
 }

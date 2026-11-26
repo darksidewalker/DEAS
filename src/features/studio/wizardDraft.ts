@@ -21,6 +21,8 @@ export interface WizardDraft {
   edit?: 'resample' | 'inpaint';
   denoise?: { inpaint: boolean; value: number };
   maskBlur?: number;
+  /** Movie Maker music bed: style, lyrics and length for Generate's Music draft. */
+  music?: { style: string; lyrics: string; seconds: number };
 }
 const asImage = (p: WizardPicture): MediaItem => ({ name: p.name, path: p.path, src: p.src, media: 'image' });
 /**
@@ -33,6 +35,12 @@ export function wizardDraft(wizard: WizardHandoff, comfyName: (item: MediaItem) 
   const picture: MediaItem = wp ? asImage(wp) : { name: '', src: '', media: 'image' };
   const references = (wizard.references ?? []).map(r => ({ item: asImage(r), strength: 0.6 }));
   const seconds = wizard.seconds !== undefined && wizard.seconds > 0 ? { seconds: wizard.seconds } : {};
+  if (wizard.source === 'movie' && wizard.pipeline === 't2m') {
+    // A Movie Maker music bed: a text-to-music draft; no pictures, clips or references.
+    const mu = wizard.music;
+    if (!mu) return null;
+    return { imageRefs: [], media: null, wizardPicture: null, video: { refs: [], sourceVideo: null }, music: { style: mu.style, lyrics: mu.lyrics, seconds: mu.seconds } };
+  }
   if (wizard.source === 'movie') {
     // A Movie Maker shot: text only (t2v) or the cast pictures as REF2VA references (ref2v) — no first frame, no source video.
     const refs: VideoRef[] = (wizard.pipeline === 'ref2v' ? wizard.references ?? [] : []).map((r, i) => ({

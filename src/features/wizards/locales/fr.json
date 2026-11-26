@@ -233,5 +233,14 @@
   "wizards.movie.music.why.noFilm": "Assemblez d'abord les plans en un film.",
   "wizards.movie.music.why.filmOutdated": "Le film est obsolète ; assemblez à nouveau les plans d'abord.",
   "wizards.movie.music.why.mode": "Ce film utilise le mode référence H3, qui ne mixe pas.",
-  "wizards.movie.check.music": "{title} : le fichier musical « {name} » est introuvable"
+  "wizards.movie.check.music": "{title} : le fichier musical « {name} » est introuvable",
+  "wizards.movie.music.prompt": "Décrivez la musique",
+  "wizards.movie.music.promptPlaceholder": "p. ex. piano et cordes cinématographiques, calmes, lents, chaleureux, sans voix",
+  "wizards.movie.music.model": "Modèle musical",
+  "wizards.movie.music.licence": "Les poids de ce modèle sont sous licence CC-BY-NC (non commercial). ACE-Step 1.5 n'a pas cette restriction dans les sources vérifiées.",
+  "wizards.movie.music.prepare": "Préparer dans Generate",
+  "wizards.movie.music.generate": "Générer la piste ({seconds} s)",
+  "wizards.movie.music.generating": "Génération …",
+  "wizards.movie.music.noModel": "Aucun modèle musical ACE-Step ou YuE2 n'est installé.",
+  "wizards.movie.music.needPrompt": "Décrivez d'abord la musique."
 }
