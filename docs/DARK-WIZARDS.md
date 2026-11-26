@@ -33,7 +33,7 @@ The picture to change can also be an MP4, MOV, WebM or MKV video (drop, paste or
 
    The wizard says plainly that strongly moving shots are not reliable yet with either method. It uses the first 5 seconds of the clip at most (the clip's own length when it is shorter), at the video model's usual pixel count in the clip's aspect, on that model's 32-pixel grid.
 
-**Run both steps** edits the frame through Generate and, when that picture is done, hands the edited frame to the chosen video method and runs it there — both are ordinary Generate jobs in the queue with their Run Plan, Stop and history. **Edit the first frame** runs only step 1; after any finished frame edit, **Run the video step** reuses that edited frame (for example to try the other method) without editing the frame again. The video result plays in the wizard and is in Generate's queue and Media. A video method without an installed model is greyed out with *No installed model for this video method*. The video model list is sorted by name; pick the model you want before running (an H3 base model runs at its family's starting settings, a Turbo model at its own).
+**Run both steps** edits the frame through Generate and, when that picture is done, hands the edited frame to the chosen video method and runs it there — both are ordinary Generate jobs in the queue with their Run Plan, Stop and history. **Edit the first frame** runs only step 1; after any finished frame edit, **Run the video step** reuses that edited frame (for example to try the other method) without editing the frame again. The video result plays in the wizard and is in Generate's queue and Media. A video method without an installed model is greyed out with *No installed model for this video method*. The video model list is sorted by the method's family order, then Turbo/distilled/int8/fp8 files first, then by name (so the default is the faster variant of the family); pick the model you want before running (an H3 base model runs at its family's starting settings, a Turbo model at its own).
 
 ### In Beginner
 
@@ -56,3 +56,42 @@ A wizard is a data entry in `src/wizards/builtin.json`: its input fields, whethe
 ## Not yet included
 
 The planned Mood, Movie Maker and Grid Generator wizards are tracked in the [plan](PLAN.md#ux-22--dark-wizards-tab--replace-priority-1-movie-maker-mood-grid-generator).
+
+## Movie Maker
+
+**Movie Maker** (below *Replace* in the wizard list) is the planning front of a multi-step film wizard. In this version it covers two stages and nothing else:
+
+1. **Brief** — title, story, total length (1–600 s) and aspect ratio.
+2. **Cast and references** — one entry per actor, location, prop or style with a name, a description and any number of reference pictures (up to 16 per entry, chosen with **Add a reference picture**; the files stay where they are). A **Locked** entry cannot be edited, re-pictured or removed until you unlock it.
+
+**Save movie** writes the plan to the `movies` folder under DEAS' app data (atomic write, one file per movie); **Saved movies** lists and reopens them. Reopening never starts, resumes or resubmits anything, and a damaged, oversized or newer file is reported ("N damaged movie file(s) were skipped") and left exactly as it is. Nothing here generates a picture, analyses a reference or contacts a model: authoring only edits the plan. Every edit keeps the earlier text as a revision, and editing an entry marks everything built from it later (story, voices, segments, the final film) as stale with a bounded rerun plan — those stages arrive in later versions (see the plan, UX-22d3 onward). Pasting a path is not used for Movie Maker; use **Add a reference picture**. Beginner's **Wizards** page shows the same Movie Maker entry.
+
+### Story plan
+
+Below the cast, **Story plan** asks a language model to turn the brief and cast into a **story bible** and a list of **shots**.
+
+- **Model:** pick any model DEAS knows (local GGUF, Ollama, OpenAI-compatible; the list is Prompt Forge's and nothing you pick here becomes a default). Without a model the button says why.
+- **What is sent:** the title, aspect, target length, story text and the cast (id, kind, name, description). **Reference pictures are never sent.** A brief plus cast above 6000 characters is refused instead of truncated (the planner's window is 4096 tokens).
+- **External servers:** if the endpoint is not on this computer, a confirmation names the host, the characters and the cast entries before anything is sent; *Cancel* sends nothing. A loopback endpoint (`localhost`, `127.x`, `::1`) and local GGUF models need no confirmation. There is no fallback from a local to a remote model.
+- **The proposal:** the answer is validated strictly (known cast ids, segment limits, 0.5 s steps, no continued first shot, only actors speak). If it is not usable you see the reasons and nothing changes. A usable one shows what *Apply plan* would do: new / changed / unchanged / locked-and-kept / removed shots, the story text state, finished items that would become stale, and a length note when the plan does not add up to the target.
+- **After applying:** edit the story bible, each shot's title, camera/action text, seconds and *Continues the previous shot*, and lock any of them. Each shot shows the seconds MiniMax H3 will actually produce (24 fps; a new take is 17k+5 frames, a continued shot's visible part whole 17-frame steps), and the footer compares planned, produced and target totals. Segment limits come from the family data (2–15 s in 0.5 s steps, unverified).
+- Nothing is rendered by this step: shots, dialogue and entry/exit states are plan data for the segment stage that follows.
+
+### Making the shots
+
+Every shot in the **Story stage** has **Prepare in Generate** (fills Generate with the shot's draft and switches there; nothing runs) and **Make this shot** (runs the draft through Generate's normal Run, queue and Stop, and stays in Movie Maker to show progress and the finished clip).
+
+- **What is made:** a shot that starts a new take — the first shot, or any shot not marked *Continues the previous shot* — as a MiniMax H3 draft. Without pictures in its cast entries it is text-to-video; with pictures it is REF2VA and the pictures (up to 12, in cast order; videos and other files are skipped and the count is shown) are the references, with the cast description as each picture's note and the picture label *place* (locations) or *style* (styles). The prompt is the camera/action text plus *At the start* / *At the end* states and the spoken lines (*Anna says: "…" (delivery)*); a shot without pictures also gets the cast descriptions. Seconds and canvas come from the shot and the movie's aspect ratio; the Run Plan shows the real frame count.
+- **Result:** a finished clip is stored as the shot's result (file path and job) and plays under the shot; a failed or cancelled run marks the shot failed with the reason. Editing a shot afterwards marks it *outdated*; earlier results stay in its revision history.
+- **Model:** the installed MiniMax H3 file, Turbo/int8 first; choose another when several exist.
+- **Not yet:** shots that continue the previous one (they need H3 Continuity and are blocked with a reason), voices/music, and joining the shots into one film. Save the movie to keep the recorded results.
+
+### Joining the film
+
+The **Film** step sits under the shots. It is enabled when every shot is made, up to date and a video file; otherwise it lists each shot that is not (*not made yet*, *outdated*, *failed*, *its result is not a video file*, *continues the previous shot*).
+
+**Join the shots into one film** copies each shot's clip into the backend's Input folder (in plan order), asks the node pack's own join check, and then runs the same **Join clips** recipe as Continuity with smooth audio seams. Shots are cuts, so the clips are concatenated, not blended. **Stop** cancels the copy or the join job. The finished film plays under the step and is recorded on the movie (save the movie to keep it). If the joined length differs from the shots' total by more than 0.25 s you get a note. Editing a shot, the story or the cast afterwards marks the film *outdated*; a refused or failed join records nothing and shows the reason. Needs the desktop app and a running backend.
+
+### When files are missing on reopen
+
+After **Saved movies → open**, Movie Maker checks which recorded clips (shots and the film) and cast reference pictures are no longer on disk and lists them with the shot or cast name. It only checks that each file still exists; nothing is opened or changed. **Mark the missing clips as not made** resets those shots to *not made yet* and marks the film and anything built from them outdated (earlier results stay in the history); missing reference pictures stay as they are until you replace or remove them. A movie opens whether or not files are missing.

@@ -130,6 +130,32 @@ pub fn native_logs_library_error(operation: String) {
     );
 }
 
+/// Fixed Movie Maker story-planning notices; no story text, cast names, model output or endpoint address is accepted.
+#[tauri::command]
+pub fn native_logs_movie_notice(operation: String) {
+    let (slot, message) = match operation.as_str() {
+        "plan-remote" => (0, "INFO: Movie Maker story planning: the request was sent to the configured external LLM endpoint after explicit confirmation"),
+        "plan-failed" => (1, "ERROR: Movie Maker story planning: the language model request failed"),
+        "plan-invalid" => (2, "WARN: Movie Maker story planning: the answer did not form a valid plan; nothing was applied"),
+        "plan-applied" => (3, "INFO: Movie Maker story planning: an approved plan was applied to the movie"),
+        "join-blocked" => (4, "WARN: Movie Maker assembly: the shots were not joined (a shot is missing, outdated or its clip is unusable, or the join check refused them)"),
+        "join-failed" => (5, "ERROR: Movie Maker assembly: copying the clips or running the join failed"),
+        "join-done" => (6, "INFO: Movie Maker assembly: the shots were joined into one film"),
+        "join-cancelled" => (7, "INFO: Movie Maker assembly: the join was stopped"),
+        _ => return,
+    };
+    static LAST: Mutex<[Option<std::time::Instant>; 8]> = Mutex::new([None; 8]);
+    let mut last = LAST.lock().unwrap_or_else(|e| e.into_inner());
+    if last[slot].is_some_and(|at| at.elapsed() < std::time::Duration::from_secs(60)) {
+        return;
+    }
+    last[slot] = Some(std::time::Instant::now());
+    push(
+        Source::Deas,
+        &format!("{message} (repeats limited to once per operation per minute)"),
+    );
+}
+
 /// Fixed beginner-interface diagnostics; never accept paths, prompts or remote error text.
 #[tauri::command]
 pub fn native_logs_beginner_error(operation: String) {
@@ -305,6 +331,38 @@ pub async fn native_logs_export(title: String, text: String) -> Result<bool, Str
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn movie_notices_are_fixed_rate_limited_and_registered() {
+        let start = native_logs(0).last().map_or(0, |e| e.seq);
+        native_logs_movie_notice("my secret story".into());
+        for op in [
+            "plan-remote",
+            "plan-failed",
+            "plan-invalid",
+            "plan-applied",
+            "join-blocked",
+            "join-failed",
+            "join-done",
+            "join-cancelled",
+        ] {
+            native_logs_movie_notice(op.into());
+            native_logs_movie_notice(op.into());
+        }
+        let entries: Vec<_> = native_logs(start)
+            .into_iter()
+            .filter(|e| {
+                e.text.contains("Movie Maker story planning")
+                    || e.text.contains("Movie Maker assembly")
+            })
+            .collect();
+        assert_eq!(entries.len(), 8);
+        assert!(entries
+            .iter()
+            .all(|e| e.source == Source::Deas && !e.text.contains("secret")));
+        assert!(include_str!("main.rs").contains("deas::native_logs_movie_notice"));
+        assert!(include_str!("../permissions/logs.toml").contains("native_logs_movie_notice"));
+    }
 
     #[test]
     fn library_gallery_errors_are_shared_fixed_and_rate_limited() {

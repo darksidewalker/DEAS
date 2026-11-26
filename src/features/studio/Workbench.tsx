@@ -1878,9 +1878,19 @@ const promptTools=forgeContext&&<>
   switchDraft(wizard.pipeline,m,true);
   setHistoryDraft(null);setLoras([]);
   sourceEpoch.current++;setEditorSnapshot(undefined);setLayers([]);setMasked(false);setMediaSize(null);setBrowsed(null);setSelectedJob('');
-  const picture:MediaItem={name:wizard.picture.name,path:wizard.picture.path,src:wizard.picture.src,media:'image'};
+  const wp=wizard.picture;
+  if(wizard.source!=='movie'&&!wp){fail('wizards.handoff.model');return;}
+  const picture:MediaItem={name:wp?.name??'',path:wp?.path,src:wp?.src??'',media:'image'};
   const references=(wizard.references??[]).map(r=>({item:{name:r.name,path:r.path,src:r.src,media:'image' as const},strength:0.6}));
-  if(wizard.source==='reference'){setMedia(null);setImageRefs([{item:picture,strength:0.6},...references]);}
+  if(wizard.source==='movie'){
+   // A Movie Maker shot: text only (t2v) or the cast pictures as REF2VA references (ref2v) — no first frame, no source video, no continuity.
+   setImageRefs([]);setLastFrame(null);setLastOnlySrc(null);setMedia(null);setWizardPicture(null);setSourceVideo(null);setSourceVideoSize(null);setRefmods([]);
+   const picks:VideoRef[]=(wizard.pipeline==='ref2v'?wizard.references??[]:[]).map((r,i)=>({item:{name:r.name,path:r.path,src:r.src,media:'image' as const},second:0,strength:1,mediaMode:'video' as const,uiKey:crypto.randomUUID(),
+    ...(wizard.labels?.[i]?{label:wizard.labels[i]}:{}),...(wizard.notes?.[i]?{description:wizard.notes[i]}:{})}));
+   setRefs(picks);
+   if(wizard.seconds!==undefined&&wizard.seconds>0){const seconds=wizard.seconds;setVideo(v=>({...v,seconds}));}
+  }
+  else if(wizard.source==='reference'){setMedia(null);setImageRefs([{item:picture,strength:0.6},...references]);}
   else if(wizard.source==='video'){
    // Video step of a Replace: the edited first frame is the first frame; LTX video-to-video also keeps the clip as its guide.
    setImageRefs([]);setRefs([]);setLastFrame(null);setLastOnlySrc(null);setMedia(picture);setWizardPicture(null);
@@ -1888,7 +1898,7 @@ const promptTools=forgeContext&&<>
    if(wizard.sourceStrength!==undefined&&isUnit(wizard.sourceStrength))setSourceStrength(wizard.sourceStrength);
    if(wizard.seconds!==undefined&&wizard.seconds>0){const seconds=wizard.seconds;setVideo(v=>({...v,seconds}));}
   }
-  else {setImageRefs(references);setMedia(picture);setWizardPicture(comfyName(picture)?null:{path:wizard.picture.path,name:wizard.picture.name});if(wizard.edit)setEdit(wizard.edit);if(wizard.denoise!==undefined)(wizard.edit==='inpaint'?setInpaintDenoise:setDenoise)(wizard.denoise);if(wizard.maskBlur!==undefined&&isMaskBlur(wizard.maskBlur))setMaskBlur(wizard.maskBlur);}
+  else {setImageRefs(references);setMedia(picture);setWizardPicture(comfyName(picture)?null:{path:picture.path??'',name:picture.name});if(wizard.edit)setEdit(wizard.edit);if(wizard.denoise!==undefined)(wizard.edit==='inpaint'?setInpaintDenoise:setDenoise)(wizard.denoise);if(wizard.maskBlur!==undefined&&isMaskBlur(wizard.maskBlur))setMaskBlur(wizard.maskBlur);}
   if(wizard.size){setWidth(wizard.size.width);setHeight(wizard.size.height);setResolution('fixed');}
   // The strategy's measured CFG for this family (set after switchDraft's starting values; Beginner reapplies it below after its model reset).
   if(wizard.cfg!==undefined&&Number.isFinite(wizard.cfg))setCfg(wizard.cfg);

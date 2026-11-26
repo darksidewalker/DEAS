@@ -71,6 +71,7 @@ pub use jobs::{
 };
 pub mod model_check;
 pub mod model_families;
+pub mod movie_store;
 pub mod music_source;
 pub mod recipe_prerequisites;
 pub mod wildcard;
@@ -148,7 +149,7 @@ pub use install::{
 pub use logs::{
     native_logs, native_logs_beginner_error, native_logs_comfy_drop_error,
     native_logs_continuity_join_notice, native_logs_export, native_logs_library_error,
-    native_logs_people_image_error, native_logs_prompt_notes_error,
+    native_logs_movie_notice, native_logs_people_image_error, native_logs_prompt_notes_error,
     native_logs_reference_media_error,
 };
 

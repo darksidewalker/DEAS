@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { builtinWizards, editGrid, preferredChoice, strategyCfg, strategyPrompt, videoPrompt, videoSeconds, wizardVideoChoices, usesObject, validWizard, wizardCanvas, wizardChoices, wizardPrompt, wizardReady, type WizardModel } from '../src/lib/wizards.ts';
+import { builtinWizards, editGrid, preferredChoice, strategyCfg, strategyPrompt, videoPrompt, quickVariant, videoSeconds, wizardVideoChoices, usesObject, validWizard, wizardCanvas, wizardChoices, wizardPrompt, wizardReady, type WizardModel } from '../src/lib/wizards.ts';
 
 const replace = builtinWizards.find(w => w.id === 'replace')!;
 const model = (name: string, family: string | null, category = 'diffusion_models'): WizardModel => ({ name, family, category, path: `/m/${name}` });
@@ -132,4 +132,14 @@ test('Replace offers both measured video methods (owner decision): LTX edit at g
   assert.equal(videoSeconds(3.27, 5), 3.2);
   assert.equal(videoSeconds(0.4, 5), 1);
   assert.equal(videoSeconds(0, 5), undefined);
+});
+
+test('video step defaults to the Turbo/int8 variant of its family, then by name', () => {
+  const m = (name: string, family: string): WizardModel => ({ name, path: '/m/' + name, category: 'diffusion_models', family }) as WizardModel;
+  const method = builtinWizards[0].video!.find(v => v.id === 'reanimate')!;
+  const out = wizardVideoChoices([method], [m('a_full_bf16.safetensors', 'minimax-h3'), m('z_h3_turbo_int8.safetensors', 'minimax-h3'), m('b_fp16.safetensors', 'minimax-h3')]);
+  assert.equal(out[0].models[0].name, 'z_h3_turbo_int8.safetensors');
+  assert.deepEqual(out[0].models.slice(1).map(x => x.name), ['a_full_bf16.safetensors', 'b_fp16.safetensors']);
+  assert.equal(quickVariant('turbonado.safetensors'), false);
+  assert.equal(quickVariant('ltx-2.3_distilled.safetensors'), true);
 });

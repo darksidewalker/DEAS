@@ -383,3 +383,28 @@ test('Beginner runs the Replace re-animate step at the wizard length and keeps t
   await waitFor(() => expect(vi.mocked(runWorkbenchJob).mock.calls.length).toBeGreaterThan(1));
   expect((vi.mocked(runWorkbenchJob).mock.calls.at(-1)![1] as unknown as { frames: number }).frames).toBe(frames);
 });
+
+test('a Movie Maker shot without pictures runs H3 text-to-video at its seconds and canvas', async () => {
+  const { applied, props, view } = await videoWorkbench();
+  const handoff: WizardHandoff = { n: 31, wizard: 'movie', strategy: 'seg-2', pipeline: 't2v', source: 'movie', model: { name: 'h3.safetensors', path: '/m/h3' },
+    seconds: 5, size: { width: 1216, height: 672 }, positive: 'Ben hides in the alley', run: true };
+  view.rerender(<I18nProvider><Workbench {...props} wizard={handoff}/></I18nProvider>);
+  await waitFor(() => expect(applied).toHaveBeenCalledWith(31, undefined, expect.objectContaining({ state: 'running' })), { timeout: 4000 });
+  const intent = vi.mocked(runWorkbenchJob).mock.calls.at(-1)![1] as unknown as Record<string, any>;
+  expect(intent).toMatchObject({ family: 'minimax-h3', model: 'h3.safetensors', width: 1216, height: 672, frames: 124, positivePrompt: 'Ben hides in the alley' });
+  expect(intent.h3).toMatchObject({ mode: 'T2VA' });
+  expect(intent.sourceVideo).toBeUndefined();
+});
+
+test('a Movie Maker shot with cast pictures runs H3 REF2VA with those pictures as labelled references', async () => {
+  const { applied, props, view } = await videoWorkbench();
+  const pic = (n: string) => ({ name: n, path: `/pics/${n}`, src: `asset://localhost//pics/${n}` });
+  const handoff: WizardHandoff = { n: 32, wizard: 'movie', strategy: 'seg-1', pipeline: 'ref2v', source: 'movie', model: { name: 'h3.safetensors', path: '/m/h3' },
+    references: [pic('anna.png'), pic('street.png')], labels: [undefined, 'place'], notes: ['Anna: tall', 'Street: wet'], seconds: 5, size: { width: 1216, height: 672 }, positive: 'Anna runs', run: true };
+  view.rerender(<I18nProvider><Workbench {...props} wizard={handoff}/></I18nProvider>);
+  await waitFor(() => expect(applied).toHaveBeenCalledWith(32, undefined, expect.objectContaining({ state: 'running' })), { timeout: 4000 });
+  const intent = vi.mocked(runWorkbenchJob).mock.calls.at(-1)![1] as unknown as Record<string, any>;
+  expect(intent).toMatchObject({ family: 'minimax-h3', positivePrompt: 'Anna runs' });
+  expect(intent.h3.mode).toBe('REF2VA');
+  expect(intent.h3.media.filter((m: { type: string }) => m.type === 'image')).toHaveLength(2);
+});

@@ -422,3 +422,14 @@ it('without a model for any video method the video step says so and stays closed
   expect(screen.getAllByText('No installed model for this video method.').length).toBeGreaterThan(0);
   expect((screen.getByRole('button', { name: 'Run both steps' }) as HTMLButtonElement).disabled).toBe(true);
 });
+
+it('lists Movie Maker next to Replace and swaps the form without touching Replace state', async () => {
+  vi.mocked(invoke).mockImplementation(async (command) => command === 'native_models_scan' ? models : command === 'native_movie_list' ? { movies: [], damaged: 0 } : null);
+  render(<I18nProvider><DarkWizards active roots={{ models: '/m' }} onPrepare={() => {}}/></I18nProvider>);
+  expect(document.querySelector('[data-wizard-form="replace"]')).toBeTruthy();
+  fireEvent.click(document.querySelector('[data-wizard="movie"]')!);
+  expect(document.querySelector('[data-wizard-form="movie"]')).toBeTruthy();
+  expect(document.querySelector('[data-wizard-form="replace"]')).toBeNull();
+  fireEvent.click(document.querySelector('[data-wizard="replace"]')!);
+  expect(document.querySelector('[data-wizard-form="replace"]')).toBeTruthy();
+});

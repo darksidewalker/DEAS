@@ -68,14 +68,16 @@ export interface WizardPicture { name: string; path: string; src: string }
  * `mask` (masked edits with `run` only) is the *Replace what* text: Generate first masks the picture with its own SAM 3.1 text path, one mask layer per target, and starts the run only when a mask was found.
  */
 export interface WizardHandoff {
-  n: number; wizard: string; strategy: string; pipeline: 't2i' | 'i2i' | 'v2v' | 'i2v'; source: 'reference' | 'edit' | 'video'; edit?: 'inpaint' | 'resample';
-  model: { name: string; path: string }; picture: WizardPicture; references?: WizardPicture[]; positive: string; size?: Size; run?: boolean; mask?: string; denoise?: number;
+  n: number; wizard: string; strategy: string; pipeline: 't2i' | 'i2i' | 'v2v' | 'i2v' | 't2v' | 'ref2v'; source: 'reference' | 'edit' | 'video' | 'movie'; edit?: 'inpaint' | 'resample';
+  model: { name: string; path: string }; picture?: WizardPicture; references?: WizardPicture[]; positive: string; size?: Size; run?: boolean; mask?: string; denoise?: number;
   /** Masked edits: grow the SAM mask by this many pixels and set Generate's Mask blur. */
   maskGrow?: number; maskBlur?: number;
   /** Generate's CFG for this draft (the strategy's per-family value). */
   cfg?: number;
   /** Video step (`source: 'video'`): `picture` is the edited first frame; `sourceVideo` the clip (`v2v` only) with its guide strength; `seconds` the length. */
   sourceVideo?: WizardPicture; sourceStrength?: number; seconds?: number;
+  /** Movie Maker shot (`source: 'movie'`, `t2v` or `ref2v`): there is no `picture`; `references` are the cast pictures, `labels`/`notes` the Director picture label and the description per reference (same order). */
+  labels?: (string | undefined)[]; notes?: (string | undefined)[];
 }
 /** The picture a wizard's own run produced, in that job's native-held output folder. */
 export interface WizardRunPicture { path: string; width: number; height: number; seed: number; checkpoint: string; ms?: number; video?: boolean }
@@ -156,14 +158,20 @@ export function wizardChoices(wizard: WizardDescriptor, models: readonly WizardM
       .sort((a, b) => strategy.families.indexOf(a.family!) - strategy.families.indexOf(b.family!) || a.name.localeCompare(b.name)),
   }));
 }
+/** Installed diffusion models of the given families, in family order, quick variants first, then by name. */
+export const modelsForFamilies = (famIds: readonly string[], models: readonly WizardModel[]): WizardModel[] =>
+  models.filter(m => modelCategories.includes(m.category) && !!m.family && famIds.includes(m.family))
+    .sort((a, b) => famIds.indexOf(a.family!) - famIds.indexOf(b.family!) || Number(quickVariant(b.name)) - Number(quickVariant(a.name)) || a.name.localeCompare(b.name));
 /** Installed models per video method, in the method's family order. */
 export function wizardVideoChoices(methods: readonly WizardVideoMethod[], models: readonly WizardModel[]): { method: WizardVideoMethod; models: WizardModel[] }[] {
   return methods.map(method => ({
     method,
     models: models.filter(m => modelCategories.includes(m.category) && !!m.family && method.families.includes(m.family))
-      .sort((a, b) => method.families.indexOf(a.family!) - method.families.indexOf(b.family!) || a.name.localeCompare(b.name)),
+      .sort((a, b) => method.families.indexOf(a.family!) - method.families.indexOf(b.family!) || Number(quickVariant(b.name)) - Number(quickVariant(a.name)) || a.name.localeCompare(b.name)),
   }));
 }
+/** A Turbo/distilled/int8/fp8 file name: within one family the faster variant is the video step's default (the first name alphabetically was arbitrary). */
+export const quickVariant = (name: string) => /(^|[^a-z0-9])(turbo|distill(ed)?|lightning|int8|fp8|nvfp4)([^a-z0-9]|$)/i.test(name);
 /** Seconds of the clip a video step uses: the clip's own length up to the method's cap, at 0.1 s; undefined for an unreadable clip. */
 export function videoSeconds(clipSeconds: number, maxSeconds: number): number | undefined {
   if (!(clipSeconds > 0) || !(maxSeconds > 0)) return undefined;

@@ -1,4 +1,4 @@
 [[permission]]
 identifier = "allow-native-logs"
 description = "Read shared logs, export user-selected text, and report fixed path-free people-image, reference-media, Comfy file-drop errors and enumerated ContinuityJoin outcomes."
-commands.allow = ["native_logs_prompt_notes_error", "native_logs_library_error", "native_logs_beginner_error", "native_logs", "native_logs_export", "native_logs_people_image_error", "native_logs_reference_media_error", "native_logs_comfy_drop_error", "native_logs_continuity_join_notice"]
+commands.allow = ["native_logs_prompt_notes_error", "native_logs_library_error", "native_logs_movie_notice", "native_logs_beginner_error", "native_logs", "native_logs_export", "native_logs_people_image_error", "native_logs_reference_media_error", "native_logs_comfy_drop_error", "native_logs_continuity_join_notice"]
