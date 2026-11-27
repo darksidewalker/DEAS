@@ -1,5 +1,24 @@
 # DEAS verification — native baseline, optional capabilities and languages
 
+## Release 0.3.48 (published)
+
+- Release: https://github.com/darksidewalker/DEAS/releases/tag/v0.3.48 (Latest, not a draft or prerelease). Rolls up 0.3.24–0.3.48 since `v0.3.23`.
+- Source `0728c96e29b4138f0db6f463a5db76dc124d98e7` (tag `v0.3.48` on both remotes), tree `be14687a8ffa27b0d435cbd7ba578938a68731df`; local unsigned build (`build-linux.sh --release`; Verify/Release workflows are `disabled_manually`), rustc 1.97.0, node v22.23.5.
+- Linux glibc floor 2.39, `ldd` clean; the current `dist/assets/index-z6kA7xC6.js` is embedded in both binaries; the cross-built MSVC `deas.exe` is not Windows runtime-accepted (benign `LNK4099`).
+- Gates on the tagged commit:
+  - clippy `--locked --release --lib --bins -D warnings` clean; `cargo xwin check` and xwin clippy `--all-targets -D warnings` clean.
+  - `cargo test --locked --lib -- --test-threads=1`: 2068 passed, 2 failed. Both are the known `backend::tests` python-shutdown host failures, which pass in isolation.
+  - typecheck; `npm run test:core` 250/250.
+  - Vitest 2557/2558: `Workbench.dials` H3 rack restore failed under load and passes alone (25/25 twice).
+- Assets, re-downloaded from the release; `sha256sum -c SHA256SUMS` OK:
+
+```
+2d289ec3648675ef41fa3fccd1ee4605cfaa9047e2ed315259d367e96b44a7b7  BUILD-MANIFEST.json
+b55da6ef563b7c9169e4b1d497d23825cf9c5777ac5b3a6866da9d52d2003364  deas.exe
+0efd17bc460f7a95c43ed0b23db809f081ea223b551021e1618187fe566f9a9a  deas-linux-amd64
+42ca2198c02441226ba84e536e358593416a33778997ec2c70fa9b47621acace  SHA256SUMS
+```
+
 ## Movie Maker manifest and arithmetic core (UX-22d0, 2026-11-24)
 
 - `src/lib/movieManifest.ts` (pure TypeScript; no UI, native command, job or persistence): versioned manifest schema with bounds (400 items, 32 deps, 20 revisions, 20 000-char text) and `manifestProblem`/`parseManifest`/`serializeManifest` that refuse damaged, newer, duplicate-id, dangling-dependency and cyclic manifests; `editItem` writes a new revision (history and old results kept, input not mutated, locked items refuse without `force`) and marks finished downstream items stale — a continuous segment also depends on the segment before it, a cut does not; `rerunPlan` splits free reruns, locked items needing approval and untouched items; `readyItems` honours dependencies, continuity order and approvals; `planSegments` does integer step-grid arithmetic (fewest segments, delivered length = sum − overlap of continued segments, limits round inwards, off-grid targets and unattainable totals are reported with the nearest attainable length instead of rounded silently).
