@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import { completeItem, newItem, setMusicFile, type MovieMix, type MovieManifest } from './movieManifest';
+import { completeItem, newItem, setMusicFile, setShotLoras, type MovieLora, type MovieMix, type MovieManifest } from './movieManifest';
 import type { WizardHandoff } from './wizards';
 
 export interface MixAnswer { path: string; seconds: number; ducked: boolean }
@@ -39,12 +39,25 @@ export function musicSeconds(m: MovieManifest): number {
   const shots = m.items.filter(i => i.kind === 'segment').reduce((a, s) => a + (s.seconds ?? 0), 0);
   return Math.min(1000, Math.max(1, Math.ceil(made ?? (shots > 0 ? shots : m.targetSeconds))));
 }
-export type MusicHandoff = { handoff: Omit<WizardHandoff, 'n'> } | { blocked: 'wizards.movie.music.needPrompt' };
-/** The hand-over that makes the track: the music item's text is the style, no lyrics (an instrumental bed), the film's length. */
-export function musicHandoff(m: MovieManifest, model: { name: string; path: string }, run: boolean): MusicHandoff {
-  const style = m.items.find(i => i.kind === 'music')?.text.trim() ?? '';
+export type MusicHandoff = { handoff: Omit<WizardHandoff, 'n'> } | { blocked: 'wizards.movie.music.needPrompt' } | { blocked: 'wizards.movie.music.loraYue2' } | { blocked: 'wizards.movie.music.loraMissing'; detail: string };
+/**
+ * The hand-over that makes the track: the music item's text is the style, no lyrics (an instrumental bed), the film's length,
+ * and the music item's LoRAs (ACE-Step only: YuE2 has no LoRA path; every LoRA must still be installed).
+ */
+export function musicHandoff(m: MovieManifest, model: { name: string; path: string; family?: string | null }, run: boolean, hasLora?: (name: string) => boolean): MusicHandoff {
+  const item = m.items.find(i => i.kind === 'music');
+  const style = item?.text.trim() ?? '';
   if (!style) return { blocked: 'wizards.movie.music.needPrompt' };
-  return { handoff: { wizard: 'movie', strategy: 'music', pipeline: 't2m', source: 'movie', model, positive: '', run, music: { style, lyrics: '', seconds: musicSeconds(m) } } };
+  const loras = (item?.loras ?? []).map(l => ({ name: l.name, strength: l.strength }));
+  if (loras.length && isRestrictedMusicFamily(model.family)) return { blocked: 'wizards.movie.music.loraYue2' };
+  const gone = hasLora ? loras.find(l => !hasLora(l.name)) : undefined;
+  if (gone) return { blocked: 'wizards.movie.music.loraMissing', detail: gone.name };
+  return { handoff: { wizard: 'movie', strategy: 'music', pipeline: 't2m', source: 'movie', model: { name: model.name, path: model.path }, positive: '', run, music: { style, lyrics: '', seconds: musicSeconds(m) }, loras } };
+}
+/** Sets the music item's LoRAs, creating the music item when needed (like the style text). */
+export function setMusicLoras(m: MovieManifest, loras: readonly MovieLora[]): MovieManifest {
+  const next = m.items.some(i => i.kind === 'music') ? m : { ...m, items: [...m.items, newItem('music', 'music', 'Music', ['brief'])] };
+  return setShotLoras(next, next.items.find(i => i.kind === 'music')!.id, loras);
 }
 /** Creates the music item when needed and sets the style text the track is generated from. */
 export function setMusicPrompt(m: MovieManifest, text: string): MovieManifest {

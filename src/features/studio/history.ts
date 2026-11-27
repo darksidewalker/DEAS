@@ -78,7 +78,9 @@ export function historyInputSelectionContext(endpoint:string,inputRoot?:string):
 function restorableAce(intent:AceStepMusicIntent):boolean {
  const raw=intent as unknown as Record<string,unknown>,profile=aceMusicProfile(intent.family);
  if(!profile||intent.version!==1||intent.mode!=='t2m'||intent.planning!=='off'||!isAceSettings(intent.ace))return false;
- if(Object.keys(raw).some(k=>!['recipeId','version','family','mode','planning','checkpoint','style','lyrics','seed','maxDuration','steps','cfg','sampler','scheduler','outputPrefix','ace','diffusion','audioEnhance'].includes(k)&&raw[k]!==undefined))return false;
+ if(Object.keys(raw).some(k=>!['recipeId','version','family','mode','planning','checkpoint','style','lyrics','seed','maxDuration','steps','cfg','sampler','scheduler','outputPrefix','ace','diffusion','loras','audioEnhance'].includes(k)&&raw[k]!==undefined))return false;
+ const loras=raw.loras;
+ if(loras!==undefined&&(!Array.isArray(loras)||!loras.length||loras.length>8||loras.some(l=>!l||typeof l!=='object'||Object.keys(l).length!==2||typeof (l as {name?:unknown}).name!=='string'||!Number.isFinite((l as {strength?:unknown}).strength))))return false;
  if(!safeOutputPrefix(intent.outputPrefix))return false;
  if(['checkpoint','sampler','scheduler','outputPrefix'].some(k=>typeof raw[k]!=='string'||!(raw[k] as string).trim()))return false;
  if(typeof intent.style!=='string'||typeof intent.lyrics!=='string'||!Number.isSafeInteger(intent.seed)||intent.seed<0)return false;
@@ -137,7 +139,7 @@ export function historyRestore(record:HistoryRecord,context:RestoreContext):Hist
   if(isAceMusicIntent(intent)){
    const recipe=builtinFamilies.find(f=>f.id===intent.family)!.music!;
    const original=recipe.version==='1.0';
-   const nodes=['VAEDecodeAudio','SaveAudioAdvanced','KSampler','ConditioningZeroOut',recipe.encode,recipe.latent,recipe.patch,...(original?['LatentOperationTonemapReinhard','LatentApplyOperationCFG']:[]),...(intent.diffusion?['UNETLoader','DualCLIPLoader','VAELoader']:['CheckpointLoaderSimple'])];
+   const nodes=['VAEDecodeAudio','SaveAudioAdvanced','KSampler','ConditioningZeroOut',recipe.encode,recipe.latent,recipe.patch,...(original?['LatentOperationTonemapReinhard','LatentApplyOperationCFG']:[]),...(intent.diffusion?['UNETLoader','DualCLIPLoader','VAELoader']:['CheckpointLoaderSimple']),...(intent.loras?.length?['LoraLoaderModelOnly']:[])];
    for(const node of nodes)if(!context.allow?.nodes.includes(node))unavailable.push(node);
    if(modelFamily!==intent.family)unavailable.push(`family: ${intent.family}`);
    if(intent.diffusion){

@@ -187,28 +187,13 @@ pub fn problem(m: &Value) -> Option<&'static str> {
             "entry",
             "exit",
             "model",
-            "loras",
         ]
         .iter()
         .any(|k| i.get(*k).is_some());
-        if kind == "segment" {
-            if !positive(i.get("seconds")) || i.get("continuous").is_some_and(|c| !c.is_boolean()) {
-                return Some("bad segment");
-            }
-            if ["entry", "exit"]
-                .iter()
-                .any(|k| i.get(*k).is_some_and(|v| !text_ok(v)))
-            {
-                return Some("bad scene state");
-            }
-            if i.get("model").is_some_and(|m| {
-                !m.as_str()
-                    .is_some_and(|m| (1..=300).contains(&m.len()) && !m.contains('\0'))
-            }) {
-                return Some("bad shot model");
-            }
-            if let Some(l) = i.get("loras") {
-                let ok = l.as_array().is_some_and(|a| {
+        // LoRAs belong to a shot's model or to the generated music bed's model.
+        if let Some(l) = i.get("loras") {
+            let ok = (kind == "segment" || kind == "music")
+                && l.as_array().is_some_and(|a| {
                     let names: HashSet<&str> = a
                         .iter()
                         .filter_map(|x| x.get("name").and_then(Value::as_str))
@@ -224,9 +209,25 @@ pub fn problem(m: &Value) -> Option<&'static str> {
                                     .is_some_and(|s| s.is_finite() && (-4.0..=4.0).contains(&s))
                         })
                 });
-                if !ok {
-                    return Some("bad shot LoRAs");
-                }
+            if !ok {
+                return Some("bad LoRAs (shots and the music only)");
+            }
+        }
+        if kind == "segment" {
+            if !positive(i.get("seconds")) || i.get("continuous").is_some_and(|c| !c.is_boolean()) {
+                return Some("bad segment");
+            }
+            if ["entry", "exit"]
+                .iter()
+                .any(|k| i.get(*k).is_some_and(|v| !text_ok(v)))
+            {
+                return Some("bad scene state");
+            }
+            if i.get("model").is_some_and(|m| {
+                !m.as_str()
+                    .is_some_and(|m| (1..=300).contains(&m.len()) && !m.contains('\0'))
+            }) {
+                return Some("bad shot model");
             }
             if let Some(d) = i.get("dialogue") {
                 let ok = d.as_array().is_some_and(|a| {

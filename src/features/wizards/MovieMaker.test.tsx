@@ -494,6 +494,37 @@ it('a failed generation shows the reason; YuE2 comes with its licence note; no m
   expect((q('[data-movie-music-generate]') as HTMLButtonElement).disabled).toBe(true);
 });
 
+it('the music bed has its own LoRAs: only the chosen ACE-Step model\'s LoRA family is offered, they ride the hand-over, and YuE2 offers none', async () => {
+  const lofi = { category: 'loras', name: 'ace/lofi.safetensors', path: '/m/loras/lofi', size: 1, info: null, family: 'ace-step-1-5' };
+  const xlOnly = { category: 'loras', name: 'ace/xl.safetensors', path: '/m/loras/xl', size: 1, info: null, family: 'ace-step-1-5-xl' };
+  const picture = { category: 'loras', name: 'sdxl/other.safetensors', path: '/m/loras/o', size: 1, info: null, family: 'sdxl' };
+  const { onPrepare } = await openMusic([ace, yue, lofi, xlOnly, picture]);
+  fireEvent.click(q('[data-movie-music-lora-add]'));
+  expect(q('[data-movie-music-lora]').getAttribute('data-movie-music-lora')).toBe('ace/lofi.safetensors');
+  expect([...q('[data-movie-music-lora-name]').querySelectorAll('option')].map(o => o.value)).toEqual(['ace/lofi.safetensors']); // not the XL or picture LoRA
+  expect((q('[data-movie-music-lora-add]') as HTMLButtonElement).disabled).toBe(true); // nothing else of that family
+  fireEvent.change(q('[data-movie-music-lora-strength]'), { target: { value: '0.6' } });
+  fireEvent.change(q('[data-movie-music-prompt]'), { target: { value: 'lofi' } });
+  // YuE2 has no LoRA path: the picked LoRA stays visible but the run is refused with the reason.
+  fireEvent.change(q('[data-movie-music-model]'), { target: { value: '/m/yue2' } });
+  expect(q('[data-movie-music-lora-add]')).toBeTruthy();
+  fireEvent.click(q('[data-movie-music-generate]'));
+  expect(q('[data-movie-error]').textContent).toBe('YuE2 cannot use LoRAs. Remove the music LoRAs or choose an ACE-Step model.');
+  expect(onPrepare).not.toHaveBeenCalled();
+  fireEvent.change(q('[data-movie-music-model]'), { target: { value: '/m/ace_turbo' } });
+  fireEvent.click(q('[data-movie-music-generate]'));
+  expect(onPrepare.mock.calls[0][0]).toMatchObject({ pipeline: 't2m', loras: [{ name: 'ace/lofi.safetensors', strength: 0.6 }] });
+});
+
+it('removing the last music LoRA on YuE2 hides the LoRA list again', async () => {
+  const lofi = { category: 'loras', name: 'ace/lofi.safetensors', path: '/m/loras/lofi', size: 1, info: null, family: 'ace-step-1-5' };
+  await openMusic([ace, yue, lofi]);
+  fireEvent.click(q('[data-movie-music-lora-add]'));
+  fireEvent.change(q('[data-movie-music-model]'), { target: { value: '/m/yue2' } });
+  fireEvent.click(q('[data-movie-music-lora-remove]'));
+  expect(q('[data-movie-music-loras]')).toBeNull();
+});
+
 const h3b = { ...h3, name: 'h3_other.safetensors', path: '/m/h3_other' };
 const loraA = { category: 'loras', name: 'MiniMaxH3/style-a.safetensors', path: '/m/loras/a', size: 1, info: null, family: 'minimax-h3' };
 const loraB = { category: 'loras', name: 'MiniMaxH3/style-b.safetensors', path: '/m/loras/b', size: 1, info: null, family: 'minimax-h3' };

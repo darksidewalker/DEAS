@@ -8,10 +8,11 @@ import { applyPlan, h3ActualSeconds, planDiff, segmentLimits, type PlanCheck } f
 import { PLANNER_MAX_CHARS, listPlannerModels, logMovieNotice, plannerDestination, plannerPayload, requestPlan } from '../../lib/movieStoryRun';
 import { recordShotRun, shotHandoff } from '../../lib/movieSegments';
 import { chainHandoff, chainOf } from '../../lib/movieChainRun';
-import { MUSIC_FAMILIES, isRestrictedMusicFamily, mixMusic, musicInfo, mixPlan, musicHandoff, musicSeconds, pickMusic, recordGeneratedMusic, recordScore, setMusicPrompt } from '../../lib/movieMusic';
+import { MUSIC_FAMILIES, isRestrictedMusicFamily, mixMusic, musicInfo, mixPlan, musicHandoff, musicSeconds, pickMusic, recordGeneratedMusic, recordScore, setMusicLoras, setMusicPrompt } from '../../lib/movieMusic';
 import { AssemblyError, assemblyPlan, assembleMovie, recordFilm } from '../../lib/movieAssemble';
 import { realAssembleDeps, stopAssemblyJob } from '../../lib/movieAssembleRun';
 import type { JobStatus } from '../../lib/jobs';
+import builtinFamilies from '../../families/builtin.json' with { type: 'json' };
 import { modelsForFamilies, type WizardHandoff, type WizardModel, type WizardRun } from '../../lib/wizards';
 import { checkMovie, listMovies, newMovieId, openMovie, saveMovie, type MovieCheck, type MovieList } from '../../lib/movies';
 
@@ -184,10 +185,14 @@ export function MovieMaker({ modelsRoot, endpoint, models = null, onPrepare, out
   const musicModels = models ? modelsForFamilies(MUSIC_FAMILIES, models) : [];
   const [musicPath, setMusicPath] = useState('');
   const musicModel = musicModels.find(x => x.path === musicPath) ?? musicModels[0];
+  // ACE-Step LoRAs of the chosen model's LoRA family (header-detected); YuE2 has no LoRA path.
+  const musicLoraFamily = musicModel && !isRestrictedMusicFamily(musicModel.family) ? (builtinFamilies as { id: string; loraFamily?: string }[]).find(f => f.id === musicModel.family)?.loraFamily : undefined;
+  const musicLoraModels = models && musicLoraFamily ? models.filter(x => x.category === 'loras' && x.family === musicLoraFamily) : [];
+  const musicLoras = music?.loras ?? [];
   const makeMusic = (run: boolean) => {
     if (!onPrepare || !musicModel) return;
-    const r = musicHandoff(movie, { name: musicModel.name, path: musicModel.path }, run);
-    if ('blocked' in r) { setError(t(r.blocked)); return; }
+    const r = musicHandoff(movie, { name: musicModel.name, path: musicModel.path, family: musicModel.family }, run, name => musicLoraModels.some(x => x.name === name));
+    if ('blocked' in r) { setError('detail' in r ? `${t(r.blocked)} ${r.detail}` : t(r.blocked)); return; }
     setError(''); setNote('');
     sent.current = { n: (handoff ?? 0) + 1, id: 'music' }; setShotState(run ? { id: 'music', state: 'queued' } : null);
     onPrepare(r.handoff);
@@ -405,6 +410,22 @@ export function MovieMaker({ modelsRoot, endpoint, models = null, onPrepare, out
       {musicModels.length > 1 && <label className="forge-field"><span>{t('wizards.movie.music.model')}</span>
         <select data-movie-music-model value={musicModel?.path ?? ''} onChange={e => setMusicPath(e.target.value)}>{musicModels.map(x => <option key={x.path} value={x.path}>{x.name}</option>)}</select></label>}
       {isRestrictedMusicFamily(musicModel?.family) && <p className="forge-note" data-movie-music-licence>{t('wizards.movie.music.licence')}</p>}
+      {musicModel && (musicLoraFamily || musicLoras.length > 0) && <details data-movie-music-loras>
+        <summary className="forge-note">{t('wizards.movie.music.loras')} ({musicLoras.length})</summary>
+        {musicLoras.map(l => <div className="wizards-row" key={l.name} data-movie-music-lora={l.name}>
+          <select aria-label={t('wizards.movie.shot.loraName')} data-movie-music-lora-name value={l.name}
+            onChange={e => change(m => setMusicLoras(m, musicLoras.map(x => x.name === l.name ? { ...x, name: e.target.value } : x)))}>
+            <option value={l.name}>{l.name}{musicLoraModels.some(x => x.name === l.name) ? '' : ` — ${t('wizards.movie.shot.loraGone')}`}</option>
+            {musicLoraModels.filter(x => x.name !== l.name && !musicLoras.some(y => y.name === x.name)).map(x => <option key={x.path} value={x.name}>{x.name}</option>)}
+          </select>
+          <input type="number" aria-label={t('wizards.movie.shot.loraStrength', { name: l.name })} data-movie-music-lora-strength min={LORA_STRENGTH[0]} max={LORA_STRENGTH[1]} step={0.05} value={l.strength}
+            onChange={e => { const v = Number(e.target.value); if (Number.isFinite(v)) change(m => setMusicLoras(m, musicLoras.map(x => x.name === l.name ? { ...x, strength: v } : x))); }}/>
+          <button type="button" className="forge-ghost" data-movie-music-lora-remove aria-label={t('wizards.movie.shot.loraRemove', { name: l.name })} onClick={() => change(m => setMusicLoras(m, musicLoras.filter(x => x.name !== l.name)))}>{t('wizards.movie.castRemove')}</button>
+        </div>)}
+        {(() => { const free = musicLoraModels.find(x => !musicLoras.some(l => l.name === x.name)); return <button type="button" className="forge-ghost" data-movie-music-lora-add disabled={!free || musicLoras.length >= 8} title={musicLoraModels.length ? undefined : t('wizards.movie.music.noLora')}
+          onClick={() => free && change(m => setMusicLoras(m, [...musicLoras, { name: free.name, strength: 1 }]))}>{t('wizards.movie.shot.loraAdd')}</button>; })()}
+        {!musicLoraModels.length && <p className="forge-note" data-movie-music-nolora>{t('wizards.movie.music.noLora')}</p>}
+      </details>}
       <div className="wizards-row">
         <button type="button" className="forge-ghost" data-movie-music-prepare disabled={!native || !onPrepare || !musicModel || making} onClick={() => makeMusic(false)}>{t('wizards.movie.music.prepare')}</button>
         <button type="button" className="action-button" data-movie-music-generate disabled={!native || !onPrepare || !musicModel || making} title={musicModel ? undefined : t('wizards.movie.music.noModel')} onClick={() => makeMusic(true)}>{t(generating ? 'wizards.movie.music.generating' : 'wizards.movie.music.generate', { seconds: String(musicSecs) })}</button>

@@ -2860,7 +2860,7 @@ fn fill_music_ace(
             }
             "loras" => {
                 return Err(ApiError::new(ErrorKind::ModeUnsupported).with_hint(format!(
-                    "family '{family}' carries no LoRAs on a music recipe: the stock ACE-Step music Intent is deny_unknown_fields with no loras field, so --lora has nothing to fold into"
+                    "family '{family}' carries no LoRAs through the Agent API on a music recipe: the ACE-Step music Intent has an optional loras field for Studio and Movie Maker, but this door has no loras field ruling yet, so --lora has nothing to fold into"
                 )));
             }
             "generation" | "abc" | "sourceAudio" | "audioEncoder" => {
@@ -6491,8 +6491,9 @@ mod tests {
     fn the_ace_music_key_law_is_the_stock_ace_intent_struct_exactly() {
         // Source-lift gate (law): the YuE2 twin's gate, run against the stock ACE
         // struct. Required half vs `MUSIC_ACE_REQUIRED_FIELDS`; the struct's whole
-        // Option half is `diffusion` alone — a resolver-slot key, never a
-        // passthrough, and no YuE2 optional key can ride the ACE arm.
+        // Option half is `diffusion` (a resolver-slot key, never a passthrough) and
+        // `loras` (Studio/Movie Maker only; this door still refuses it, see the
+        // no-loras test), and no YuE2 optional key can ride the ACE arm.
         const SOURCE: &str = include_str!("../jobs_music_ace.rs");
         let start = SOURCE
             .find("struct Intent {")
@@ -6528,7 +6529,7 @@ mod tests {
             }
         }
         assert!(
-            required.len() > 10 && optional == ["diffusion".to_owned()],
+            required.len() > 10 && optional == ["diffusion".to_owned(), "loras".to_owned()],
             "the stock ACE struct parsed: {required:?} | {optional:?}"
         );
         required.sort();
@@ -6578,9 +6579,9 @@ mod tests {
 
     #[test]
     fn a_lora_on_an_ace_music_mode_refuses_naming_the_family_has_no_loras() {
-        // M9e's no-loras law stands for the opened ACE arm: the stock ACE struct is
-        // deny_unknown_fields and counts no loras key (its `Intent` struct was READ
-        // for this leg — no loras field exists).
+        // M9e's no-loras law stands for the opened ACE arm: the stock ACE struct has
+        // an optional loras field (Studio/Movie Maker, 0.3.41) that this door does
+        // not open without its own Agent API ruling.
         let mut request = ace_slots("ace/ace.safetensors");
         extend(&mut request, r#"{"--lora":"one.safetensors:0.5"}"#);
         crate::agent_api::e16::fold(&mut request).expect("the shorthand folds into a loras bag");

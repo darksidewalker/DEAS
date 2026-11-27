@@ -29,6 +29,12 @@ test('valid manifest round-trips and damaged ones are refused', () => {
   assert.equal(manifestProblem(cyc), 'dependency cycle');
   assert.match(manifestProblem({ ...m, items: m.items.map(i => i.id === 's1' ? { ...i, seconds: undefined } : i) })!, /seconds/);
   assert.match(manifestProblem({ ...m, items: m.items.map(i => i.id === 'brief' ? { ...i, seconds: 3 } : i) })!, /segment-only/);
+  // LoRAs belong to shots and to the music item only.
+  const lora = [{ name: 'ace/lofi.safetensors', strength: 0.5 }];
+  const withMusic = { ...m, items: [...m.items, { ...newItem('music', 'music', 'Music', ['brief']), loras: lora }] };
+  assert.equal(manifestProblem(withMusic), undefined);
+  assert.match(manifestProblem({ ...m, items: m.items.map(i => i.id === 'cast-a' ? { ...i, loras: lora } : i) })!, /shots and the music only/);
+  assert.match(manifestProblem({ ...withMusic, items: withMusic.items.map(i => i.id === 'music' ? { ...i, loras: [{ name: 'x', strength: 5 }] } : i) })!, /LoRAs/);
   assert.throws(() => serializeManifest({ ...m, version: 9 as 1 }), /Refusing/);
 });
 

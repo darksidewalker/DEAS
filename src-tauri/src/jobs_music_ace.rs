@@ -38,6 +38,12 @@ struct Diffusion {
     vae: String,
 }
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Lora {
+    name: String,
+    strength: f64,
+}
+#[derive(Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 struct Intent {
     recipe_id: String,
@@ -57,6 +63,7 @@ struct Intent {
     output_prefix: String,
     ace: Value,
     diffusion: Option<Diffusion>,
+    loras: Option<Vec<Lora>>,
 }
 fn settings(a: &Value) -> Result<(), String> {
     let o = a.as_object().ok_or("Invalid ace settings")?;
@@ -143,6 +150,24 @@ fn validate(i: &Value) -> Result<(Intent, &'static Value), String> {
         return Err("Invalid maxDuration: floating-point value truncates a latent frame".into());
     }
     settings(&m.ace)?;
+    if i.get("loras").is_some_and(Value::is_null) {
+        return Err("Invalid loras".into());
+    }
+    if let Some(loras) = &m.loras {
+        if loras.is_empty()
+            || loras.len() > 8
+            || loras.iter().any(|l| {
+                !comfy_model_name(&l.name)
+                    || !l.strength.is_finite()
+                    || !(-10.0..=10.0).contains(&l.strength)
+            })
+        {
+            return Err("Invalid loras".into());
+        }
+        for l in loras {
+            crate::jobs::validate_lora_format(&l.name)?;
+        }
+    }
     if let Some(d) = &m.diffusion {
         if p["version"] != "1.5" {
             return Err("ACE-Step 1.0 requires an all-in-one checkpoint".into());
@@ -193,6 +218,15 @@ pub(super) fn compile(i: &Value) -> Result<Value, String> {
             g["M"]["inputs"][key] = value;
         }
     }
+    // LoRAs patch the diffusion model before the family's sampling patch (core LoraLoaderModelOnly;
+    // comfy/lora.py maps ACE-Step 1.5 PEFT `base_model.model.<decoder key>` and the 1.0 official format).
+    let mut model = json!(["1", 0]);
+    for (n, l) in m.loras.iter().flatten().enumerate() {
+        let id = format!("AL{}", n + 1);
+        g[&id] = json!({"class_type":"LoraLoaderModelOnly","inputs":{"model":model,"lora_name":l.name,"strength_model":l.strength}});
+        model = json!([id, 0]);
+    }
+    g["P"]["inputs"]["model"] = model;
     if let Some(d) = &m.diffusion {
         g["1"] = json!({"class_type":"UNETLoader","inputs":{"unet_name":m.checkpoint,"weight_dtype":"default"}});
         g["E"] = json!({"class_type":"DualCLIPLoader","inputs":{"clip_name1":d.text_encoder,"clip_name2":d.text_encoder2,"type":"ace","device":"default"}});

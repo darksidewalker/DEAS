@@ -486,6 +486,23 @@ test('a Movie Maker music bed hand-over fills the ACE-Step draft (style, no lyri
   await waitFor(() => expect(applied).toHaveBeenCalledWith(51, undefined, expect.objectContaining({ state: 'succeeded', picture: expect.objectContaining({ path: '/out/audio/bed_00001_.flac', audio: true, width: 0, height: 0, checkpoint: 'ace-step-1-5-turbo.safetensors' }) })), { timeout: 8000 });
 });
 
+test('a Movie Maker music hand-over runs ACE-Step with exactly its LoRAs, and without LoRAs it clears Generate\'s list', async () => {
+  localStorage.setItem('deas.pref.studio.run.loras', JSON.stringify([{ name: 'picture.safetensors', strength: 1, enabled: true }]));
+  const lofi = { category: 'loras', name: 'ace/lofi.safetensors', path: '/m/loras/ace/lofi.safetensors', size: 1, info: null, family: 'ace-step-1-5' };
+  const picture = { category: 'loras', name: 'picture.safetensors', path: '/m/loras/picture.safetensors', size: 1, info: null, family: 'sdxl' };
+  const view = await mountAce('checkpoints', [], [lofi, picture] as never);
+  const props = { endpoint: evidence.baseUrl, root: '/env', roots: { models: '/m' } };
+  const applied = vi.fn();
+  const base: WizardHandoff = { n: 52, wizard: 'movie', strategy: 'music', pipeline: 't2m', source: 'movie', positive: '', run: true,
+    model: { name: 'ace-step-1-5-turbo.safetensors', path: '/m/checkpoints/ace-step-1-5-turbo.safetensors' }, music: { style: 'lofi', lyrics: '', seconds: 30 }, loras: [{ name: 'ace/lofi.safetensors', strength: 0.6 }] };
+  view.rerender(<I18nProvider><Workbench {...props} onWizardApplied={applied} wizard={base}/></I18nProvider>);
+  await waitFor(() => expect(runWorkbenchJob).toHaveBeenCalledTimes(1), { timeout: 6000 });
+  expect(vi.mocked(runWorkbenchJob).mock.calls[0][1]).toMatchObject({ family: 'ace-step-1-5-turbo', loras: [{ name: 'ace/lofi.safetensors', strength: 0.6 }] });
+  view.rerender(<I18nProvider><Workbench {...props} onWizardApplied={applied} wizard={{ ...base, n: 53, loras: [] }}/></I18nProvider>);
+  await waitFor(() => expect(runWorkbenchJob).toHaveBeenCalledTimes(2), { timeout: 6000 });
+  expect(vi.mocked(runWorkbenchJob).mock.calls[1][1]).not.toHaveProperty('loras');
+});
+
 test('a Movie Maker shot with LoRAs runs with exactly those LoRAs on its model and replaces whatever Generate had selected', async () => {
   localStorage.setItem('deas.pref.studio.run.loras', JSON.stringify([{ name: 'other.safetensors', strength: 1, enabled: true }]));
   const lora = { category: 'loras', name: 'MiniMaxH3/style.safetensors', path: '/m/loras/MiniMaxH3/style.safetensors', size: 1, info: null, family: 'minimax-h3' };

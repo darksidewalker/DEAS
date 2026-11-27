@@ -89,17 +89,17 @@ function itemProblem(i: unknown, ids: ReadonlySet<string>): string | undefined {
   if (v.kind !== 'cast' && (v.role !== undefined || v.refs !== undefined)) return `${at}: role/refs are cast-only`;
   if (v.role !== undefined && !MOVIE_CAST_ROLES.includes(v.role)) return `${at}: unknown cast role`;
   if (v.refs !== undefined && (!Array.isArray(v.refs) || v.refs.length > MOVIE_LIMITS.castRefs || v.refs.some(r => typeof r !== 'string' || r.length < 1 || r.length > 1024 || r.includes('\0')) || new Set(v.refs).size !== v.refs.length)) return `${at}: bad references`;
+  if (v.loras !== undefined && ((v.kind !== 'segment' && v.kind !== 'music') || !Array.isArray(v.loras) || v.loras.length > MOVIE_LIMITS.loras
+    || v.loras.some(l => !l || typeof l.name !== 'string' || l.name.length < 1 || l.name.length > 300 || l.name.includes('\0') || typeof l.strength !== 'number' || !Number.isFinite(l.strength) || l.strength < LORA_STRENGTH[0] || l.strength > LORA_STRENGTH[1])
+    || new Set(v.loras.map(l => l.name)).size !== v.loras.length)) return `${at}: bad LoRAs (shots and the music only)`;
   if (v.kind === 'segment') {
     if (typeof v.seconds !== 'number' || !(v.seconds > 0) || !Number.isFinite(v.seconds)) return `${at}: segment needs seconds`;
     if (v.continuous !== undefined && typeof v.continuous !== 'boolean') return `${at}: bad continuity flag`;
     if ((v.entry !== undefined && !textOk(v.entry)) || (v.exit !== undefined && !textOk(v.exit))) return `${at}: bad scene state`;
     if (v.model !== undefined && (typeof v.model !== 'string' || v.model.length < 1 || v.model.length > 300 || v.model.includes('\0'))) return `${at}: bad shot model`;
-    if (v.loras !== undefined && (!Array.isArray(v.loras) || v.loras.length > MOVIE_LIMITS.loras
-      || v.loras.some(l => !l || typeof l.name !== 'string' || l.name.length < 1 || l.name.length > 300 || l.name.includes('\0') || typeof l.strength !== 'number' || !Number.isFinite(l.strength) || l.strength < LORA_STRENGTH[0] || l.strength > LORA_STRENGTH[1])
-      || new Set(v.loras.map(l => l.name)).size !== v.loras.length)) return `${at}: bad shot LoRAs`;
     if (v.dialogue !== undefined && (!Array.isArray(v.dialogue) || v.dialogue.length > MOVIE_LIMITS.dialogue
       || v.dialogue.some(d => !d || !idOk(d.castId) || !ids.has(d.castId) || typeof d.line !== 'string' || d.line.length < 1 || d.line.length > 1000 || (d.delivery !== undefined && (typeof d.delivery !== 'string' || d.delivery.length > 200))))) return `${at}: bad dialogue`;
-  } else if (v.seconds !== undefined || v.continuous !== undefined || v.dialogue !== undefined || v.entry !== undefined || v.exit !== undefined || v.model !== undefined || v.loras !== undefined) return `${at}: seconds/continuity are segment-only`;
+  } else if (v.seconds !== undefined || v.continuous !== undefined || v.dialogue !== undefined || v.entry !== undefined || v.exit !== undefined || v.model !== undefined) return `${at}: seconds/continuity are segment-only`;
   return undefined;
 }
 /** The first problem found, or undefined for a valid manifest (schema, bounds, dangling or cyclic dependencies). */
@@ -254,9 +254,9 @@ export function setShotModel(m: MovieManifest, id: string, model: string | null)
   if (!m.items.some(i => i.id === id && i.kind === 'segment')) throw new Error(`Unknown shot ${id}.`);
   return reviseItem(m, id, { model: model ?? undefined });
 }
-/** Replaces a shot's LoRAs (at most 8, no repeats, strength clamped to the limits); an empty list clears them. */
+/** Replaces a shot's or the music item's LoRAs (at most 8, no repeats, strength clamped to the limits); an empty list clears them. */
 export function setShotLoras(m: MovieManifest, id: string, loras: readonly MovieLora[]): MovieManifest {
-  if (!m.items.some(i => i.id === id && i.kind === 'segment')) throw new Error(`Unknown shot ${id}.`);
+  if (!m.items.some(i => i.id === id && (i.kind === 'segment' || i.kind === 'music'))) throw new Error(`Unknown shot ${id}.`);
   const seen = new Set<string>(), clean: MovieLora[] = [];
   for (const l of loras) {
     if (seen.has(l.name) || clean.length >= MOVIE_LIMITS.loras || !Number.isFinite(l.strength)) continue;

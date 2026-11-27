@@ -41,7 +41,8 @@ export function wizardDraft(wizard: WizardHandoff, comfyName: (item: MediaItem) 
     // A Movie Maker music bed: a text-to-music draft; no pictures, clips or references.
     const mu = wizard.music;
     if (!mu) return null;
-    return { imageRefs: [], media: null, wizardPicture: null, video: { refs: [], sourceVideo: null }, music: { style: mu.style, lyrics: mu.lyrics, seconds: mu.seconds } };
+    // Its LoRAs always replace Generate's list, also when it has none (the user's picture LoRAs never ride a track).
+    return { imageRefs: [], media: null, wizardPicture: null, video: { refs: [], sourceVideo: null }, music: { style: mu.style, lyrics: mu.lyrics, seconds: mu.seconds }, loras: (wizard.loras ?? []).map(l => ({ name: l.name, strength: l.strength })) };
   }
   if (wizard.source === 'movie') {
     // A Movie Maker shot: text only (t2v) or the cast pictures as REF2VA references (ref2v) — no first frame, no source video.

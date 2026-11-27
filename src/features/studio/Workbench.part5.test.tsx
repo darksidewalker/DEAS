@@ -1481,6 +1481,34 @@ test.each(aceVariants)('ACE authoring %s submits variant defaults and no YuE2/im
  expect(uploadInput).not.toHaveBeenCalled();
 });
 
+test('ACE-Step 1.5 takes LoRAs from the dock, sent on the music intent, without the image-only notice',async()=>{
+ const lofi={category:'loras',name:'ace/lofi.safetensors',path:'/m/loras/ace/lofi.safetensors',size:1,info:null,family:'ace-step-1-5'};
+ const xl={category:'loras',name:'ace/xl.safetensors',path:'/m/loras/ace/xl.safetensors',size:1,info:null,family:'ace-step-1-5-xl'};
+ await mountAce('checkpoints',[],[lofi,xl] as never);changeAceModel('ace-step-1-5-turbo');
+ dock('LoRAs');
+ fireEvent.click(screen.getByRole('button',{name:'ace/lofi.safetensors'}));
+ fireEvent.change(screen.getByLabelText('Strength of ace/lofi.safetensors'),{target:{value:'0.7'}});
+ fireEvent.change(music().style,{target:{value:'Lofi beat'}});
+ expect(document.body.textContent).not.toContain('Image-only refinement');
+ const run=screen.getByRole('button',{name:'Run'});await waitFor(()=>expect(run).toHaveProperty('disabled',false));fireEvent.click(run);
+ await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(1));
+ expect(vi.mocked(runWorkbenchJob).mock.lastCall![1]).toMatchObject({family:'ace-step-1-5-turbo',loras:[{name:'ace/lofi.safetensors',strength:0.7}]});
+});
+
+test('Beginner Music on ACE-Step 1.5 offers exactly the LoRAs of its LoRA family',async()=>{
+ const ace=aceModel('ace-step-1-5-turbo');
+ const lofi={category:'loras',name:'ace/lofi.safetensors',path:'/m/loras/ace/lofi.safetensors',size:1,info:null,family:'ace-step-1-5'};
+ const xl={category:'loras',name:'ace/xl.safetensors',path:'/m/loras/ace/xl.safetensors',size:1,info:null,family:'ace-step-1-5-xl'};
+ vi.mocked(scanModels).mockResolvedValue([ace,lofi,xl] as never);
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue(musicEvidence({nodes:[...aceNodes,'LoraLoaderModelOnly'],checkpoints:[ace.name],loras:[lofi.name,xl.name]}));
+ vi.mocked(invoke).mockImplementation(async command=>command==='native_media_star_status'?{starred:false,unavailable:null}:command==='native_jobs_history'?{schemaVersion:1,records:[],readOnly:false,error:null}:{path:'/env/ComfyUI/input',parent:'/env',entries:[],truncated:false});
+ render(beginnerView());
+ await waitFor(()=>expect(document.querySelector<HTMLSelectElement>('#beginner-mode')!.options[2].disabled).toBe(false));
+ fireEvent.change(document.querySelector('#beginner-mode')!,{target:{value:'music'}});
+ const add=await waitFor(()=>{const el=document.querySelector<HTMLSelectElement>('[data-beginner-loras] select');expect(el).toBeTruthy();return el!;});
+ await waitFor(()=>expect([...add.options].map(o=>o.value)).toEqual(['','ace/lofi.safetensors']));
+});
+
 test('ACE model in unet remains selectable for Text to Music',async()=>{
  await mountAce('unet');changeAceModel('ace-step-1-5-turbo');
  expect(screen.getByRole('combobox',{name:'Checkpoint'})).toHaveProperty('value','ace-step-1-5-turbo.safetensors');

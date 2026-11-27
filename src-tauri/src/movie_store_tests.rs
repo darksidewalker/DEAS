@@ -185,20 +185,28 @@ fn shot_model_and_loras_follow_the_rules() {
     m["items"][1]["loras"] = json!([{ "name": "MiniMaxH3/style.safetensors", "strength": 0.8 }, { "name": "other.safetensors", "strength": -1.5 }]);
     assert_eq!(problem(&m), None);
     m["items"][1]["loras"][1]["strength"] = json!(4.5);
-    assert_eq!(problem(&m), Some("bad shot LoRAs"));
+    assert_eq!(problem(&m), Some("bad LoRAs (shots and the music only)"));
     m["items"][1]["loras"] =
         json!([{ "name": "a", "strength": 1 }, { "name": "a", "strength": 1 }]);
-    assert_eq!(problem(&m), Some("bad shot LoRAs"));
+    assert_eq!(problem(&m), Some("bad LoRAs (shots and the music only)"));
     m["items"][1]["loras"] = json!((0..9)
         .map(|i| json!({ "name": format!("l{i}"), "strength": 1 }))
         .collect::<Vec<_>>());
-    assert_eq!(problem(&m), Some("bad shot LoRAs"));
+    assert_eq!(problem(&m), Some("bad LoRAs (shots and the music only)"));
     m["items"][1]["loras"] = json!([]);
     m["items"][1]["model"] = json!("");
     assert_eq!(problem(&m), Some("bad shot model"));
     m["items"][1].as_object_mut().unwrap().remove("model");
     m["items"][0]["loras"] = json!([]);
-    assert_eq!(problem(&m), Some("seconds/continuity are segment-only"));
+    assert_eq!(problem(&m), Some("bad LoRAs (shots and the music only)"));
+    m["items"][0].as_object_mut().unwrap().remove("loras");
+    // The generated music bed's model takes LoRAs too, under the same rules.
+    let mut music = item("music", "music", &["brief"]);
+    music["loras"] = json!([{ "name": "ace/lofi.safetensors", "strength": 0.7 }]);
+    m["items"].as_array_mut().unwrap().push(music);
+    assert_eq!(problem(&m), None);
+    m["items"][2]["loras"][0]["strength"] = json!(-4.5);
+    assert_eq!(problem(&m), Some("bad LoRAs (shots and the music only)"));
 }
 
 #[test]

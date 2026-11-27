@@ -1043,6 +1043,14 @@ pub fn detect_with_evidence(
             }
         }
     }
+    if lora {
+        if let Some(id) = parsed
+            .as_ref()
+            .and_then(|(_, _, shapes, _)| ace_step::classify_lora(shapes))
+        {
+            return (Some(id.into()), Some(FamilyEvidence::Header));
+        }
+    }
     let by_header = parsed.and_then(|(keys, arch, shapes, ss_values)| {
         let by_arch = || {
             let declared = !arch.is_empty();

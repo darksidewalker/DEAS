@@ -226,10 +226,11 @@ const aceVariants=[
 ] as const;
 export const aceModel=(family:string,category='checkpoints')=>({category,name:`${family}.safetensors`,path:`/m/${category}/${family}.safetensors`,size:1,info:null,family});
 export const aceNodes=['LatentOperationTonemapReinhard','LatentApplyOperationCFG','KSampler','ConditioningZeroOut','VAEDecodeAudio','SaveAudioAdvanced','CheckpointLoaderSimple','ModelSamplingSD3','ModelSamplingAuraFlow','TextEncodeAceStepAudio','EmptyAceStepLatentAudio','TextEncodeAceStepAudio1.5','EmptyAceStep1.5LatentAudio','UNETLoader','DualCLIPLoader','VAELoader'];
-export async function mountAce(category='checkpoints',missing:string[]=[]) {
+/** `loras`: extra LoRA files (listed by the backend, `LoraLoaderModelOnly` available). */
+export async function mountAce(category='checkpoints',missing:string[]=[],loras:LocalModel[]=[]) {
  const ms=aceVariants.map(([f])=>aceModel(f,category));
- vi.mocked(scanModels).mockResolvedValue([...ms,aceModel('ace-step'),aceModel('ace-step-1-5'),aceModel('ace-step-1-5-xl'),...yue2Models]);
- vi.mocked(checkRecipePrerequisites).mockResolvedValue(musicEvidence({nodes:aceNodes.filter(n=>!missing.includes(n)),checkpoints:ms.map(m=>m.name),diffusionModels:ms.map(m=>m.name)}));
+ vi.mocked(scanModels).mockResolvedValue([...ms,aceModel('ace-step'),aceModel('ace-step-1-5'),aceModel('ace-step-1-5-xl'),...yue2Models,...loras]);
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue(musicEvidence({nodes:[...aceNodes.filter(n=>!missing.includes(n)),...(loras.length?['LoraLoaderModelOnly']:[])],checkpoints:ms.map(m=>m.name),diffusionModels:ms.map(m=>m.name),...(loras.length?{loras:loras.map(l=>l.name)}:{})}));
  vi.mocked(invoke).mockImplementation(async command=>command==='native_media_star_status'?{starred:false,unavailable:null}:command==='native_jobs_history'?{schemaVersion:1,records:[],readOnly:false,error:null}:{path:'/env/ComfyUI/input',parent:'/env',entries:[],truncated:false});
  vi.mocked(runWorkbenchJob).mockImplementation(async()=>musicJob('job-ace'));
  const view=render(<I18nProvider><Workbench endpoint={evidence.baseUrl} root="/env" roots={{models:'/m'}}/></I18nProvider>);

@@ -28,7 +28,7 @@ it('the scored film is recorded on the score item', () => {
   expect(() => recordScore(newMovie('x', 'x'), { path: '/p', seconds: 1, ducked: false })).toThrow(/no score/);
 });
 
-import { MUSIC_FAMILIES, isRestrictedMusicFamily, musicHandoff, musicSeconds, recordGeneratedMusic, setMusicPrompt } from './movieMusic';
+import { MUSIC_FAMILIES, isRestrictedMusicFamily, musicHandoff, musicSeconds, recordGeneratedMusic, setMusicLoras, setMusicPrompt } from './movieMusic';
 
 it('the bed is as long as the made film, else the planned shots, else the target', () => {
   const planned = film(false);
@@ -44,11 +44,25 @@ it('the hand-over is an instrumental text-to-music draft from the music prompt, 
   expect(musicHandoff(film(true), model, true)).toEqual({ blocked: 'wizards.movie.music.needPrompt' });
   const m = setMusicPrompt(film(true), '  calm piano  ');
   const r = musicHandoff(m, model, false);
-  expect(r).toEqual({ handoff: { wizard: 'movie', strategy: 'music', pipeline: 't2m', source: 'movie', model, positive: '', run: false, music: { style: 'calm piano', lyrics: '', seconds: 5 } } });
+  expect(r).toEqual({ handoff: { wizard: 'movie', strategy: 'music', pipeline: 't2m', source: 'movie', model, positive: '', run: false, music: { style: 'calm piano', lyrics: '', seconds: 5 }, loras: [] } });
   expect(setMusicPrompt(m, '  calm piano  ')).toBe(m); // unchanged text is not a new revision
   expect(setMusicPrompt(newMovie('x', 'x'), 'a').items.map(i => i.id)).toEqual(['brief', 'music']);
   expect(MUSIC_FAMILIES[0]).toBe('ace-step-1-5-turbo');
   expect([isRestrictedMusicFamily('yue2'), isRestrictedMusicFamily('ace-step-1-5-turbo'), isRestrictedMusicFamily(null)]).toEqual([true, false, false]);
+});
+
+it('the music item carries its own LoRAs: installed-checked, refused on YuE2, and the music item is created when needed', () => {
+  const ace = { name: 'ace-step-1-5-turbo.safetensors', path: '/m/ace', family: 'ace-step-1-5-turbo' };
+  let m = setMusicLoras(film(true), [{ name: 'ace/lofi.safetensors', strength: 9 }, { name: 'ace/lofi.safetensors', strength: 1 }]);
+  expect(m.items.find(i => i.kind === 'music')!.loras).toEqual([{ name: 'ace/lofi.safetensors', strength: 4 }]); // clamped, no repeats
+  m = setMusicPrompt(m, 'lofi');
+  const r = musicHandoff(m, ace, true, n => n === 'ace/lofi.safetensors');
+  expect('handoff' in r && r.handoff.loras).toEqual([{ name: 'ace/lofi.safetensors', strength: 4 }]);
+  expect('handoff' in r && r.handoff.model).toEqual({ name: ace.name, path: ace.path }); // the family is not part of the hand-over
+  expect(musicHandoff(m, ace, true, () => false)).toEqual({ blocked: 'wizards.movie.music.loraMissing', detail: 'ace/lofi.safetensors' });
+  expect(musicHandoff(m, { name: 'yue2.safetensors', path: '/m/y', family: 'yue2' }, true)).toEqual({ blocked: 'wizards.movie.music.loraYue2' });
+  expect(musicHandoff(setMusicLoras(m, []), { name: 'yue2.safetensors', path: '/m/y', family: 'yue2' }, true)).toHaveProperty('handoff');
+  expect(setMusicLoras(newMovie('x', 'x'), [{ name: 'a.safetensors', strength: 1 }]).items.map(i => i.id)).toEqual(['brief', 'music']);
 });
 
 it('a generated track becomes the music file and result, makes the scored film outdated, and a failure marks the item failed', () => {

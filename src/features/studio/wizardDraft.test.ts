@@ -48,6 +48,9 @@ it('Movie Maker music bed: a text-to-music draft with style, lyrics and length, 
   const d = wizardDraft(h, none, key)!;
   expect([d.media, d.imageRefs, d.music, d.seconds, d.video]).toEqual([null, [], { style: 'calm piano', lyrics: '', seconds: 42 }, undefined, { refs: [], sourceVideo: null }]);
   expect(wizardDraft({ ...h, music: undefined }, none, key)).toBeNull();
+  // Its LoRAs always replace Generate's list: none means an empty list, never the picture LoRAs left in Generate.
+  expect(d.loras).toEqual([]);
+  expect(wizardDraft({ ...h, loras: [{ name: 'ace/lofi.safetensors', strength: 0.5 }] }, none, key)!.loras).toEqual([{ name: 'ace/lofi.safetensors', strength: 0.5 }]);
 });
 
 it('Movie Maker shot LoRAs are carried into the draft; none means the list stays as the hand-over reset it', () => {

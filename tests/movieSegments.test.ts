@@ -82,8 +82,8 @@ test('a shot may have its own model and LoRAs: clamped, de-duplicated, capped, a
   assert.throws(() => setShotModel(m, 'brief', 'x'), /Unknown shot/);
   assert.throws(() => setShotLoras(m, 'nope', []), /Unknown shot/);
   const bad = { ...m, items: m.items.map(i => i.id === 'brief' ? { ...i, loras: [] } : i) };
-  assert.match(manifestProblem(bad)!, /segment-only/);
-  assert.match(manifestProblem({ ...m, items: m.items.map(i => i.id === 'seg-1' ? { ...i, loras: [{ name: 'a', strength: 5 }] } : i) })!, /bad shot LoRAs/);
+  assert.match(manifestProblem(bad)!, /shots and the music only/);
+  assert.match(manifestProblem({ ...m, items: m.items.map(i => i.id === 'seg-1' ? { ...i, loras: [{ name: 'a', strength: 5 }] } : i) })!, /bad LoRAs/);
 });
 
 test('the hand-over uses the shot\'s own model and LoRAs, and refuses what is not installed', () => {

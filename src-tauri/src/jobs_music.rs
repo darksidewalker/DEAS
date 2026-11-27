@@ -200,6 +200,20 @@ pub(crate) fn compile(i: &Value) -> Result<Value, String> {
 
 /// Model prerequisites by object_info field; called only on a validated intent.
 pub(crate) fn requirements(i: &Value) -> Vec<(&'static str, Vec<&str>)> {
+    let mut r = models(i);
+    let loras: Vec<&str> = i["loras"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|l| l["name"].as_str())
+        .collect();
+    if !loras.is_empty() {
+        r.push(("loras", loras));
+    }
+    r
+}
+
+fn models(i: &Value) -> Vec<(&'static str, Vec<&str>)> {
     if i["diffusion"].is_object() {
         return vec![
             (

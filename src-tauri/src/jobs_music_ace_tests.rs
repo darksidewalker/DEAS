@@ -185,6 +185,52 @@ fn ace_original_duration_never_silently_loses_a_frame() {
         assert_eq!((duration * 44100.0 / 512.0 / 8.0).floor(), frames as f64);
     }
 }
+#[test]
+fn ace_loras_patch_the_diffusion_model_before_the_sampling_patch() {
+    for (family, split) in [
+        ("ace-step-1-0", false),
+        ("ace-step-1-5-turbo", false),
+        ("ace-step-1-5-xl-sft", true),
+    ] {
+        let plain = crate::jobs::compile(&intent(family, split)).unwrap();
+        assert_eq!(plain["P"]["inputs"]["model"], json!(["1", 0]));
+        assert!(!plain.to_string().contains("LoraLoader"));
+        let mut i = intent(family, split);
+        i["loras"] = json!([{"name":"music/lofi.safetensors","strength":0.8},{"name":"voice.safetensors","strength":-0.5}]);
+        let g = crate::jobs::compile(&i).unwrap();
+        assert_eq!(
+            g["AL1"],
+            json!({"class_type":"LoraLoaderModelOnly","inputs":{"model":["1",0],"lora_name":"music/lofi.safetensors","strength_model":0.8}})
+        );
+        assert_eq!(g["AL2"]["inputs"]["model"], json!(["AL1", 0]));
+        assert_eq!(g["P"]["inputs"]["model"], json!(["AL2", 0]));
+        let r = crate::jobs_music::requirements(&i);
+        assert!(r.contains(&("loras", vec!["music/lofi.safetensors", "voice.safetensors"])));
+    }
+}
+
+#[test]
+fn ace_loras_are_bounded_safetensors_with_finite_strength() {
+    for bad in [
+        json!(null),
+        json!([{"name":"a.gguf","strength":1}]),
+        json!([{"name":"../a.safetensors","strength":1}]),
+        json!([{"name":"a.safetensors","strength":11}]),
+        json!([{"name":"a.safetensors","strength":1,"extra":1}]),
+        json!((0..9)
+            .map(|n| json!({"name":format!("{n}.safetensors"),"strength":1}))
+            .collect::<Vec<_>>()),
+    ] {
+        let mut i = intent("ace-step-1-5-turbo", false);
+        i["loras"] = bad.clone();
+        assert!(crate::jobs::compile(&i).is_err(), "{bad}");
+    }
+    // YuE2 keeps refusing LoRAs: its graph has no LoRA path.
+    let mut y = crate::jobs_music::tests::full();
+    y["loras"] = json!([{"name":"a.safetensors","strength":1}]);
+    assert!(crate::jobs::compile(&y).is_err());
+}
+
 /// DEAS_ACE_GRAPH_DUMP=/path/in/scratch/ace-graphs.json cargo test --lib ace_dump_graphs -- --ignored
 #[test]
 #[ignore]
@@ -206,6 +252,12 @@ fn ace_dump_graphs() {
             graphs.insert(
                 format!("{family}-{}", if split { "split" } else { "aio" }),
                 crate::jobs::compile(&intent(family, split)).unwrap(),
+            );
+            let mut lora = intent(family, split);
+            lora["loras"] = json!([{"name":"ace-lora.safetensors","strength":0.8}]);
+            graphs.insert(
+                format!("{family}-{}-lora", if split { "split" } else { "aio" }),
+                crate::jobs::compile(&lora).unwrap(),
             );
         }
     }

@@ -39,7 +39,9 @@ export interface AceStepMusicIntent {
  readonly checkpoint:string;readonly style:string;readonly lyrics:string;readonly seed:number;readonly maxDuration:number;
  readonly steps:number;readonly cfg:number;readonly sampler:string;readonly scheduler:string;readonly outputPrefix:string;readonly ace:AceStepSettings;
  readonly diffusion?:{textEncoder:string;textEncoder2:string;vae:string};readonly audioEnhance?:AudioEnhanceIntent;
- readonly generation?:never;readonly abc?:never;readonly sourceAudio?:never;readonly audioEncoder?:never;readonly options?:never;readonly loras?:never;
+ /** LoRAs on the diffusion model (native `LoraLoaderModelOnly` before the sampling patch); omitted when none, never empty. */
+ readonly loras?:readonly {name:string;strength:number}[];
+ readonly generation?:never;readonly abc?:never;readonly sourceAudio?:never;readonly audioEncoder?:never;readonly options?:never;
 }
 export type MusicIntentV1=Yue2MusicIntentV1|AceStepMusicIntent;
 export const isAceMusicIntent=(i:MusicIntentV1):i is AceStepMusicIntent=>i.family!=='yue2';

@@ -13,6 +13,27 @@ pub(super) fn architecture(id: &str) -> u8 {
     }
 }
 
+/// ACE-Step 1.5 LoRA in the published PEFT form: `base_model.model.layers.N.<decoder module>.lora_A/B`
+/// (the prefix ComfyUI f08f28a `comfy/lora.py` maps for `ACEStep15`). Headers read over HTTP range:
+/// tarn59/super_eurobeats_ACE_STEP-1.5-lora and smoki9999/smoki-lofi-acestep1.5 (`adapter_model.safetensors`).
+/// `cross_attn` is the decoder's own module (an LLM PEFT adapter has none); the input width of its
+/// `lora_A` separates 1.5 (2048) from 1.5 XL (2560). Exports with nested prefixes are not mapped by
+/// core and stay unrecognised.
+pub(super) fn classify_lora(shapes: &TensorShapes) -> Option<&'static str> {
+    let width = |module: &str| {
+        let key = format!("base.model.model.layers.0.{module}.lora.A.weight");
+        shapes
+            .iter()
+            .find(|(k, _)| *k == key)
+            .and_then(|(_, s)| (s.len() == 2).then_some(s[1]))
+    };
+    match (width("cross.attn.q.proj"), width("self.attn.q.proj")) {
+        (Some(2048), Some(2048)) => Some("ace-step-1-5"),
+        (Some(2560), Some(2560)) => Some("ace-step-1-5-xl"),
+        _ => None,
+    }
+}
+
 /// Signatures: ComfyUI b5a43215 comfy/model_detection.py (genre_embedder / lyric_encoder).
 /// Shapes corroborated with HTTP-range-only Comfy-Org headers:
 /// ACE-Step@ea4f3d349e84d5c098cc8e8b904a30fde59fc99a/all_in_one/ace_step_v1_3.5b.safetensors;
@@ -173,6 +194,68 @@ mod tests {
             detect(head, file, "diffusion_models"),
             (Some(expected.into()), Some(evidence)),
             "{file}"
+        );
+    }
+
+    // Reduced from the published PEFT headers named on `classify_lora` (rank 64).
+    fn peft_lora(width: u64, prefix: &str) -> Value {
+        let mut head = json!({"__metadata__": {"format": "pt"}});
+        for module in ["self_attn.q_proj", "cross_attn.q_proj", "cross_attn.k_proj"] {
+            head[format!("{prefix}layers.0.{module}.lora_A.weight")] =
+                json!({"shape": [64, width]});
+            head[format!("{prefix}layers.0.{module}.lora_B.weight")] =
+                json!({"shape": [width, 64]});
+        }
+        head
+    }
+
+    #[test]
+    fn ace_step_1_5_peft_loras_are_recognised_by_width_only_in_the_mapped_form() {
+        assert_eq!(
+            detect(
+                peft_lora(2048, "base_model.model."),
+                "lofi.safetensors",
+                "loras"
+            ),
+            (Some("ace-step-1-5".into()), Some(FamilyEvidence::Header))
+        );
+        assert_eq!(
+            detect(
+                peft_lora(2560, "base_model.model."),
+                "x.safetensors",
+                "loras"
+            )
+            .0,
+            Some("ace-step-1-5-xl".into())
+        );
+        // Nested prefixes are not mapped by core; an LLM-style adapter has no cross_attn.
+        let nested = "base_model.model.base_model.model.";
+        assert_ne!(
+            detect(peft_lora(2048, nested), "n.safetensors", "loras")
+                .0
+                .as_deref(),
+            Some("ace-step-1-5")
+        );
+        let mut llm = peft_lora(2048, "base_model.model.");
+        for side in ["A", "B"] {
+            llm.as_object_mut().unwrap().remove(&format!(
+                "base_model.model.layers.0.cross_attn.q_proj.lora_{side}.weight"
+            ));
+        }
+        assert_ne!(
+            detect(llm, "llm.safetensors", "loras").0.as_deref(),
+            Some("ace-step-1-5")
+        );
+        // A checkpoint is never classified by the LoRA rule.
+        assert_ne!(
+            detect(
+                peft_lora(2048, "base_model.model."),
+                "m.safetensors",
+                "checkpoints"
+            )
+            .0
+            .as_deref(),
+            Some("ace-step-1-5")
         );
     }
 
