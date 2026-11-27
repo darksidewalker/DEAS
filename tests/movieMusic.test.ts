@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULT_MIX, addCast, completeItem, manifestProblem, newMovie, setBrief, setMix, setMusicFile } from '../src/lib/movieManifest.ts';
+import { DEFAULT_MIX, completeItem, manifestProblem, newMovie, setBrief, setMix, setMusicFile } from '../src/lib/movieManifest.ts';
 import { applyPlan } from '../src/lib/movieStory.ts';
 
-const film = () => applyPlan(addCast(setBrief(newMovie('m1', 'F', 10, '16:9'), { story: 's' }), 'actor', 'Anna'), { lore: 'l', segments: [
-  { title: 'A', prompt: 'a', seconds: 5, castIds: [], continuous: false, dialogue: [] }, { title: 'B', prompt: 'b', seconds: 5, castIds: [], continuous: false, dialogue: [] }] });
+const film = () => applyPlan(setBrief(newMovie('m1', 'F', 10, '16:9'), { story: 's' }), { lore: 'l', segments: [
+  { title: 'A', prompt: 'a', seconds: 5, continuous: false, dialogue: [] }, { title: 'B', prompt: 'b', seconds: 5, continuous: false, dialogue: [] }] });
 const done = () => ['seg-1', 'seg-2', 'final'].reduce((m, id) => completeItem(m, id, { outputId: `/out/${id}.mp4`, seconds: 5 }), film());
 
 test('choosing a track creates the music and score items once the film exists, with default mix settings', () => {

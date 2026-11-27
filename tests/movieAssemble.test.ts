@@ -1,16 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { addCast, completeItem, editItem, failItem, manifestProblem, newMovie, setBrief } from '../src/lib/movieManifest.ts';
+import { completeItem, editItem, failItem, manifestProblem, newMovie, setBrief } from '../src/lib/movieManifest.ts';
 import { applyPlan } from '../src/lib/movieStory.ts';
 import { AssemblyError, assemblyPlan, assembleMovie, recordFilm, type AssembleDeps, type AssemblyJob } from '../src/lib/movieAssemble.ts';
 
 const base = () => {
   let m = setBrief(newMovie('m1', 'Chase', 15, '16:9'), { story: 's' });
-  m = addCast(m, 'actor', 'Anna');
   return applyPlan(m, { lore: 'l', segments: [
-    { title: 'A', prompt: 'a', seconds: 5, castIds: [], continuous: false, dialogue: [] },
-    { title: 'B', prompt: 'b', seconds: 5, castIds: [], continuous: false, dialogue: [] },
-    { title: 'C', prompt: 'c', seconds: 5, castIds: [], continuous: false, dialogue: [] },
+    { title: 'A', prompt: 'a', seconds: 5, continuous: false, dialogue: [] },
+    { title: 'B', prompt: 'b', seconds: 5, continuous: false, dialogue: [] },
+    { title: 'C', prompt: 'c', seconds: 5, continuous: false, dialogue: [] },
   ] });
 };
 const made = () => ['seg-1', 'seg-2', 'seg-3'].reduce((m, id, n) => completeItem(m, id, { outputId: `/out/${id}.mp4`, jobId: `j${n}`, seconds: 5 }), base());

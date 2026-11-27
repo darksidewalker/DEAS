@@ -384,7 +384,7 @@ it('a video as the picture to change edits its first frame, then hands the edite
   // The other method reuses the edited frame without editing it again.
   view.rerender(<I18nProvider><DarkWizards {...props} handoff={2} outcome={{ n: 2, run: { state: 'succeeded' as const, picture: { path: '/out/video/a.mp4', width: 1280, height: 704, seed: 3, checkpoint: 'ltx23', video: true } } }}/></I18nProvider>);
   expect(screen.getByText('Done — the video shows here and in Generate’s queue.')).toBeTruthy();
-  expect(document.querySelector('[data-wizard-result-video]')?.getAttribute('src')).toBe('asset:///out/video/a.mp4');
+  expect(document.querySelector('[data-wizard-result-video] video')?.getAttribute('src')).toBe('asset:///out/video/a.mp4');
   fireEvent.click(screen.getByRole('button', { name: 'Re-animate from the edited frame (MiniMax H3)' }));
   expect(screen.getByText(/the motion is new and does not follow the clip/)).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: 'Run the video step' }));
@@ -430,6 +430,11 @@ it('lists Movie Maker next to Replace and swaps the form without touching Replac
   fireEvent.click(document.querySelector('[data-wizard="movie"]')!);
   expect(document.querySelector('[data-wizard-form="movie"]')).toBeTruthy();
   expect(document.querySelector('[data-wizard-form="replace"]')).toBeNull();
+  // Unsaved movie work survives switching to another wizard and back (the form stays mounted, hidden).
+  fireEvent.change(document.querySelector('[data-movie-title]')!, { target: { value: 'My film' } });
   fireEvent.click(document.querySelector('[data-wizard="replace"]')!);
   expect(document.querySelector('[data-wizard-form="replace"]')).toBeTruthy();
+  expect((document.querySelector('[data-movie-host]') as HTMLElement).hidden).toBe(true);
+  fireEvent.click(document.querySelector('[data-wizard="movie"]')!);
+  expect((document.querySelector('[data-movie-title]') as HTMLInputElement).value).toBe('My film');
 });

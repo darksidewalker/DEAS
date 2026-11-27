@@ -72,6 +72,7 @@ pub use jobs::{
 pub mod model_check;
 pub mod model_families;
 pub mod movie_mix;
+pub mod movie_stitch;
 pub mod movie_store;
 pub mod music_source;
 pub mod recipe_prerequisites;

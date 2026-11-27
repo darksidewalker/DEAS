@@ -289,6 +289,7 @@
     "clipType": "minimax", "textEncoders": ["minimax_h3"], "vaes": ["h3_video_vae", "h3_sol_vae"], "audioVaes": ["h3_audio_vae"],
     "defaults": { "width": 1024, "height": 768, "steps": 30, "cfg": 3, "sampler": "res_multistep", "scheduler": "simple" },
     "defaultsNote": "Base defaults follow the official Comfy-Org MiniMax H3 text-to-image template: 30 steps with res_multistep/simple (CFG via the guider path). 4 steps at CFG 1 is only correct with a 4-step turbo/lightning LoRA loaded; the official 8-step turbo LoRA runs 8 steps at CFG 1 (docs/MODEL_DEFAULTS.md).",
+    "variants": [{ "id": "turbo", "fileMatch": ["turbo", "lightning"], "defaults": { "steps": 8, "cfg": 1 }, "evidence": "filename", "note": "A file named turbo/lightning is taken as a merge of the 8-step turbo LoRA (filename evidence, not header-confirmed): 8 steps at CFG 1, as the official template note gives for that LoRA. Used as Movie Maker starting values." }],
     "video": {"fps": 24, "seconds": 5, "fixedFps": true, "segment": {"min": 2, "max": 15, "step": 0.5, "overlap": 0, "unverified": true}, "roles": ["first", "last", "both", "reference"], "referenceMedia": ["image", "video", "audio"], "mixReferences": false, "lastAlone": true, "maxReferences": 12 },
     "architectures": ["minimax-h3"], "bases": ["MiniMax H3"],
     "model": [["video.patch.proj", "audio.patch.proj"]],

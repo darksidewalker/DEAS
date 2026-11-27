@@ -27,7 +27,7 @@ import { defaultAbc, defaultMusicGeneration, isMusicIntent, isMusicPipeline, mus
 import { MusicPrompts, type MusicField } from './MusicPrompts';
 import { MusicSettings } from './MusicSettings';
 import { AceMusicSettings } from './AceMusicSettings';
-import {aceMusicProfile,normalizeAceDuration,defaultAceSettings,isAceSettings,isAceMusicIntent,type AceStepFamily} from '../../lib/musicIntent';
+import {aceMusicProfile,aceLanguages,normalizeAceDuration,defaultAceSettings,isAceSettings,isAceMusicIntent,type AceStepFamily} from '../../lib/musicIntent';
 import { RunPlan } from './RunPlan';
 import { DownloadPanel } from '../downloads/DownloadPluginPanel';
 import { ContinuityOverlay } from './ContinuityOverlay';
@@ -83,6 +83,7 @@ import { generationSettings, readImageMetadata, type GenerationSettings } from '
 import { outputNamingTemplate, outputPrefix } from '../../lib/outputNaming';
 import { OptionsPanel, defaultOptions, isOptionsPref, parseSigmas, runOptions } from './OptionsPanel';
 import builtinFamilies from '../../families/builtin.json' with { type: 'json' };
+import { AspectPicker } from './AspectPicker';
 import { aspects, aspectOf, resolutions, scalingModes, canvasSize, scaleInput, validCanvas, type Size, type ScalingMode } from '../../lib/resolution';
 import { Sam3Controls, samTargets } from './Sam3Controls';
 import { FaceRefineControls, Sam3VideoControls, type FaceRefineSettings } from './Sam3VideoControls';
@@ -1863,10 +1864,11 @@ const promptTools=forgeContext&&<>
  const pickModel=(m:LocalModel)=>switchDraft(pipeline,m,true,false,true);
  // Dark Wizards: prepare an ordinary draft (model, picture, prompt, size); with `run`, Generate starts that draft afterwards.
  const wizardApplied=useRef(0);
- const wizardBeginnerSize=useRef<{model:string;size?:Size;cfg?:number;seconds?:number}|null>(null);
+ const wizardBeginnerSize=useRef<{model:string;size?:Size;cfg?:number;seconds?:number;sampling?:WizardHandoff['sampling'];resolution?:string}|null>(null);
  const [wizardStart,setWizardStart]=useState<number>();
  // A masked one-click run first waits for the editor to hold the picture, then masks it with SAM 3.1 from *Replace what*.
  const [wizardMask,setWizardMask]=useState<{n:number;targets:string[];grow:number}>();
+ const applySampling=(x:NonNullable<WizardHandoff['sampling']>)=>{if(Number.isInteger(x.steps)&&x.steps>=1&&x.steps<=150)setSteps(x.steps);if(Number.isFinite(x.cfg)&&x.cfg>=0&&x.cfg<=30)setCfg(x.cfg);if(x.sampler)setSampler(x.sampler);if(x.scheduler)setScheduler(x.scheduler);};
  const wizardJob=useRef<{n:number;job:JobStatus;intent:DiagnosticImageIntentV1|VideoIntentV1|MusicIntentV1}|undefined>(undefined);
  useEffect(()=>{
   if(!wizard||wizardApplied.current===wizard.n||models===null)return;
@@ -1878,7 +1880,7 @@ const promptTools=forgeContext&&<>
   if(beginner){
    // Beginner restores its own per-model LoRA draft and starting settings when the model changes; the wizard's draft has no LoRAs and keeps its size.
    beginnerLoraDraft.current={model:identity(m),loras:[]};writePref('beginner.loras',beginnerLoraDraft.current);
-   wizardBeginnerSize.current=model&&identity(model)===identity(m)?null:{model:identity(m),size:wizard.size,cfg:wizard.cfg,seconds:wizard.seconds};
+   wizardBeginnerSize.current=model&&identity(model)===identity(m)?null:{model:identity(m),size:wizard.size,cfg:wizard.cfg,seconds:wizard.seconds,sampling:wizard.sampling,resolution:wizard.size?undefined:wizard.resolution};
   }
   switchDraft(wizard.pipeline,m,true);
   setHistoryDraft(null);setLoras([]);
@@ -1888,7 +1890,7 @@ const promptTools=forgeContext&&<>
   setImageRefs(draft.imageRefs);setMedia(draft.media);
   if(draft.video){
    // Video hand-overs reset the other inputs; a Replace video step keeps its clip as the guide, a Movie Maker shot has none.
-   setRefs(draft.video.refs);setLastFrame(null);setLastOnlySrc(null);setWizardPicture(null);setSourceVideo(draft.video.sourceVideo);setSourceVideoSize(null);
+   setRefs(draft.video.refs);setLastFrame(draft.video.lastFrame??null);setLastOnlySrc(draft.video.lastFrame&&draft.media?.src===draft.video.lastFrame.src&&!wizard.frames?.first?draft.video.lastFrame.src:null);setWizardPicture(null);setSourceVideo(draft.video.sourceVideo);setSourceVideoSize(null);
    if(wizard.source==='movie')setRefmods([]);
    if(draft.video.sourceStrength!==undefined)setSourceStrength(draft.video.sourceStrength);
   }
@@ -1900,10 +1902,21 @@ const promptTools=forgeContext&&<>
   if(draft.denoise)(draft.denoise.inpaint?setInpaintDenoise:setDenoise)(draft.denoise.value);
   if(draft.maskBlur!==undefined)setMaskBlur(draft.maskBlur);
   if(draft.loras){const picked=draft.loras.map(l=>({name:l.name,strength:l.strength}));setLoras(picked.map(l=>({...l,enabled:true})));if(beginner){beginnerLoraDraft.current={model:identity(m),loras:picked};writePref('beginner.loras',beginnerLoraDraft.current);}}
-  if(draft.music){const mu=draft.music;setMusicStyle(mu.style);setMusicLyrics(mu.lyrics);if(aceMusicProfile(m.family))setAceDuration(mu.seconds);else setMusicDuration(d=>({...d,t2m:mu.seconds}));}
+  if(draft.music){const mu=draft.music;setMusicStyle(mu.style);setMusicLyrics(mu.lyrics);if(aceMusicProfile(m.family)){setAceDuration(mu.seconds);
+   // Movie Maker's tempo and lyrics language for ACE-Step 1.5 (after the model's starting settings, which this functional update builds on).
+   const bpm=mu.bpm!==undefined&&Number.isInteger(mu.bpm)&&mu.bpm>=10&&mu.bpm<=300?mu.bpm:undefined,language=mu.language&&aceLanguages.includes(mu.language)?mu.language:undefined;
+   if(bpm!==undefined||language)setMusicAce(a=>({...a,...(bpm!==undefined?{bpm}:{}),...(language?{language}:{})}));}
+   else setMusicDuration(d=>({...d,t2m:mu.seconds}));}
   if(wizard.size){setWidth(wizard.size.width);setHeight(wizard.size.height);setResolution('fixed');}
+  else if(wizard.aspect&&wizard.aspect!=='custom'&&(aspects as readonly string[]).includes(wizard.aspect)){
+   // Movie Maker without a fixed size: the movie's aspect, and its resolution choice when it brings one (else Generate keeps its own).
+   setAspect(wizard.aspect as typeof aspect);
+   if(wizard.resolution&&(wizard.resolution==='model'||Object.hasOwn(resolutions,wizard.resolution)))setResolution(wizard.resolution);else if(resolution==='fixed')setResolution('model');
+  }
   // The strategy's measured CFG for this family (set after switchDraft's starting values; Beginner reapplies it below after its model reset).
   if(wizard.cfg!==undefined&&Number.isFinite(wizard.cfg))setCfg(wizard.cfg);
+  // Movie Maker with the movie's own settings: the shot's Steps/CFG/sampler/scheduler (Beginner reapplies them below after its model reset).
+  if(wizard.sampling)applySampling(wizard.sampling);
   setPositive(wizard.positive);setError('');
   // A hand-over that asked to run starts one commit later, so Run builds its intent from the draft that was just applied.
   const maskTargets=wizard.run&&wizard.source==='edit'&&wizard.edit==='inpaint'&&wizard.mask?samTargets(wizard.mask):[];
@@ -2010,7 +2023,7 @@ const promptTools=forgeContext&&<>
    for(const key of beginnerMusicEdited.current)advancedSettings.current[key]=authored[key];
    applyStudioSettings(advancedSettings.current);advancedSettings.current=null;const saved=advancedReferences.current;if(saved){setImageRefs(saved.imageRefs);setRefs(saved.refs);setRefmods(saved.refmods);setLastFrame(saved.lastFrame);setLastOnlySrc(saved.lastOnlySrc);setFramePeople(saved.framePeople);setSourceVideo(saved.sourceVideo);setPlan(saved.plan);advancedReferences.current=null;}}
  },[beginner]);
- useEffect(()=>{if(!beginner||!model)return;const sameModel=beginnerModelKey.current===identity(model);beginnerModelKey.current=identity(model);const draft=beginnerLoraDraft.current;const allowed=new Set(beginnerLoraModels.map(m=>m.name));setLoras(!isGguf(model.name)&&draft?.model===identity(model)?draft.loras.filter(l=>allowed.has(l.name)):[]);if(!isMusic){startingSettings(model);if(sameModel){setSteps(steps);setCfg(cfg);}}const fromWizard=wizardBeginnerSize.current;if(fromWizard?.model===identity(model)){wizardBeginnerSize.current=null;if(fromWizard.size){setWidth(fromWizard.size.width);setHeight(fromWizard.size.height);setResolution('fixed');}if(fromWizard.cfg!==undefined)setCfg(fromWizard.cfg);}const wizardSeconds=fromWizard?.model===identity(model)?fromWizard.seconds:undefined;const videoDefaults=familyOf(model)?.video;setVideo({...defaultVideo,...(videoDefaults?{seconds:videoDefaults.seconds,fps:videoDefaults.fps}:{}),...(wizardSeconds?{seconds:wizardSeconds}:{})});},[beginner,model?.path,model?.name,model?.family]);
+ useEffect(()=>{if(!beginner||!model)return;const sameModel=beginnerModelKey.current===identity(model);beginnerModelKey.current=identity(model);const draft=beginnerLoraDraft.current;const allowed=new Set(beginnerLoraModels.map(m=>m.name));setLoras(!isGguf(model.name)&&draft?.model===identity(model)?draft.loras.filter(l=>allowed.has(l.name)):[]);if(!isMusic){startingSettings(model);if(sameModel){setSteps(steps);setCfg(cfg);}}const fromWizard=wizardBeginnerSize.current;if(fromWizard?.model===identity(model)){wizardBeginnerSize.current=null;if(fromWizard.size){setWidth(fromWizard.size.width);setHeight(fromWizard.size.height);setResolution('fixed');}if(fromWizard.cfg!==undefined)setCfg(fromWizard.cfg);if(fromWizard.sampling)applySampling(fromWizard.sampling);if(fromWizard.resolution&&(fromWizard.resolution==='model'||Object.hasOwn(resolutions,fromWizard.resolution)))setResolution(fromWizard.resolution);}const wizardSeconds=fromWizard?.model===identity(model)?fromWizard.seconds:undefined;const videoDefaults=familyOf(model)?.video;setVideo({...defaultVideo,...(videoDefaults?{seconds:videoDefaults.seconds,fps:videoDefaults.fps}:{}),...(wizardSeconds?{seconds:wizardSeconds}:{})});},[beginner,model?.path,model?.name,model?.family]);
  // Only authored intent is shared across restarts. Automatic beginner settings must
  // never overwrite the user's persisted advanced technical defaults.
  useEffect(()=>{if(!beginner||project)return;writePref('studio.run.positive',positive);writePref('studio.run.checkpoint',checkpointPref);writePref('studio.run.pipeline',pipeline);writePref('studio.run.aspect',aspectPref);if(resolutionPref!=='fixed')writePref('studio.run.resolution',resolutionPref);writePref(musicPromptPreferenceKeys[0],musicStyle);writePref(musicPromptPreferenceKeys[1],musicLyrics);},[beginner,project,positive,checkpointPref,pipeline,aspectPref,resolutionPref,musicStyle,musicLyrics]);
@@ -2494,7 +2507,7 @@ const promptTools=forgeContext&&<>
      <div className="wb-controls">
      {isMusic?musicSettings
      :inpaint?<p className="wb-resolution-hint">{t('studio.run.edit.size',{width:String(outputSize.width),height:String(outputSize.height)})}</p>:<>
-      <label className="wb-field"><span>{t('studio.run.resolution.aspect')}</span><span className="wb-aspect-picker"><span className="wb-aspect-swatch" aria-hidden="true"><span style={{width:18*Math.min(1,swatchRatio),height:18*Math.min(1,1/swatchRatio)}}/></span><select data-aspect value={aspect} onChange={e=>{setAspect(e.target.value as typeof aspect);if(resolution==='fixed')setResolution('model');}}>{aspects.filter(a=>a!=='auto'||mediaPipeline).map(a=><option key={a} value={a}>{a==='auto'||a==='custom'?t(`studio.run.resolution.${a}`):a}</option>)}</select></span></label>
+      <label className="wb-field"><span>{t('studio.run.resolution.aspect')}</span><AspectPicker data-aspect value={aspect} ratio={swatchRatio} omit={mediaPipeline?[]:['auto']} onChange={a=>{setAspect(a);if(resolution==='fixed')setResolution('model');}}/></label>
       <label className="wb-field"><span>{t('studio.run.resolution.title')}</span><select data-resolution value={resolution} onChange={e=>setResolution(e.target.value)}>{['fixed','model',...Object.keys(resolutions),'custom'].map(r=><option key={r} value={r} disabled={r==='model'&&!family?.defaults}>{r in resolutions?r:t(`studio.run.resolution.${r}`)}</option>)}</select></label>
       {aspect==='custom'&&<>{num('resolution.aspectWidth',aspectWidth,setAspectWidth,1,100,0.1)}{num('resolution.aspectHeight',aspectHeight,setAspectHeight,1,100,0.1)}</>}
       {resolution==='custom'&&num('resolution.megapixels',megapixels,setMegapixels,0.01,16,0.05)}

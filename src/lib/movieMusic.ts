@@ -1,6 +1,8 @@
 import { invoke } from '@tauri-apps/api/core';
-import { completeItem, newItem, setMusicFile, setShotLoras, type MovieLora, type MovieMix, type MovieManifest } from './movieManifest';
+import { MUSIC_TEXT_LIMITS, completeItem, newItem, setMusicFile, setShotLoras, type MovieItem, type MovieLora, type MovieMix, type MovieManifest } from './movieManifest';
 import type { WizardHandoff } from './wizards';
+import { aceMusicProfile } from './musicIntent.ts';
+import { styleFor } from './musicPresets.ts';
 
 export interface MixAnswer { path: string; seconds: number; ducked: boolean }
 export type MixPlan = { ok: true; film: string; music: string; mix: MovieMix } | { ok: false; why: 'noMusic' | 'noFilm' | 'filmOutdated' | 'mode' };
@@ -41,18 +43,24 @@ export function musicSeconds(m: MovieManifest): number {
 }
 export type MusicHandoff = { handoff: Omit<WizardHandoff, 'n'> } | { blocked: 'wizards.movie.music.needPrompt' } | { blocked: 'wizards.movie.music.loraYue2' } | { blocked: 'wizards.movie.music.loraMissing'; detail: string };
 /**
- * The hand-over that makes the track: the music item's text is the style, no lyrics (an instrumental bed), the film's length,
- * and the music item's LoRAs (ACE-Step only: YuE2 has no LoRA path; every LoRA must still be installed).
+ * The hand-over that makes the track: the music item's text is the style (a preset's text in the model's own dialect), its lyrics
+ * (empty = an instrumental bed), the film's length and the music item's LoRAs (ACE-Step only: YuE2 has no LoRA path; every LoRA must
+ * still be installed). ACE-Step 1.5 also gets the tempo and lyrics language when set; with the movie's own settings (`sampling`), the
+ * model's starting Steps/CFG/sampler/scheduler ride along so a Turbo and a Base model each sample as they should.
  */
-export function musicHandoff(m: MovieManifest, model: { name: string; path: string; family?: string | null }, run: boolean, hasLora?: (name: string) => boolean): MusicHandoff {
+export function musicHandoff(m: MovieManifest, model: { name: string; path: string; family?: string | null }, run: boolean, hasLora?: (name: string) => boolean, sampling = false): MusicHandoff {
   const item = m.items.find(i => i.kind === 'music');
-  const style = item?.text.trim() ?? '';
+  const style = styleFor(item?.text ?? '', item?.preset, model.family).trim();
   if (!style) return { blocked: 'wizards.movie.music.needPrompt' };
   const loras = (item?.loras ?? []).map(l => ({ name: l.name, strength: l.strength }));
   if (loras.length && isRestrictedMusicFamily(model.family)) return { blocked: 'wizards.movie.music.loraYue2' };
   const gone = hasLora ? loras.find(l => !hasLora(l.name)) : undefined;
   if (gone) return { blocked: 'wizards.movie.music.loraMissing', detail: gone.name };
-  return { handoff: { wizard: 'movie', strategy: 'music', pipeline: 't2m', source: 'movie', model: { name: model.name, path: model.path }, positive: '', run, music: { style, lyrics: '', seconds: musicSeconds(m) }, loras } };
+  const ace = aceMusicProfile(model.family ?? undefined);
+  const v15 = ace?.version === '1.5';
+  const music = { style, lyrics: item?.lyrics?.trim() ?? '', seconds: musicSeconds(m), ...(v15 && item?.bpm ? { bpm: item.bpm } : {}), ...(v15 && item?.language ? { language: item.language } : {}) };
+  return { handoff: { wizard: 'movie', strategy: 'music', pipeline: 't2m', source: 'movie', model: { name: model.name, path: model.path }, positive: '', run, music, loras,
+    ...(sampling && ace ? { sampling: { steps: ace.steps, cfg: ace.cfg, sampler: ace.sampler, scheduler: ace.scheduler } } : {}) } };
 }
 /** Sets the music item's LoRAs, creating the music item when needed (like the style text). */
 export function setMusicLoras(m: MovieManifest, loras: readonly MovieLora[]): MovieManifest {
@@ -71,4 +79,16 @@ export function recordGeneratedMusic(m: MovieManifest, run: { state: string; job
   if (!music) return m;
   if (run.state === 'succeeded' && run.picture?.audio) return completeItem(setMusicFile(m, run.picture.path), music.id, { outputId: run.picture.path, ...(run.job ? { jobId: run.job.id } : {}) });
   return run.state === 'failed' || run.state === 'cancelled' || run.state === 'succeeded' ? { ...m, items: m.items.map(i => i.id === music.id ? { ...i, state: 'failed' as const } : i) } : m;
+}
+/** Music-only settings (lyrics, tempo, language, preset, planner-writes-lyrics), creating the music item when needed. Lyrics are a revision like the style; the rest is a plain setting. */
+export function setMusicFields(m: MovieManifest, patch: Partial<Pick<MovieItem, 'lyrics' | 'bpm' | 'language' | 'preset' | 'vocals'>>): MovieManifest {
+  const next = m.items.some(i => i.kind === 'music') ? m : { ...m, items: [...m.items, newItem('music', 'music', 'Music', ['brief'])] };
+  const music = next.items.find(i => i.kind === 'music')!;
+  const clean: Partial<MovieItem> = {};
+  for (const [k, v] of Object.entries(patch) as [keyof typeof patch, unknown][]) (clean as Record<string, unknown>)[k] = v === '' || v === false ? undefined : v;
+  if (clean.bpm !== undefined) clean.bpm = Math.round(Math.min(MUSIC_TEXT_LIMITS.bpm[1], Math.max(MUSIC_TEXT_LIMITS.bpm[0], clean.bpm)));
+  if (clean.lyrics !== undefined) clean.lyrics = clean.lyrics.slice(0, MUSIC_TEXT_LIMITS.lyrics);
+  const changed = (Object.keys(clean) as (keyof MovieItem)[]).some(k => JSON.stringify(clean[k]) !== JSON.stringify(music[k]));
+  if (!changed) return next;
+  return { ...next, items: next.items.map(i => i === music ? { ...i, ...clean, state: i.state === 'failed' ? 'planned' as const : i.state } : i) };
 }

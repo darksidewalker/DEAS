@@ -70,11 +70,13 @@ export interface WizardPicture { name: string; path: string; src: string }
  */
 export interface WizardHandoff {
   n: number; wizard: string; strategy: string; pipeline: 't2i' | 'i2i' | 'v2v' | 'i2v' | 't2v' | 'ref2v' | 't2m'; source: 'reference' | 'edit' | 'video' | 'movie'; edit?: 'inpaint' | 'resample';
-  model: { name: string; path: string }; picture?: WizardPicture; references?: WizardPicture[]; positive: string; size?: Size; run?: boolean; mask?: string; denoise?: number;
+  model: { name: string; path: string }; picture?: WizardPicture; references?: WizardPicture[]; positive: string; size?: Size; /** Movie Maker without a fixed size: Generate's aspect becomes this choice (`auto` = its own first-reference rule) and keeps or takes `resolution`. */ aspect?: string; /** Movie Maker: Generate's resolution choice (`model` or a Settings → resolution name) for an `aspect` hand-over. */ resolution?: string; run?: boolean; mask?: string; denoise?: number;
   /** Masked edits: grow the SAM mask by this many pixels and set Generate's Mask blur. */
   maskGrow?: number; maskBlur?: number;
   /** Generate's CFG for this draft (the strategy's per-family value). */
   cfg?: number;
+  /** Movie Maker with the movie's own settings: Steps, CFG, sampler and scheduler for this draft (the model's starting values or the movie's). */
+  sampling?: { steps: number; cfg: number; sampler: string; scheduler: string };
   /** Video step (`source: 'video'`): `picture` is the edited first frame; `sourceVideo` the clip (`v2v` only) with its guide strength; `seconds` the length. */
   sourceVideo?: WizardPicture; sourceStrength?: number; seconds?: number;
   /** Movie Maker shot (`source: 'movie'`, `t2v` or `ref2v`): there is no `picture`; `references` are the cast pictures, `labels`/`notes` the Director picture label and the description per reference (same order). */
@@ -82,12 +84,18 @@ export interface WizardHandoff {
   /** Movie Maker chain: the chain's own in-memory continuity plan (steps = shots, in order) and the shot ids, step for step. Generate holds it apart from the user's saved plan. */
   continuity?: { plan: ContinuityPlan; shotIds: string[] };
   /** Movie Maker music bed (`pipeline: 't2m'`): the style/tags, lyrics (empty = instrumental) and length of the track Generate should make. */
-  music?: { style: string; lyrics: string; seconds: number };
+  music?: { style: string; lyrics: string; seconds: number; /** ACE-Step 1.5 only. */ bpm?: number; language?: string };
+  /** Movie Maker scene: its first/last frame (I2VA/FL2VA), as the scene editor assigned them. */
+  frames?: { first?: WizardPicture; last?: WizardPicture };
+  /** Movie Maker scene: its references with every Director option (REF2VA), in the editor's order. */
+  videoRefs?: WizardVideoRef[];
   /** Movie Maker shot: this shot's LoRAs for its model (installed names, strengths); Generate's LoRA list is replaced by them. */
   loras?: { name: string; strength: number }[];
   /** Movie Maker shot in the H3 audio-reference mode: the slice of the music track given to REF2VA as an audio reference (seconds into the track). */
   audioRef?: { name: string; path: string; src: string; trimStart: number; trimEnd: number };
 }
+/** A Movie Maker scene reference as Generate's References editor holds it, plus the file name and webview URL. */
+export type WizardVideoRef = import('./movieManifest').SceneRef & { name: string; src: string };
 /** The picture a wizard's own run produced, in that job's native-held output folder. */
 export interface WizardRunPicture { path: string; width: number; height: number; seed: number; checkpoint: string; ms?: number; video?: boolean; /** A music job's audio file (width and height are 0). */ audio?: boolean }
 /**

@@ -1,13 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { MOVIE_MANIFEST_VERSION, addCast, newMovie, removeCast, setBrief, setCastRefs, completeItem, deliveredSeconds, downstream, editItem, manifestProblem, newItem, parseManifest, planSegments, readyItems, rerunPlan, restoreRevision, serializeManifest, setLocked, type MovieManifest } from '../src/lib/movieManifest.ts';
+import { MOVIE_MANIFEST_VERSION, addScene, newMovie, removeScene, reviseItem, sceneFiles, scenesSeconds, setBrief, setSceneInputs, setSceneSeconds, completeItem, deliveredSeconds, downstream, editItem, manifestProblem, newItem, parseManifest, planSegments, readyItems, rerunPlan, restoreRevision, serializeManifest, setLocked, type MovieManifest } from '../src/lib/movieManifest.ts';
 
 const film = (): MovieManifest => ({
   version: MOVIE_MANIFEST_VERSION, id: 'film1', title: 'Two actors', targetSeconds: 30, aspect: '16:9',
   items: [
     newItem('brief', 'brief', 'Brief', [], 'A chase.'),
-    newItem('cast-a', 'cast', 'Anna', ['brief'], 'tall, red coat'),
-    newItem('cast-b', 'cast', 'Ben', ['brief'], 'short, green hat'),
+    newItem('cast-a', 'voice', 'Anna', ['brief'], 'tall, red coat'),
+    newItem('cast-b', 'voice', 'Ben', ['brief'], 'short, green hat'),
     newItem('story', 'story', 'Story', ['brief', 'cast-a', 'cast-b'], 'Anna runs.'),
     newItem('s1', 'segment', 'Shot 1', ['story', 'cast-a'], 'Anna runs', { seconds: 10, continuous: false }),
     newItem('s2', 'segment', 'Shot 2', ['story', 'cast-b'], 'Ben follows', { seconds: 10, continuous: true }),
@@ -33,7 +33,7 @@ test('valid manifest round-trips and damaged ones are refused', () => {
   const lora = [{ name: 'ace/lofi.safetensors', strength: 0.5 }];
   const withMusic = { ...m, items: [...m.items, { ...newItem('music', 'music', 'Music', ['brief']), loras: lora }] };
   assert.equal(manifestProblem(withMusic), undefined);
-  assert.match(manifestProblem({ ...m, items: m.items.map(i => i.id === 'cast-a' ? { ...i, loras: lora } : i) })!, /shots and the music only/);
+  assert.match(manifestProblem({ ...m, items: m.items.map(i => i.id === 'cast-a' ? { ...i, loras: lora } : i) })!, /shots and the music only/); // a voice item takes none
   assert.match(manifestProblem({ ...withMusic, items: withMusic.items.map(i => i.id === 'music' ? { ...i, loras: [{ name: 'x', strength: 5 }] } : i) })!, /LoRAs/);
   assert.throws(() => serializeManifest({ ...m, version: 9 as 1 }), /Refusing/);
 });
@@ -111,30 +111,45 @@ test('delivered seconds subtract the overlap of continued segments only', () => 
   assert.equal(deliveredSeconds(film(), 0), 30);
 });
 
-test('brief and cast authoring: new movie, cast entries, references, staleness', () => {
+test('scenes authoring: + adds a scene after the selected one, − removes it, the length is the sum, inputs are a revision', () => {
   let m = newMovie('m1', 'Chase');
   assert.equal(manifestProblem(m), undefined);
-  m = setBrief(m, { story: 'Anna runs.', targetSeconds: 20, aspect: '9:16', title: 'Chase 2' });
-  assert.deepEqual([m.title, m.targetSeconds, m.aspect, m.items[0].title, m.items[0].text, m.items[0].revision], ['Chase 2', 20, '9:16', 'Chase 2', 'Anna runs.', 2]);
-  m = addCast(m, 'actor', 'Anna', 'tall');
-  m = addCast(m, 'location', 'Street');
-  assert.deepEqual(m.items.map(i => i.id), ['brief', 'cast-1', 'cast-2']);
-  assert.equal(manifestProblem(m), undefined);
-  m = setCastRefs(m, 'cast-1', ['/p/a.png', '/p/a.png', '/p/b.png']);
-  assert.deepEqual(m.items[1].refs, ['/p/a.png', '/p/b.png']);
-  assert.match(manifestProblem({ ...m, items: m.items.map(i => i.id === 'brief' ? { ...i, role: 'actor' as const } : i) })!, /cast-only/);
-  // Something finished from cast-1 goes stale when its pictures change; a removed entry leaves the dependencies.
-  let f = { ...m, items: [...m.items, newItem('story', 'story', 'Story', ['brief', 'cast-1', 'cast-2'])] };
-  f = completeItem(f, 'story', { outputId: 'o' });
-  const changed = setCastRefs(f, 'cast-1', ['/p/c.png']);
-  assert.equal(changed.items.find(i => i.id === 'story')!.state, 'stale');
-  const removed = removeCast(f, 'cast-2');
-  assert.deepEqual(removed.items.find(i => i.id === 'story')!.deps, ['brief', 'cast-1']);
-  assert.equal(removed.items.find(i => i.id === 'story')!.state, 'stale');
-  assert.equal(manifestProblem(removed), undefined);
-  assert.throws(() => removeCast(m, 'brief'), /Unknown cast/);
-  assert.throws(() => removeCast(setLocked(m, 'cast-1', true), 'cast-1'), /locked/);
-  assert.equal(addCast(removeCast(m, 'cast-1'), 'prop', 'Key').items.at(-1)!.id, 'cast-3');
+  m = setBrief(m, { story: 'Anna runs.', aspect: '9:16', title: 'Chase 2' });
+  assert.deepEqual([m.title, m.aspect, m.items[0].title, m.items[0].text, m.items[0].revision], ['Chase 2', '9:16', 'Chase 2', 'Anna runs.', 2]);
+  m = addScene(m, 5);
+  m = addScene(m, 7);
+  assert.deepEqual(m.items.map(i => i.id), ['brief', 'seg-1', 'seg-2', 'final']);
+  assert.deepEqual(m.items.find(i => i.id === 'final')!.deps, ['seg-1', 'seg-2']);
+  assert.equal(m.targetSeconds, 12);
+  m = addScene(m, 4, 'seg-1');
+  assert.deepEqual(m.items.filter(i => i.kind === 'segment').map(i => i.id), ['seg-1', 'seg-3', 'seg-2']);
+  assert.equal(scenesSeconds(m), 16);
+  m = setSceneSeconds(m, 'seg-3', 6.5);
+  assert.equal(m.targetSeconds, 18.5);
+  // Inputs: frames and references with the Director options; a change is a revision and stales a finished scene.
+  m = completeItem(m, 'seg-1', { outputId: '/o/1.mp4' });
+  const inputs = { first: { path: '/p/a.png', media: 'image' as const }, refs: [{ path: '/p/b.png', media: 'image' as const, mediaMode: 'video' as const, second: 0, strength: 1, label: 'character-1', boxes: [{ n: 1, box: [0.1, 0.1, 0.5, 0.9] as [number, number, number, number] }] }] };
+  const withInputs = setSceneInputs(m, 'seg-1', inputs);
+  assert.deepEqual(withInputs.items.find(i => i.id === 'seg-1')!.inputs, inputs);
+  assert.equal(withInputs.items.find(i => i.id === 'seg-1')!.state, 'planned');
+  assert.deepEqual(sceneFiles(withInputs.items.find(i => i.id === 'seg-1')!), ['/p/a.png', '/p/b.png']);
+  assert.equal(manifestProblem(withInputs), undefined);
+  assert.equal(setSceneInputs(withInputs, 'seg-1', {}).items.find(i => i.id === 'seg-1')!.inputs, undefined);
+  assert.throws(() => setSceneInputs(m, 'seg-1', { refs: [{ path: '/p/x.png', media: 'image', mediaMode: 'video', second: 0, strength: 99 }] }), /cannot be kept/);
+  // Inputs belong to scenes only; unknown fields are refused.
+  assert.match(manifestProblem({ ...m, items: m.items.map(i => i.id === 'brief' ? { ...i, inputs: {} } : i) })!, /scenes only/);
+  assert.match(manifestProblem({ ...m, items: m.items.map(i => i.id === 'seg-2' ? { ...i, inputs: { first: { path: '/p/a.png', media: 'image', extra: 1 } } as never } : i) })!, /bad first/);
+  // −: removing the first scene makes a following continued scene a cut; the last scene removes the film too.
+  let c = reviseItem(m, 'seg-3', { continuous: true });
+  c = removeScene(c, 'seg-1');
+  assert.equal(c.items.find(i => i.id === 'seg-3')!.continuous, false);
+  assert.deepEqual(c.items.find(i => i.id === 'final')!.deps, ['seg-3', 'seg-2']);
+  assert.equal(c.targetSeconds, 13.5);
+  assert.throws(() => removeScene(setLocked(c, 'seg-2', true), 'seg-2'), /locked/);
+  assert.throws(() => removeScene(c, 'brief'), /Unknown scene/);
+  const none = removeScene(removeScene(c, 'seg-3'), 'seg-2');
+  assert.deepEqual(none.items.map(i => i.id), ['brief']);
+  assert.equal(manifestProblem(none), undefined);
 });
 
 test('markResultsMissing sends gone clips back to not made and stales what was built from them', async () => {
@@ -146,4 +161,42 @@ test('markResultsMissing sends gone clips back to not made and stales what was b
   assert.equal(r.items.find(i => i.id === 's1')!.revisions[0].result?.outputId, 'out-s1');
   assert.equal(manifestProblem(r), undefined);
   assert.equal(markResultsMissing(m, []).items.every(i => i.state === 'done'), true);
+});
+
+test('the media pool is bounded, typed and never stales anything', async () => {
+  const { addMedia, removeMedia, setMediaNote } = await import('../src/lib/movieManifest.ts');
+  const m = doneAll(film());
+  const p = addMedia(m, [{ path: '/p/a.png', media: 'image' }, { path: '/p/b.mp4', media: 'video', note: 'the street' }]);
+  assert.deepEqual(p.media, [{ path: '/p/a.png', media: 'image' }, { path: '/p/b.mp4', media: 'video', note: 'the street' }]);
+  assert.deepEqual(p.items.map(i => i.state), m.items.map(i => i.state));
+  assert.equal(manifestProblem(p), undefined);
+  assert.equal(setMediaNote(p, '/p/a.png', 'Anna').media![0].note, 'Anna');
+  assert.equal(setMediaNote(p, '/p/b.mp4', ' ').media![1].note, undefined);
+  assert.deepEqual(removeMedia(p, '/p/a.png').media!.map(x => x.path), ['/p/b.mp4']);
+  assert.equal(removeMedia(removeMedia(p, '/p/a.png'), '/p/b.mp4').media, undefined);
+  assert.equal(addMedia(m, Array.from({ length: 40 }, (_, i) => ({ path: `/p/${i}.png`, media: 'image' as const }))).media!.length, 32);
+  assert.match(manifestProblem({ ...p, media: [{ path: '/p/a.png', media: 'pdf' as never }] })!, /media pool/);
+  assert.match(manifestProblem({ ...p, media: [{ path: '/p/a.png', media: 'image', extra: 1 } as never] })!, /media pool/);
+});
+
+test('a pool medium is used in several scenes with one role; H3 refuses mixing frames and references; Use in is read from the scenes', async () => {
+  const { addMedia, assignMedia, scenesUsing, dropMedia, addScene, setSceneInputs } = await import('../src/lib/movieManifest.ts');
+  let m = [5, 5, 5].reduce((x, s) => addScene(x, s), addMedia(newMovie('m', 'F'), [{ path: '/p/anna.png', media: 'image', note: 'Anna' }, { path: '/p/rain.wav', media: 'audio' }]));
+  let r = assignMedia(m, '/p/anna.png', ['seg-1', 'seg-3'], 'reference', 'character-1');
+  assert.deepEqual(r.refused, []);
+  assert.deepEqual(scenesUsing(r.movie, '/p/anna.png'), ['seg-1', 'seg-3']);
+  assert.deepEqual(r.movie.items.find(i => i.id === 'seg-1')!.inputs, { refs: [{ path: '/p/anna.png', media: 'image', mediaMode: 'video', second: 0, strength: 1, label: 'character-1', description: 'Anna' }] });
+  assert.equal(r.movie.media![0].label, 'character-1');
+  // Moving it: out of seg-3, into seg-2 as first frame; seg-2 holds a reference already → refused there.
+  m = setSceneInputs(r.movie, 'seg-2', { refs: [{ path: '/p/x.png', media: 'image', mediaMode: 'video', second: 0, strength: 1 }] });
+  r = assignMedia(m, '/p/anna.png', ['seg-2', 'seg-3'], 'first');
+  assert.deepEqual(r.refused, ['seg-2']);
+  assert.deepEqual(scenesUsing(r.movie, '/p/anna.png'), ['seg-3']);
+  assert.deepEqual(r.movie.items.find(i => i.id === 'seg-3')!.inputs, { first: { path: '/p/anna.png', media: 'image' } });
+  assert.equal(r.movie.media![0].role, 'first');
+  assert.throws(() => assignMedia(m, '/p/rain.wav', ['seg-1'], 'first'), /Only a picture/);
+  assert.equal(manifestProblem(r.movie), undefined);
+  // Removing the medium takes it out of every scene.
+  const gone = dropMedia(r.movie, '/p/anna.png');
+  assert.deepEqual([gone.media!.map(x => x.path), gone.items.find(i => i.id === 'seg-3')!.inputs], [['/p/rain.wav'], undefined]);
 });

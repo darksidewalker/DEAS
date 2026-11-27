@@ -1,0 +1,89 @@
+{
+  "version": 1,
+  "presets": [
+    {
+      "id": "cinematic-orchestral",
+      "name": { "en": "Cinematic orchestral", "de": "Filmisch-orchestral", "fr": "Orchestral cinématographique", "ja": "映画的オーケストラ", "ru": "Кинематографичный оркестр", "tr": "Sinematik orkestral", "zh": "电影管弦乐" },
+      "bpm": 90,
+      "ace": "cinematic orchestral score, instrumental, sweeping strings, french horns, timpani, emotional build, wide hall reverb",
+      "yue2": "Instrumental, cinematic orchestral score, 90 BPM, sweeping strings, french horns, timpani, emotional build, wide hall reverb, no vocals"
+    },
+    {
+      "id": "epic-trailer",
+      "name": { "en": "Epic trailer", "de": "Epischer Trailer", "fr": "Bande-annonce épique", "ja": "壮大なトレーラー", "ru": "Эпичный трейлер", "tr": "Epik fragman", "zh": "史诗预告片" },
+      "bpm": 120,
+      "ace": "epic trailer music, instrumental, massive percussion, low brass, rising string ostinato, powerful climax, big impacts",
+      "yue2": "Instrumental, epic trailer music, 120 BPM, massive percussion, low brass, rising string ostinato, powerful climax, big impacts, no vocals"
+    },
+    {
+      "id": "action-hybrid",
+      "name": { "en": "Action", "de": "Action", "fr": "Action", "ja": "アクション", "ru": "Экшен", "tr": "Aksiyon", "zh": "动作" },
+      "bpm": 140,
+      "ace": "hybrid action score, instrumental, driving drums, aggressive staccato strings, distorted synth bass, brass hits, energetic",
+      "yue2": "Instrumental, hybrid action score, 140 BPM, driving drums, aggressive staccato strings, distorted synth bass, brass hits, energetic, no vocals"
+    },
+    {
+      "id": "suspense",
+      "name": { "en": "Suspense", "de": "Spannung", "fr": "Suspense", "ja": "サスペンス", "ru": "Саспенс", "tr": "Gerilim", "zh": "悬疑" },
+      "bpm": 100,
+      "ace": "dark suspense score, instrumental, pulsing low synth bass, staccato strings, ticking percussion, tense, ominous",
+      "yue2": "Instrumental, dark suspense score, 100 BPM, pulsing low synth bass, staccato strings, ticking percussion, tense, ominous, no vocals"
+    },
+    {
+      "id": "horror",
+      "name": { "en": "Horror", "de": "Horror", "fr": "Horreur", "ja": "ホラー", "ru": "Хоррор", "tr": "Korku", "zh": "恐怖" },
+      "bpm": 60,
+      "ace": "horror ambient, instrumental, dissonant drones, eerie textures, sparse metallic hits, low rumble, unsettling",
+      "yue2": "Instrumental, horror ambient, 60 BPM, dissonant drones, eerie textures, sparse metallic hits, low rumble, unsettling, no vocals"
+    },
+    {
+      "id": "ambient",
+      "name": { "en": "Ambient", "de": "Ambient", "fr": "Ambient", "ja": "アンビエント", "ru": "Эмбиент", "tr": "Ambiyans", "zh": "氛围" },
+      "bpm": 70,
+      "ace": "ambient, instrumental, warm synth pads, soft evolving textures, slow, calm, spacious reverb",
+      "yue2": "Instrumental, ambient, 70 BPM, warm synth pads, soft evolving textures, slow, calm, spacious reverb, no vocals"
+    },
+    {
+      "id": "gentle-piano",
+      "name": { "en": "Gentle piano", "de": "Sanftes Klavier", "fr": "Piano doux", "ja": "やさしいピアノ", "ru": "Нежное фортепиано", "tr": "Yumuşak piyano", "zh": "轻柔钢琴" },
+      "bpm": 72,
+      "ace": "solo piano, instrumental, gentle flowing melody, emotional, intimate, soft dynamics",
+      "yue2": "Instrumental, lyrical solo piano, 72 BPM, gentle flowing melody, warm intimate tone, soft dynamics, no vocals"
+    },
+    {
+      "id": "acoustic-folk",
+      "name": { "en": "Acoustic folk", "de": "Akustik-Folk", "fr": "Folk acoustique", "ja": "アコースティック・フォーク", "ru": "Акустический фолк", "tr": "Akustik folk", "zh": "原声民谣" },
+      "bpm": 95,
+      "ace": "acoustic folk, instrumental, fingerpicked acoustic guitar, light percussion, warm, hopeful",
+      "yue2": "Instrumental, acoustic folk, 95 BPM, fingerpicked acoustic guitar, light percussion, warm, hopeful, no vocals"
+    },
+    {
+      "id": "upbeat",
+      "name": { "en": "Bright and upbeat", "de": "Hell und fröhlich", "fr": "Lumineux et entraînant", "ja": "明るくアップビート", "ru": "Светлая и бодрая", "tr": "Parlak ve neşeli", "zh": "明快活泼" },
+      "bpm": 120,
+      "ace": "upbeat pop, instrumental, bright plucked synths, claps, acoustic guitar, positive, uplifting",
+      "yue2": "Instrumental, upbeat pop, 120 BPM, bright plucked synths, claps, acoustic guitar, positive, uplifting, no vocals"
+    },
+    {
+      "id": "lofi",
+      "name": { "en": "Lo-fi", "de": "Lo-Fi", "fr": "Lo-fi", "ja": "ローファイ", "ru": "Лоу-фай", "tr": "Lo-fi", "zh": "低保真" },
+      "bpm": 80,
+      "ace": "lo-fi hip hop, instrumental, dusty drums, mellow electric piano, vinyl crackle, relaxed, warm",
+      "yue2": "Instrumental, lo-fi hip hop, 80 BPM, dusty drums, mellow electric piano, vinyl crackle, relaxed, warm, no vocals"
+    },
+    {
+      "id": "synthwave",
+      "name": { "en": "Synthwave", "de": "Synthwave", "fr": "Synthwave", "ja": "シンセウェイブ", "ru": "Синтвейв", "tr": "Synthwave", "zh": "合成器浪潮" },
+      "bpm": 110,
+      "ace": "synthwave, instrumental, retro analog synths, gated drums, pulsing bass, neon, nostalgic",
+      "yue2": "Instrumental, synthwave, 110 BPM, retro analog synths, gated drums, pulsing bass, neon, nostalgic, no vocals"
+    },
+    {
+      "id": "noir-jazz",
+      "name": { "en": "Noir jazz", "de": "Noir-Jazz", "fr": "Jazz noir", "ja": "ノワール・ジャズ", "ru": "Нуар-джаз", "tr": "Kara film cazı", "zh": "黑色爵士" },
+      "bpm": 85,
+      "ace": "noir jazz, instrumental, smoky muted trumpet, upright bass, brushed drums, late night, moody",
+      "yue2": "Instrumental, noir jazz, 85 BPM, smoky muted trumpet, upright bass, brushed drums, late night, moody, no vocals"
+    }
+  ]
+}

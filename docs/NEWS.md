@@ -1,5 +1,33 @@
 # News
 
+## 0.3.48
+
+This release rolls up 0.3.24 to 0.3.48. Most of it is the new **Movie Maker** in Dark Wizards, plus **Replace in a video** and ACE-Step LoRAs.
+
+### Movie Maker: from a few words and your media to a scored film
+
+**Studio → Dark Wizards → Movie Maker** works in four steps: **Idea and media → Plan → Scenes → Film and music**.
+- **Idea and media.** Write the idea and add the pictures, clips or sound that belong in the film.
+- **Plan.** A Prompt Forge language model (local, or remote after you confirm the host) suggests the scenes and places your media in them. Before anything changes you see the whole proposal: every scene's text, length, transition, start and end state, spoken lines and media, the story bible and the suggested music.
+- **Scenes.** A timeline of cards: **+** adds a scene and the ✕ on a card removes it. Between two scenes you choose a *Seamless* continuation (H3 Continuity), a *Cut* or a *Blend*.
+- **Film and music.** **Make the movie** makes every scene, stitches the film, generates the music and mixes it under H3's own speech.
+
+Each scene can have its own model, LoRAs, Steps and CFG. Generation settings sit beside the aspect ratio: either the movie's own (Generate's resolution choices, Steps and CFG starting at the model's values — a turbo merge 8/1, the base model 30/3) or Generate's. Nothing has to be set in Generate first.
+
+The music has 12 instrumental presets for ACE-Step and YuE2, lyrics, tempo and language, and the planner can write it too. Movies are saved and reopened safely, missing files are named on reopen, and unsaved work survives switching tabs and restarting the app. [Details →](DARK-WIZARDS.md#movie-maker)
+
+### Replace works on videos too
+
+Give the Replace wizard a clip: it edits the exact first frame, then either keeps the clip's motion (LTX 2.3 video-to-video) or re-animates the edited frame (MiniMax H3). The masked Replace on Qwen Image 2.1 now really draws the replacement, and an off-grid picture is cropped onto the model grid for you.
+
+### ACE-Step music takes LoRAs
+
+Generate's Music pipeline applies ACE-Step 1.5 / 1.5 XL LoRAs (recognised from the trainer's own file format), in Advanced and Beginner.
+
+### Using settings from a picture or video brings back what you made
+
+*Use these settings* on an upscaled picture restores the picture you generated, not the upscale pass. File settings also bring back the text encoder(s) and VAE, H3 Dial Rack rows come back from video metadata, and the aspect selector shows the restored canvas.
+
 ## 0.3.23
 
 ### An Agent API: queue generations from a script, share one card with the rest of DEAS

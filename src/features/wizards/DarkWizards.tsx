@@ -8,6 +8,7 @@ import { stopWorkbenchJob } from '../../lib/jobs';
 import { scanModels } from '../../lib/models';
 import { builtinWizards, editGrid, findInLibrary, gridCopyName, gridCrop, preferredChoice, strategyCfg, wizardTargets, strategyPrompt, usesObject, videoPrompt, videoSeconds, wizardCanvas, wizardChoices, wizardReady, wizardVideoChoices, type WizardField, type WizardHandoff, type WizardModel, type WizardPicture, type WizardRun } from '../../lib/wizards';
 import { MovieMaker } from './MovieMaker';
+import { MoviePlayer } from './MoviePlayer';
 import './darkWizards.css';
 
 const IMAGE = /\.(png|jpe?g|webp)$/i;
@@ -28,7 +29,9 @@ async function cropPicture(src: string, r: { x: number; y: number; width: number
 type Slot = 'target' | 'object';
 export interface DarkWizardsProps {
   active?: boolean;
-  roots?: { models?: string; extraModels?: string[]; input?: string };
+  roots?: { models?: string; extraModels?: string[]; input?: string; output?: string };
+  /** Environment root: the LLM configuration Prompt Forge uses (Movie Maker's story planner shares it). */
+  root?: string;
   /** Hands an ordinary draft to Generate, optionally asking it to run that draft; Generate replies through `outcome` with the same number. */
   onPrepare: (handoff: Omit<WizardHandoff, 'n'>) => void;
   outcome?: { n: number; error?: string; run?: WizardRun };
@@ -43,11 +46,13 @@ export interface DarkWizardsProps {
 }
 
 /** Dark Wizards: preset-driven helpers that pick model, pipeline and prompt, then prepare Generate. They never run anything themselves. */
-export function DarkWizards({ active = false, roots, onPrepare, outcome, onOpenGenerate, handoff, sam, endpoint }: DarkWizardsProps) {
+export function DarkWizards({ active = false, roots, root, onPrepare, outcome, onOpenGenerate, handoff, sam, endpoint }: DarkWizardsProps) {
   const { t } = useI18n();
   const native = isTauri();
   const [wizardId, setWizardId] = useState(builtinWizards[0]?.id ?? '');
   const [movie, setMovie] = useState(false);
+  // Movie Maker stays mounted once opened, so switching to another wizard (or tab) never throws its unsaved work away.
+  const movieOpened = useRef(false); if (movie) movieOpened.current = true;
   const wizard = builtinWizards.find(w => w.id === wizardId) ?? builtinWizards[0];
   const [models, setModels] = useState<WizardModel[] | null>(null);
   const [scanError, setScanError] = useState('');
@@ -159,7 +164,7 @@ export function DarkWizards({ active = false, roots, onPrepare, outcome, onOpenG
     if (!native) return;
     const paste = (e: ClipboardEvent) => {
       const el = tab.current, target = e.target;
-      if (e.defaultPrevented || !el || el.closest('[hidden]') || el.querySelector('[data-wizard-form="movie"]')) return;
+      if (e.defaultPrevented || !el || el.closest('[hidden]') || el.querySelector('[data-movie-host]:not([hidden])')) return;
       if (target instanceof Element && target.closest('input, textarea, [contenteditable="true"]')) return;
       const modal = document.querySelector('dialog[open], [aria-modal="true"]');
       if (modal && !modal.contains(el)) return;
@@ -271,7 +276,8 @@ export function DarkWizards({ active = false, roots, onPrepare, outcome, onOpenG
         <strong>{t('wizards.movie.name')}</strong><span>{t('wizards.movie.summary')}</span>
       </button>
     </nav>
-    {movie ? <MovieMaker modelsRoot={roots?.models} endpoint={endpoint} models={models} onPrepare={onPrepare} outcome={outcome} handoff={handoff}/> : <div className="forge-card wizards-form" data-wizard-form={wizard.id}>
+    {movieOpened.current && <div className="wizards-movie-host" hidden={!movie} data-movie-host><MovieMaker root={root} mediaRoots={roots} endpoint={endpoint} models={models} onPrepare={onPrepare} outcome={outcome} handoff={handoff}/></div>}
+    {!movie && <div className="forge-card wizards-form" data-wizard-form={wizard.id}>
       <div className="forge-card-head"><h3 className="forge-card-title">{t(`wizards.${wizard.id}.name`)}</h3></div>
       <div className={`wizards-pictures${slots.length > 1 ? ' is-pair' : ''}`}>{slots.map(zone)}</div>
       <div className="wizards-step wizards-fields">{wizard.fields.map(field)}</div>
@@ -347,7 +353,7 @@ export function DarkWizards({ active = false, roots, onPrepare, outcome, onOpenG
         {chain !== null && running && <p className="forge-note" data-wizard-chain>{t('wizards.video.chained')}</p>}
         {run.preview && running && <img className="wizards-preview" src={run.preview} alt=""/>}
         {run.picture && <figure className="wizards-result">
-          {run.picture.video ? <video src={convertFileSrc(run.picture.path)} controls preload="metadata" data-wizard-result-video/>
+          {run.picture.video ? <MoviePlayer path={run.picture.path} media="video" toSrc={convertFileSrc} data-wizard-result-video/>
             : <img src={convertFileSrc(run.picture.path)} alt={strategy ? strategyPrompt(strategy, fields, withObject).slice(0, 160) : t('wizards.title')}/>}
           <figcaption>{[`${run.picture.width}×${run.picture.height}`, run.picture.checkpoint.replace(/\.(safetensors|gguf|ckpt)$/i, ''), t('wizards.run.seed', { seed: String(run.picture.seed) }), run.picture.ms ? `${(run.picture.ms / 1000).toFixed(1)} s` : ''].filter(Boolean).join(' · ')}</figcaption>
         </figure>}

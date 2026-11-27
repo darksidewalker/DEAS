@@ -49,7 +49,7 @@ export function chainPlan(m: MovieManifest, chain: Chain, session: string, overl
     if (n > 0 && overlapFor(overlap, f, Number.MAX_SAFE_INTEGER) === undefined) problems.push(`“${label}” adds ${f} frames, which leaves no room for the overlap in a ${H3_WINDOW_FRAMES}-frame window.`);
     if (!(seconds > 0) || seconds > 15) problems.push(`“${label}” must last more than 0 and at most 15 seconds.`);
     frames.push(f);
-    steps.push({ id: s.id, seconds, action: shotPrompt(m, s, false) });
+    steps.push({ id: s.id, seconds, action: shotPrompt(m, s) });
   });
   const plan: ContinuityPlan = { enabled: true, session, outputMode: 'segment', overlapFrames: overlap as ContinuityPlan['overlapFrames'], useReferences: true, steps };
   if (!isContinuityPlan(plan)) problems.push('The chain is not a valid continuity plan (session id, 1–50 steps, step lengths).');

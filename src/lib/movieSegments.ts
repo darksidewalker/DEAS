@@ -5,27 +5,29 @@
  */
 import { completeItem, failItem, type MovieItem, type MovieManifest } from './movieManifest.ts';
 import { h3ActualSeconds } from './movieStory.ts';
-import { wizardCanvas, type WizardHandoff, type WizardPicture } from './wizards.ts';
+import type { WizardHandoff, WizardPicture } from './wizards.ts';
+import { renderCanvas, renderSampling } from './movieRender.ts';
+
+/** The video family every Movie Maker shot is made with. */
+export const SHOT_FAMILY = 'minimax-h3';
 
 export const H3_REFERENCE_LIMIT = 12;
-const IMAGE = /\.(png|jpe?g|webp)$/i;
 const fileName = (p: string) => p.split(/[\\/]/).pop() ?? p;
-const LABEL: Record<string, string | undefined> = { location: 'place', style: 'style' };
 
-/** Reference pictures of the given shots' cast entries, in order of first use, without repeats (images only; other files are counted). */
-export function shotPictures(m: MovieManifest, shots: MovieItem[]): { picks: { path: string; label?: string; note?: string }[]; skipped: number } {
-  const picks: { path: string; label?: string; note?: string }[] = [];
-  const skippedFiles = new Set<string>();
-  for (const shot of shots) for (const id of shot.deps) {
-    const c = m.items.find(i => i.id === id && i.kind === 'cast');
-    if (!c) continue;
-    for (const p of c.refs ?? []) {
-      if (!IMAGE.test(p)) { skippedFiles.add(p); continue; }
-      if (picks.some(x => x.path === p)) continue;
-      picks.push({ path: p, ...(LABEL[c.role ?? 'actor'] ? { label: LABEL[c.role ?? 'actor'] } : {}), note: `${c.title}${c.text.trim() ? `: ${c.text.trim()}` : ''}` });
-    }
-  }
-  return { picks, skipped: skippedFiles.size };
+/** How a scene's inputs go to Generate: its frames (I2VA/FL2VA) or its references (REF2VA) with every Director option, as Generate holds them. */
+export interface SceneHandoffParts { pipeline: 't2v' | 'i2v' | 'v2v' | 'ref2v'; frames?: NonNullable<WizardHandoff['frames']>; videoRefs?: NonNullable<WizardHandoff['videoRefs']>; source?: WizardPicture }
+/** Pipeline and inputs from the scenes' inputs (a chain passes all its scenes: frames come from the first, references from all, without repeats). */
+export function sceneParts(scenes: MovieItem[], toSrc: (path: string) => string): SceneHandoffParts | { blocked: string } {
+  const pic = (x: { path: string }): WizardPicture => ({ name: fileName(x.path), path: x.path, src: toSrc(x.path) });
+  const first = scenes[0]?.inputs;
+  const refs = scenes.flatMap(s => s.inputs?.refs ?? []).filter((r, n, all) => all.findIndex(x => x.path === r.path && x.mediaMode === r.mediaMode) === n);
+  const frames = first?.first || first?.last ? { ...(first.first ? { first: pic(first.first) } : {}), ...(first.last ? { last: pic(first.last) } : {}) } : undefined;
+  // MiniMax H3 does not mix frames with references (`family.video.mixReferences`); the scene editor keeps them apart, a chain could join them.
+  if (refs.length && frames) return { blocked: 'wizards.movie.shot.mixedInputs' };
+  if (refs.length > H3_REFERENCE_LIMIT) return { blocked: 'wizards.movie.shot.tooManyRefs' };
+  if (refs.length) return { pipeline: 'ref2v', videoRefs: refs.map(r => ({ ...r, name: fileName(r.path), src: toSrc(r.path) })) };
+  if (first?.source) return { pipeline: 'v2v', source: pic(first.source), ...(frames ? { frames } : {}) };
+  return frames ? { pipeline: 'i2v', frames } : { pipeline: 't2v' };
 }
 /** What Generate has installed, so a shot's own model and LoRAs can be checked before anything is handed over. */
 export interface ShotEnv { resolveModel: (name: string) => { name: string; path: string } | undefined; hasLora: (name: string) => boolean }
@@ -58,23 +60,24 @@ export function shotAudio(m: MovieManifest, shot: MovieItem, hasPictures: boolea
   if (end > track.seconds + 1e-6) return { blocked: 'wizards.movie.shot.audioTrackShort', detail: `${track.seconds.toFixed(1)} s / ${end.toFixed(1)} s` };
   return { audioRef: { name: track.path.split(/[\\/]/).pop() ?? track.path, path: track.path, src: toSrc(track.path), trimStart: start, trimEnd: end } };
 }
+/**
+ * The canvas a shot is handed over with (`movieRender.ts`): with the movie's own settings a fixed aspect becomes the exact H3 canvas of
+ * that ratio at the movie's resolution choice, computed like Generate's resolution settings; `auto` hands over Generate's auto aspect with
+ * that choice; with Generate's settings only the aspect goes over. Never a size Generate would not compute itself.
+ */
+export const movieCanvas = (m: MovieManifest) => renderCanvas(m, SHOT_FAMILY);
 export type ShotHandoff = { handoff: Omit<WizardHandoff, 'n'>; skipped: number } | { blocked: string; detail?: string };
-/** Text of the shot as the model reads it: camera/action, the scene state it starts from and ends in, and the spoken lines. */
-export function shotPrompt(m: MovieManifest, shot: MovieItem, withCast: boolean): string {
-  const name = (id: string) => m.items.find(i => i.id === id)?.title || id;
+/** Text of the scene as the model reads it: what happens and who is in it, the state it starts from and ends in, and the spoken lines. */
+export function shotPrompt(_m: MovieManifest, shot: MovieItem): string {
   const parts = [shot.text.trim()];
   if (shot.entry?.trim()) parts.push(`At the start: ${shot.entry.trim()}`);
-  for (const d of shot.dialogue ?? []) parts.push(`${name(d.castId)} says: "${d.line}"${d.delivery ? ` (${d.delivery})` : ''}.`);
+  for (const d of shot.dialogue ?? []) parts.push(`${d.speaker} says: "${d.line}"${d.delivery ? ` (${d.delivery})` : ''}.`);
   if (shot.exit?.trim()) parts.push(`At the end: ${shot.exit.trim()}`);
-  if (withCast) {
-    const cast = shot.deps.map(d => m.items.find(i => i.id === d && i.kind === 'cast')).filter((c): c is MovieItem => !!c && !!c.text.trim());
-    if (cast.length) parts.push(`Cast: ${cast.map(c => `${c.title} — ${c.text.trim()}`).join('; ')}.`);
-  }
   return parts.filter(Boolean).join(' ');
 }
 /**
- * The hand-over for one shot. `blocked` is an i18n key. Pictures come from the shot's cast entries in order (images only; other files are
- * counted in `skipped`); with none the shot is plain text-to-video. `toSrc` makes a webview URL for a path.
+ * The hand-over for one scene. `blocked` is an i18n key. The scene's frames, source clip and references go to Generate exactly as the
+ * scene editor assigned them; with none the scene is plain text-to-video. `toSrc` makes a webview URL for a path.
  */
 export function shotHandoff(m: MovieManifest, segmentId: string, defaultModel: { name: string; path: string }, run: boolean, toSrc: (path: string) => string, env?: ShotEnv, track?: { path: string; seconds: number }): ShotHandoff {
   const shot = m.items.find(i => i.id === segmentId && i.kind === 'segment');
@@ -84,19 +87,18 @@ export function shotHandoff(m: MovieManifest, segmentId: string, defaultModel: {
   const settings = shotSettings(shot, defaultModel, env);
   if ('blocked' in settings) return settings;
   const { model, loras } = settings;
-  const { picks, skipped } = shotPictures(m, [shot]);
-  if (picks.length > H3_REFERENCE_LIMIT) return { blocked: 'wizards.movie.shot.tooManyRefs' };
-  const [w, h] = m.aspect.split(':').map(Number);
-  const size = w > 0 && h > 0 ? wizardCanvas('minimax-h3', { width: w * 100, height: h * 100 }) : undefined;
-  const refs: WizardPicture[] = picks.map(p => ({ name: fileName(p.path), path: p.path, src: toSrc(p.path) }));
-  const audio = track ? shotAudio(m, shot, refs.length > 0, track, toSrc) : undefined;
+  const parts = sceneParts([shot], toSrc);
+  if ('blocked' in parts) return parts;
+  const pictures = !!parts.videoRefs?.some(r => r.media === 'image');
+  const audio = track ? shotAudio(m, shot, pictures, track, toSrc) : undefined;
   if (audio && 'blocked' in audio) return audio;
+  const pipeline = audio && parts.pipeline !== 'ref2v' ? 'ref2v' : parts.pipeline;
   return {
-    skipped,
+    skipped: 0,
     handoff: {
-      wizard: 'movie', strategy: shot.id, pipeline: refs.length ? 'ref2v' : 't2v', source: 'movie', model,
-      ...(refs.length ? { references: refs, labels: picks.map(p => p.label), notes: picks.map(p => p.note) } : {}),
-      positive: shotPrompt(m, shot, !refs.length), ...(size ? { size } : {}), seconds: shot.seconds, run, ...(loras.length ? { loras } : {}), ...(audio ? audio : {}),
+      wizard: 'movie', strategy: shot.id, pipeline, source: 'movie', model,
+      ...(parts.frames ? { frames: parts.frames } : {}), ...(parts.videoRefs ? { videoRefs: parts.videoRefs } : {}), ...(parts.source ? { sourceVideo: parts.source } : {}),
+      positive: shotPrompt(m, shot), ...movieCanvas(m), ...renderSampling(m, shot, SHOT_FAMILY, model.name, defaultModel.name), seconds: shot.seconds, run, ...(loras.length ? { loras } : {}), ...(audio ? audio : {}),
     },
   };
 }

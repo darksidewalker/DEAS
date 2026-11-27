@@ -396,17 +396,30 @@ test('a Movie Maker shot without pictures runs H3 text-to-video at its seconds a
   expect(intent.sourceVideo).toBeUndefined();
 });
 
-test('a Movie Maker shot with cast pictures runs H3 REF2VA with those pictures as labelled references', async () => {
+const vref = (n: string, extra: Record<string, unknown> = {}) => ({ name: n, path: `/pics/${n}`, src: `asset://localhost//pics/${n}`, media: 'image' as const, mediaMode: 'video' as const, second: 0, strength: 1, ...extra });
+test('a Movie Maker scene with references runs H3 REF2VA with exactly those references and their labels', async () => {
   const { applied, props, view } = await videoWorkbench();
-  const pic = (n: string) => ({ name: n, path: `/pics/${n}`, src: `asset://localhost//pics/${n}` });
   const handoff: WizardHandoff = { n: 32, wizard: 'movie', strategy: 'seg-1', pipeline: 'ref2v', source: 'movie', model: { name: 'h3.safetensors', path: '/m/h3' },
-    references: [pic('anna.png'), pic('street.png')], labels: [undefined, 'place'], notes: ['Anna: tall', 'Street: wet'], seconds: 5, size: { width: 1216, height: 672 }, positive: 'Anna runs', run: true };
+    videoRefs: [vref('anna.png', { label: 'character-1' }), vref('street.png', { label: 'place' })], seconds: 5, size: { width: 1216, height: 672 }, positive: 'Anna runs', run: true };
   view.rerender(<I18nProvider><Workbench {...props} wizard={handoff}/></I18nProvider>);
   await waitFor(() => expect(applied).toHaveBeenCalledWith(32, undefined, expect.objectContaining({ state: 'running' })), { timeout: 4000 });
   const intent = vi.mocked(runWorkbenchJob).mock.calls.at(-1)![1] as unknown as Record<string, any>;
   expect(intent).toMatchObject({ family: 'minimax-h3', positivePrompt: 'Anna runs' });
   expect(intent.h3.mode).toBe('REF2VA');
   expect(intent.h3.media.filter((m: { type: string }) => m.type === 'image')).toHaveLength(2);
+});
+
+test('a Movie Maker scene with first and last frame runs H3 FL2VA with those frames and no references', async () => {
+  const { applied, props, view } = await videoWorkbench();
+  const pic = (n: string) => ({ name: n, path: `/pics/${n}`, src: `asset://localhost//pics/${n}` });
+  const handoff: WizardHandoff = { n: 33, wizard: 'movie', strategy: 'seg-2', pipeline: 'i2v', source: 'movie', model: { name: 'h3.safetensors', path: '/m/h3' },
+    frames: { first: pic('open.png'), last: pic('close.png') }, seconds: 5, size: { width: 1216, height: 672 }, positive: 'Door opens', run: true };
+  view.rerender(<I18nProvider><Workbench {...props} wizard={handoff}/></I18nProvider>);
+  await waitFor(() => expect(applied).toHaveBeenCalledWith(33, undefined, expect.objectContaining({ state: 'running' })), { timeout: 5000 });
+  const intent = vi.mocked(runWorkbenchJob).mock.calls.at(-1)![1] as unknown as Record<string, any>;
+  expect(intent.h3.mode).toBe('FL2VA');
+  expect(JSON.stringify(intent)).toContain('open.png');
+  expect(JSON.stringify(intent)).toContain('close.png');
 });
 
 const chain: WizardHandoff = { n: 41, wizard: 'movie', strategy: 'seg-1', pipeline: 't2v', source: 'movie', model: { name: 'h3.safetensors', path: '/m/h3' }, seconds: 5, size: { width: 1216, height: 672 }, positive: 'Anna runs',
@@ -522,10 +535,19 @@ test('a Movie Maker shot with LoRAs runs with exactly those LoRAs on its model a
   expect(intent).toMatchObject({ family: 'minimax-h3', model: 'h3.safetensors', positivePrompt: 'Anna runs', loras: [{ name: 'MiniMaxH3/style.safetensors', strength: 0.7 }] });
 });
 
+test('a Movie Maker shot with aspect auto switches Generate to its own auto aspect (first reference) instead of a fixed size', async () => {
+  localStorage.setItem('deas.pref.studio.run.aspect', JSON.stringify('16:9'));
+  const { applied, props, view } = await videoWorkbench();
+  const handoff: WizardHandoff = { n: 72, wizard: 'movie', strategy: 'seg-1', pipeline: 'ref2v', source: 'movie', model: { name: 'h3.safetensors', path: '/m/h3' }, videoRefs: [vref('anna.png')],
+    aspect: 'auto', seconds: 5, positive: 'Anna runs', run: false };
+  view.rerender(<I18nProvider><Workbench {...props} wizard={handoff}/></I18nProvider>);
+  await waitFor(() => expect(applied.mock.calls.some(c => c[0] === 72)).toBe(true), { timeout: 5000 });
+  await waitFor(() => expect((document.querySelector('[data-aspect]') as HTMLSelectElement | null)?.value).toBe('auto'), { timeout: 5000 });
+});
+
 test('a Movie Maker shot in reference mode runs REF2VA with its pictures and its slice of the music track as an audio reference', async () => {
   const { applied, props, view } = await videoWorkbench();
-  const pic = (n: string) => ({ name: n, path: `/pics/${n}`, src: `asset://localhost//pics/${n}` });
-  const handoff: WizardHandoff = { n: 71, wizard: 'movie', strategy: 'seg-2', pipeline: 'ref2v', source: 'movie', model: { name: 'h3.safetensors', path: '/m/h3' }, references: [pic('anna.png')], labels: [undefined], notes: ['Anna'],
+  const handoff: WizardHandoff = { n: 71, wizard: 'movie', strategy: 'seg-2', pipeline: 'ref2v', source: 'movie', model: { name: 'h3.safetensors', path: '/m/h3' }, videoRefs: [vref('anna.png')],
     audioRef: { name: 'bed.flac', path: '/music/bed.flac', src: 'asset://localhost//music/bed.flac', trimStart: 10.125, trimEnd: 15.125 }, seconds: 5, size: { width: 1216, height: 672 }, positive: 'Anna runs', run: true };
   view.rerender(<I18nProvider><Workbench {...props} wizard={handoff}/></I18nProvider>);
   await waitFor(() => expect(applied).toHaveBeenCalledWith(71, undefined, expect.objectContaining({ state: 'running' })), { timeout: 5000 });
@@ -534,4 +556,38 @@ test('a Movie Maker shot in reference mode runs REF2VA with its pictures and its
   const media = intent.h3.media as { type: string; file: string; trimStart?: number; trimEnd?: number }[];
   expect(media.map(m => m.type)).toEqual(['image', 'audio']);
   expect(media[1]).toMatchObject({ file: 'deas-inputs/bed.flac', trimStart: 10.125, trimEnd: 15.125 });
+});
+
+test('a Movie Maker shot with the movie\'s own settings runs at exactly its Steps, CFG, sampler and scheduler', async () => {
+  const { applied, props, view } = await videoWorkbench();
+  const handoff: WizardHandoff = { n: 61, wizard: 'movie', strategy: 'seg-1', pipeline: 't2v', source: 'movie', model: { name: 'h3.safetensors', path: '/m/h3' },
+    seconds: 5, size: { width: 1152, height: 672 }, positive: 'Anna runs', run: true, sampling: { steps: 8, cfg: 1, sampler: 'res_multistep', scheduler: 'simple' } };
+  view.rerender(<I18nProvider><Workbench {...props} wizard={handoff}/></I18nProvider>);
+  await waitFor(() => expect(applied).toHaveBeenCalledWith(61, undefined, expect.objectContaining({ state: 'running' })), { timeout: 4000 });
+  const intent = vi.mocked(runWorkbenchJob).mock.calls.at(-1)![1] as unknown as Record<string, any>;
+  expect(intent).toMatchObject({ family: 'minimax-h3', width: 1152, height: 672, steps: 8, cfg: 1, sampler: 'res_multistep', scheduler: 'simple' });
+});
+
+test('a Movie Maker shot without a fixed size takes the movie\'s aspect and resolution choice through Generate\'s own canvas rule', async () => {
+  const { applied, props, view } = await videoWorkbench();
+  const handoff: WizardHandoff = { n: 62, wizard: 'movie', strategy: 'seg-1', pipeline: 't2v', source: 'movie', model: { name: 'h3.safetensors', path: '/m/h3' },
+    seconds: 5, aspect: '9:16', resolution: '720p', positive: 'Anna runs', run: true };
+  view.rerender(<I18nProvider><Workbench {...props} wizard={handoff}/></I18nProvider>);
+  await waitFor(() => expect(applied).toHaveBeenCalledWith(62, undefined, expect.objectContaining({ state: 'running' })), { timeout: 4000 });
+  const intent = vi.mocked(runWorkbenchJob).mock.calls.at(-1)![1] as unknown as Record<string, any>;
+  // Generate's 9:16 at 720p on H3's 32-px grid (the size Movie Maker shows for this choice).
+  expect([intent.width, intent.height]).toEqual([736, 1248]);
+});
+
+test('a Movie Maker music hand-over with lyrics sets ACE-Step 1.5\'s tempo and lyrics language and the model\'s sampling', async () => {
+  const view = await mountAce();
+  const props = { endpoint: evidence.baseUrl, root: '/env', roots: { models: '/m' } };
+  const handoff: WizardHandoff = { n: 63, wizard: 'movie', strategy: 'music', pipeline: 't2m', source: 'movie', positive: '', run: true,
+    model: { name: 'ace-step-1-5-turbo.safetensors', path: '/m/checkpoints/ace-step-1-5-turbo.safetensors' }, music: { style: 'noir jazz', lyrics: '[Verse]\nRegen', seconds: 30, bpm: 85, language: 'de' },
+    sampling: { steps: 8, cfg: 1, sampler: 'euler', scheduler: 'simple' } };
+  view.rerender(<I18nProvider><Workbench {...props} onWizardApplied={vi.fn()} wizard={handoff}/></I18nProvider>);
+  await waitFor(() => expect(runWorkbenchJob).toHaveBeenCalledTimes(1), { timeout: 6000 });
+  const intent = vi.mocked(runWorkbenchJob).mock.calls[0][1] as unknown as Record<string, any>;
+  expect(intent).toMatchObject({ recipeId: 'music-generation', style: 'noir jazz', lyrics: '[Verse]\nRegen', maxDuration: 30, steps: 8, cfg: 1, sampler: 'euler', scheduler: 'simple' });
+  expect([intent.ace.bpm, intent.ace.language, intent.ace.shift]).toEqual([85, 'de', 3]);
 });

@@ -1,3 +1,4 @@
+import { invoke } from '@tauri-apps/api/core';
 import { readCurrentWorkbench, runWorkbenchJob, stopWorkbenchJob, waitForWorkbenchJob, type JobStatus } from './jobs';
 import { inspectVideoPostPath, uploadVideoPostSource } from './videoPost';
 import type { AssembleDeps, AssemblyJob } from './movieAssemble';
@@ -15,6 +16,7 @@ export function realAssembleDeps(endpoint: string, onJob: (job: JobStatus) => vo
     },
     epoch: async () => { const s = await readCurrentWorkbench(); return { epoch: s.admissionEpoch, stopping: s.stopping }; },
     run: async (intent, epoch) => { const job = await runWorkbenchJob(endpoint, intent, epoch); onJob(job); return job as AssemblyJob; },
+    stitch: request => invoke<{ path: string; seconds: number }>('native_movie_stitch', { request }),
     wait: async (job, active) => { const full = job as JobStatus; const done = await waitForWorkbenchJob(full, active); onJob(done); return done as AssemblyJob; },
   };
 }

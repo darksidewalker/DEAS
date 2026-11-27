@@ -83,20 +83,31 @@ fn validator_matches_the_typescript_rules() {
     let mut m = movie("a");
     m["items"][0]["kind"] = json!("nope");
     assert_eq!(problem(&m), Some("unknown item kind"));
+    // Cast entries are gone: a scene holds its own inputs (frames, source, references with the Director options).
     let mut m = movie("a");
-    m["items"][0]["refs"] = json!(["/p/a.png"]);
-    assert_eq!(problem(&m), Some("role/refs are cast-only"));
-    let mut cast = item("c1", "cast", &["brief"]);
-    cast["role"] = json!("actor");
-    cast["refs"] = json!(["/p/a.png", "/p/b.png"]);
+    m["items"][0]["kind"] = json!("cast");
+    assert_eq!(problem(&m), Some("unknown item kind"));
     let mut m = movie("a");
-    m["items"].as_array_mut().unwrap().push(cast);
+    m["items"][0]["inputs"] = json!({});
+    assert_eq!(problem(&m), Some("bad scene inputs (scenes only)"));
+    m["items"][0].as_object_mut().unwrap().remove("inputs");
+    m["items"][1]["inputs"] = json!({ "first": { "path": "/p/f.png", "media": "image" },
+        "refs": [{ "path": "/p/a.png", "media": "image", "mediaMode": "video", "second": 0, "strength": 1, "label": "character-1",
+                   "boxes": [{ "n": 1, "box": [0.1, 0.1, 0.5, 0.9] }], "who": [1], "whoAxis": "y", "description": "Anna" },
+                 { "path": "/p/c.mp4", "media": "video", "mediaMode": "video_audio", "second": 0, "strength": 1, "trimStart": 1, "trimEnd": 4 }] });
     assert_eq!(problem(&m), None);
-    m["items"][2]["refs"] = json!(["/p/a.png", "/p/a.png"]);
-    assert_eq!(problem(&m), Some("bad references"));
-    m["items"][2]["refs"] = json!(["/p/a.png"]);
-    m["items"][2]["role"] = json!("hero");
-    assert_eq!(problem(&m), Some("unknown cast role"));
+    for bad in [
+        json!({ "first": { "path": "/p/f.png", "media": "pdf" } }),
+        json!({ "first": { "path": "/p/f.png", "media": "image", "extra": 1 } }),
+        json!({ "other": {} }),
+        json!({ "refs": [{ "path": "/p/a.png", "media": "image", "mediaMode": "video", "second": 0, "strength": 99 }] }),
+        json!({ "refs": [{ "path": "/p/a.png", "media": "image", "mediaMode": "video", "second": 0, "strength": 1, "secret": 1 }] }),
+        json!({ "refs": [{ "path": "/p/a.png", "media": "image", "mediaMode": "video", "second": 0, "strength": 1, "boxes": [{ "n": 1, "box": [0, 0, 2, 1] }] }] }),
+        json!({ "refs": (0..17).map(|i| json!({ "path": format!("/p/{i}.png"), "media": "image", "mediaMode": "video", "second": 0, "strength": 1 })).collect::<Vec<_>>() }),
+    ] {
+        m["items"][1]["inputs"] = bad.clone();
+        assert_eq!(problem(&m), Some("bad scene inputs"), "{bad}");
+    }
     let mut m = movie("bad/id");
     assert_eq!(problem(&m), Some("bad manifest header"));
     m["id"] = json!("ok");
@@ -158,17 +169,15 @@ fn oversized_manifests_are_refused() {
 
 #[test]
 fn segment_dialogue_and_scene_state_follow_the_rules() {
-    let mut cast = item("c1", "cast", &["brief"]);
-    cast["role"] = json!("actor");
     let mut m = movie("a");
-    m["items"].as_array_mut().unwrap().push(cast);
-    m["items"][1]["dialogue"] = json!([{ "castId": "c1", "line": "Stop!", "delivery": "shouted" }]);
+    m["items"][1]["dialogue"] =
+        json!([{ "speaker": "Anna", "line": "Stop!", "delivery": "shouted" }]);
     m["items"][1]["entry"] = json!("dusk");
     m["items"][1]["exit"] = json!("");
     assert_eq!(problem(&m), None);
-    m["items"][1]["dialogue"] = json!([{ "castId": "ghost", "line": "x" }]);
+    m["items"][1]["dialogue"] = json!([{ "speaker": "", "line": "x" }]);
     assert_eq!(problem(&m), Some("bad dialogue"));
-    m["items"][1]["dialogue"] = json!([{ "castId": "c1", "line": "" }]);
+    m["items"][1]["dialogue"] = json!([{ "speaker": "Anna", "line": "" }]);
     assert_eq!(problem(&m), Some("bad dialogue"));
     m["items"][1]["dialogue"] = json!([]);
     m["items"][1]["entry"] = json!(5);
@@ -221,13 +230,12 @@ fn check_reports_missing_results_and_references_from_the_stored_manifest_only() 
     m["items"][1]["state"] = json!("done");
     m["items"][1]["revisions"] =
         json!([{ "n": 1, "text": "t", "result": { "outputId": have.to_str().unwrap() } }]);
-    let mut cast = item("c1", "cast", &["brief"]);
-    cast["role"] = json!("actor");
-    cast["refs"] = json!([pic.to_str().unwrap(), nopic.to_str().unwrap()]);
-    let mut old = item("c2", "cast", &["brief"]);
+    m["items"][1]["inputs"] = json!({ "first": { "path": pic.to_str().unwrap(), "media": "image" },
+        "refs": [{ "path": nopic.to_str().unwrap(), "media": "image", "mediaMode": "video", "second": 0, "strength": 1 }] });
+    let mut old = item("c2", "voice", &["brief"]);
     old["revision"] = json!(2);
     old["revisions"] = json!([{ "n": 1, "text": "t", "result": { "outputId": gone.to_str().unwrap() } }, { "n": 2, "text": "u" }]);
-    m["items"].as_array_mut().unwrap().extend([cast, old]);
+    m["items"].as_array_mut().unwrap().push(old);
     save(d.path(), &m.to_string()).unwrap();
     let r = check(d.path(), "film1").unwrap();
     assert_eq!(
@@ -236,7 +244,7 @@ fn check_reports_missing_results_and_references_from_the_stored_manifest_only() 
     );
     assert_eq!(
         r["missing"],
-        json!([{ "id": "c1", "kind": "reference", "path": nopic.to_str().unwrap() }])
+        json!([{ "id": "s1", "kind": "reference", "path": nopic.to_str().unwrap() }])
     );
     std::fs::remove_file(&have).unwrap();
     std::fs::create_dir(&have).unwrap();
@@ -283,4 +291,80 @@ fn music_file_and_mix_settings_follow_the_rules() {
     m["items"][0].as_object_mut().unwrap().remove("file");
     m["items"][2]["file"] = json!("");
     assert_eq!(problem(&m), Some("bad music file"));
+}
+
+#[test]
+fn media_pool_is_typed_bounded_and_checked_on_reopen() {
+    let mut m = movie("pool");
+    m["media"] = json!([{ "path": "/p/a.png", "media": "image", "note": "Anna", "role": "first" }, { "path": "/p/b.wav", "media": "audio", "label": "character-1" }]);
+    assert_eq!(problem(&m), None);
+    for bad in [
+        json!([{ "path": "/p/a.png", "media": "pdf" }]),
+        json!([{ "path": "/p/a.png", "media": "image", "extra": 1 }]),
+        json!([{ "path": "/p/a.png", "media": "image", "role": "hero" }]),
+        json!([{ "path": "/p/a.png", "media": "image" }, { "path": "/p/a.png", "media": "image" }]),
+        json!((0..33)
+            .map(|i| json!({ "path": format!("/p/{i}.png"), "media": "image" }))
+            .collect::<Vec<_>>()),
+    ] {
+        m["media"] = bad.clone();
+        assert_eq!(problem(&m), Some("bad media pool"), "{bad}");
+    }
+    let d = private();
+    let files = private();
+    let have = files.path().join("a.png");
+    std::fs::write(&have, b"x").unwrap();
+    let gone = files.path().join("gone.png");
+    m["media"] = json!([{ "path": have.to_str().unwrap(), "media": "image" }, { "path": gone.to_str().unwrap(), "media": "image" }]);
+    save(d.path(), &m.to_string()).unwrap();
+    let r = check(d.path(), "pool").unwrap();
+    assert_eq!(
+        r["missing"],
+        json!([{ "id": "brief", "kind": "reference", "path": gone.to_str().unwrap() }])
+    );
+}
+
+#[test]
+fn render_settings_shot_sampling_and_music_settings_follow_the_rules() {
+    let mut m = movie("a");
+    m["render"] = json!({ "source": "movie", "model": "MiniMaxH3/h3_turbo.safetensors", "resolution": "720p", "steps": 8, "cfg": 1 });
+    m["items"][1]["sampling"] = json!({ "steps": 30, "cfg": 3.5 });
+    let mut music = item("music", "music", &["brief"]);
+    music["lyrics"] = json!("[Verse]\nla la");
+    music["bpm"] = json!(90);
+    music["language"] = json!("en");
+    music["preset"] = json!("cinematic-orchestral");
+    music["vocals"] = json!(true);
+    m["items"].as_array_mut().unwrap().push(music);
+    assert_eq!(problem(&m), None);
+    m["render"]["source"] = json!("studio");
+    assert_eq!(problem(&m), Some("bad render settings"));
+    m["render"] = json!({ "source": "generate", "steps": 151 });
+    assert_eq!(problem(&m), Some("bad render settings"));
+    m["render"] = json!({ "source": "movie", "extra": 1 });
+    assert_eq!(problem(&m), Some("bad render settings"));
+    m["render"] = json!({ "source": "generate" });
+    m["items"][1]["sampling"] = json!({ "steps": 7.5 });
+    assert_eq!(problem(&m), Some("bad shot sampling"));
+    m["items"][1]["sampling"] = json!({ "cfg": 31 });
+    assert_eq!(problem(&m), Some("bad shot sampling"));
+    m["items"][1]["sampling"] = json!({ "sampler": "euler" });
+    assert_eq!(problem(&m), Some("bad shot sampling"));
+    m["items"][1].as_object_mut().unwrap().remove("sampling");
+    m["items"][0]["sampling"] = json!({ "steps": 8 });
+    assert_eq!(problem(&m), Some("bad shot sampling"));
+    m["items"][0].as_object_mut().unwrap().remove("sampling");
+    m["items"][2]["bpm"] = json!(301);
+    assert_eq!(problem(&m), Some("bad music settings"));
+    m["items"][2]["bpm"] = json!(90);
+    m["items"][2]["language"] = json!("EN");
+    assert_eq!(problem(&m), Some("bad music settings"));
+    m["items"][2]["language"] = json!("de");
+    m["items"][2]["preset"] = json!("../x");
+    assert_eq!(problem(&m), Some("bad music settings"));
+    m["items"][2]["preset"] = json!("lofi");
+    m["items"][1]["lyrics"] = json!("not a music item");
+    assert_eq!(problem(&m), Some("bad music settings"));
+    m["items"][1].as_object_mut().unwrap().remove("lyrics");
+    assert_eq!(problem(&m), None);
 }

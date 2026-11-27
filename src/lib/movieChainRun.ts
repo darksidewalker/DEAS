@@ -4,9 +4,10 @@
  * This builds the hand-over only; nothing runs here.
  */
 import { chainPlan, chains, chainSession, type Chain } from './movieChains.ts';
-import { H3_REFERENCE_LIMIT, shotPictures, shotPrompt, shotSettings, type ShotEnv } from './movieSegments.ts';
+import { SHOT_FAMILY, movieCanvas, sceneParts, shotPrompt, shotSettings, type ShotEnv } from './movieSegments.ts';
+import { renderSampling } from './movieRender.ts';
 import type { MovieManifest } from './movieManifest.ts';
-import { wizardCanvas, type WizardHandoff, type WizardPicture } from './wizards.ts';
+import type { WizardHandoff } from './wizards.ts';
 
 export type ChainHandoff = { handoff: Omit<WizardHandoff, 'n'>; skipped: number; actualSeconds: number[] } | { blocked: string; detail?: string };
 /** The chain a shot belongs to, with its position among the movie's chains. */
@@ -15,8 +16,8 @@ export function chainOf(m: MovieManifest, shotId: string): { chain: Chain; index
   return index < 0 ? undefined : { chain: all[index], index };
 }
 /**
- * The hand-over for a whole chain. Cast pictures of every shot in the chain are the REF2VA references of all its steps (the plan keeps
- * them for the continuations), so an actor who only appears in a later shot is still available; with no pictures the chain is text-to-video.
+ * The hand-over for a whole chain. The references of every scene in the chain are the REF2VA references of all its steps (the plan keeps
+ * them for the continuations), so a person who only appears in a later scene is still available; the first scene's frames start the take.
  * `blocked` is an i18n key; `detail` carries the first refusal of the family rules for display.
  */
 export function chainHandoff(m: MovieManifest, chain: Chain, index: number, defaultModel: { name: string; path: string }, run: boolean, toSrc: (path: string) => string, env?: ShotEnv, referenceMode = false): ChainHandoff {
@@ -29,18 +30,17 @@ export function chainHandoff(m: MovieManifest, chain: Chain, index: number, defa
   const { model, loras } = settings;
   const planned = chainPlan(m, chain, chainSession(m.id, index));
   if (planned.problems.length) return { blocked: 'wizards.movie.shot.chainProblem', detail: planned.problems[0] };
-  const { picks, skipped } = shotPictures(m, shots);
-  if (picks.length > H3_REFERENCE_LIMIT) return { blocked: 'wizards.movie.shot.tooManyRefs' };
-  const [w, h] = m.aspect.split(':').map(Number);
-  const size = w > 0 && h > 0 ? wizardCanvas('minimax-h3', { width: w * 100, height: h * 100 }) : undefined;
-  const refs: WizardPicture[] = picks.map(p => ({ name: p.path.split(/[\\/]/).pop() ?? p.path, path: p.path, src: toSrc(p.path) }));
+  const parts = sceneParts(shots, toSrc);
+  if ('blocked' in parts) return parts;
+  if (parts.pipeline === 'v2v') return { blocked: 'wizards.movie.shot.chainSource' };
+  const canvas = movieCanvas(m);
   const first = shots[0];
   return {
-    skipped, actualSeconds: planned.seconds,
+    skipped: 0, actualSeconds: planned.seconds,
     handoff: {
-      wizard: 'movie', strategy: first.id, pipeline: refs.length ? 'ref2v' : 't2v', source: 'movie', model,
-      ...(refs.length ? { references: refs, labels: picks.map(p => p.label), notes: picks.map(p => p.note) } : {}),
-      positive: shotPrompt(m, first, !refs.length), ...(size ? { size } : {}), seconds: first.seconds, run, ...(loras.length ? { loras } : {}),
+      wizard: 'movie', strategy: first.id, pipeline: parts.pipeline, source: 'movie', model,
+      ...(parts.frames ? { frames: parts.frames } : {}), ...(parts.videoRefs ? { videoRefs: parts.videoRefs } : {}),
+      positive: shotPrompt(m, first), ...canvas, ...renderSampling(m, first, SHOT_FAMILY, model.name, defaultModel.name), seconds: first.seconds, run, ...(loras.length ? { loras } : {}),
       continuity: { plan: planned.plan, shotIds: chain.ids },
     },
   };

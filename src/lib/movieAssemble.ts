@@ -7,7 +7,8 @@ import { completeItem, type MovieManifest } from './movieManifest.ts';
 import type { H3JoinIntentV1 } from './videoIntent.ts';
 
 const VIDEO = /\.(mp4|webm|mkv|mov)$/i;
-export interface AssemblyClip { id: string; title: string; path: string; seconds?: number }
+/** `blend`: crossfade seconds into this clip (a *Blend* transition); unset = hard cut (or the seamless continuation's own cut). */
+export interface AssemblyClip { id: string; title: string; path: string; seconds?: number; blend?: number }
 export type AssemblyPlan = { ok: true; clips: AssemblyClip[]; expectedSeconds: number | undefined } | { ok: false; missing: { id: string; title: string; why: 'none' | 'outdated' | 'failed' | 'not-a-clip' }[] };
 
 /** The ordered clips to join, or which shots keep the film from being assembled (not made, outdated, failed, not a video file, continued). */
@@ -19,12 +20,12 @@ export function assemblyPlan(m: MovieManifest): AssemblyPlan {
     const result = s.revisions.find(r => r.n === s.revision)?.result;
     const why = s.state === 'stale' ? 'outdated' : s.state === 'failed' ? 'failed' : s.state !== 'done' || !result ? 'none' : !VIDEO.test(result.outputId) ? 'not-a-clip' : undefined;
     if (why) missing.push({ id: s.id, title: s.title || s.id, why });
-    else clips.push({ id: s.id, title: s.title, path: result!.outputId, ...(result!.seconds ? { seconds: result!.seconds } : {}) });
+    else clips.push({ id: s.id, title: s.title, path: result!.outputId, ...(result!.seconds ? { seconds: result!.seconds } : {}), ...(s.blend && !s.continuous && clips.length ? { blend: s.blend } : {}) });
   });
   if (!shots.length) return { ok: false, missing: [] };
   if (missing.length) return { ok: false, missing };
   const known = clips.every(c => c.seconds !== undefined);
-  return { ok: true, clips, expectedSeconds: known ? Math.round(clips.reduce((a, c) => a + c.seconds!, 0) * 1000) / 1000 : undefined };
+  return { ok: true, clips, expectedSeconds: known ? Math.round(clips.reduce((a, c) => a + c.seconds! - (c.blend ?? 0), 0) * 1000) / 1000 : undefined };
 }
 
 export interface AssembleDeps {
@@ -34,6 +35,8 @@ export interface AssembleDeps {
   epoch: () => Promise<{ epoch: number; stopping: boolean }>;
   run: (intent: H3JoinIntentV1, epoch: number) => Promise<AssemblyJob>;
   wait: (job: AssemblyJob, active: () => boolean) => Promise<AssemblyJob>;
+  /** Native FFmpeg stitch with crossfades (`native_movie_stitch`), used only when a transition is a blend. */
+  stitch: (request: { clips: string[]; blends: (number | null)[] }) => Promise<{ path: string; seconds: number }>;
 }
 export interface AssemblyJob { id: string; state: string; outputRoot?: string | null; outputs: { filename: string; subfolder: string }[] }
 export class AssemblyError extends Error {
@@ -55,6 +58,17 @@ export interface AssemblyResult { job: AssemblyJob; path: string; seconds?: numb
 export async function assembleMovie(m: MovieManifest, deps: AssembleDeps, active: () => boolean, onStep: (step: 'copy' | 'check' | 'join', n?: number, total?: number) => void = () => undefined): Promise<AssemblyResult> {
   const plan = assemblyPlan(m);
   if (!plan.ok) throw new AssemblyError('blocked', 'Some shots are not ready to be joined.');
+  // A blend is a crossfade the Join clips recipe cannot make: the whole film is then stitched natively with FFmpeg.
+  if (plan.clips.some(c => c.blend)) {
+    if (!active()) throw new AssemblyError('cancelled', 'Stopped.');
+    onStep('join');
+    let r: { path: string; seconds: number };
+    try { r = await deps.stitch({ clips: plan.clips.map(c => c.path), blends: plan.clips.slice(1).map(c => c.blend ?? null) }); }
+    catch (e) { throw new AssemblyError(String(e).includes('BLEND') ? 'blocked' : 'failed', String(e)); }
+    if (!active()) throw new AssemblyError('cancelled', 'Stopped.');
+    const expected = plan.expectedSeconds;
+    return { job: { id: 'stitch', state: 'succeeded', outputs: [] }, path: r.path, seconds: r.seconds, ...(expected !== undefined ? { expectedSeconds: expected } : {}), mismatch: expected !== undefined && Math.abs(r.seconds - expected) > 0.25 };
+  }
   const names: string[] = [];
   const stop = () => { if (!active()) throw new AssemblyError('cancelled', 'Stopped.'); };
   for (const [n, clip] of plan.clips.entries()) {

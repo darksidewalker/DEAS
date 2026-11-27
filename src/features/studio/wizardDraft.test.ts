@@ -30,12 +30,20 @@ it('Replace video step: edited frame is the first frame, clip is the guide with 
   expect([bad.video?.sourceVideo, bad.video?.sourceStrength, bad.seconds]).toEqual([null, undefined, undefined]);
 });
 
-it('Movie Maker shot: no first frame; ref2v takes labelled references, t2v none', () => {
-  const h = { ...base, wizard: 'movie', strategy: 'seg-1', pipeline: 'ref2v', source: 'movie', references: [pic('a.png'), pic('s.png')], labels: [undefined, 'place'], notes: ['Anna', undefined], seconds: 10 } as WizardHandoff;
+const vref = (n: string, extra: Record<string, unknown> = {}) => ({ ...pic(n), media: n.endsWith('.mp4') ? 'video' as const : 'image' as const, mediaMode: 'video' as const, second: 0, strength: 1, ...extra });
+it('Movie Maker scene: ref2v takes its references with every Director option; frames become first/last frame; t2v none', () => {
+  const h = { ...base, wizard: 'movie', strategy: 'seg-1', pipeline: 'ref2v', source: 'movie', seconds: 10,
+    videoRefs: [vref('a.png', { label: 'character-1', description: 'Anna', boxes: [{ n: 1, box: [0, 0, 1, 1] }] }), vref('c.mp4', { mediaMode: 'video_audio', trimStart: 1, trimEnd: 4 })] } as WizardHandoff;
   const d = wizardDraft(h, none, key)!;
-  expect([d.media, d.seconds, d.video!.sourceVideo]).toEqual([null, 10, null]);
-  expect(d.video!.refs.map(r => [r.item.name, r.label, r.description, r.uiKey, r.second, r.mediaMode])).toEqual([['a.png', undefined, 'Anna', 'k', 0, 'video'], ['s.png', 'place', undefined, 'k', 0, 'video']]);
+  expect([d.media, d.seconds, d.video!.sourceVideo, d.video!.lastFrame]).toEqual([null, 10, null, null]);
+  expect(d.video!.refs.map(r => [r.item.name, r.item.path, r.item.media, r.label, r.description, r.boxes, r.mediaMode, r.trimStart, r.trimEnd, r.uiKey])).toEqual([
+    ['a.png', '/pics/a.png', 'image', 'character-1', 'Anna', [{ n: 1, box: [0, 0, 1, 1] }], 'video', undefined, undefined, 'k'],
+    ['c.mp4', '/pics/c.mp4', 'video', undefined, undefined, undefined, 'video_audio', 1, 4, 'k']]);
   expect(wizardDraft({ ...h, pipeline: 't2v' }, none, key)!.video!.refs).toEqual([]);
+  const framed = wizardDraft({ ...base, wizard: 'movie', strategy: 'seg-2', pipeline: 'i2v', source: 'movie', seconds: 5, frames: { first: pic('f.png'), last: pic('l.png') } } as WizardHandoff, none, key)!;
+  expect([framed.media?.path, framed.video!.lastFrame?.path, framed.video!.refs]).toEqual(['/pics/f.png', '/pics/l.png', []]);
+  const lastOnly = wizardDraft({ ...base, wizard: 'movie', strategy: 'seg-2', pipeline: 'i2v', source: 'movie', seconds: 5, frames: { last: pic('l.png') } } as WizardHandoff, none, key)!;
+  expect([lastOnly.media?.path, lastOnly.video!.lastFrame?.path]).toEqual(['/pics/l.png', '/pics/l.png']);
 });
 
 it('a hand-over that needs a picture and has none is refused', () => {
@@ -61,9 +69,14 @@ it('Movie Maker shot LoRAs are carried into the draft; none means the list stays
 });
 
 it('Movie Maker reference mode: the music slice is an audio reference after the pictures, trimmed to the shot', () => {
-  const h = { ...base, wizard: 'movie', strategy: 'seg-1', pipeline: 'ref2v', source: 'movie', seconds: 5, references: [pic('a.png')], labels: [undefined], notes: ['Anna'],
+  const h = { ...base, wizard: 'movie', strategy: 'seg-1', pipeline: 'ref2v', source: 'movie', seconds: 5, videoRefs: [vref('a.png')],
     audioRef: { name: 'bed.flac', path: '/music/bed.flac', src: 'asset://bed', trimStart: 10.125, trimEnd: 15.125 } } as WizardHandoff;
   const refs = wizardDraft(h, none, key)!.video!.refs;
   expect(refs.map(r => [r.item.media, r.item.name, r.mediaMode, r.trimStart, r.trimEnd])).toEqual([['image', 'a.png', 'video', undefined, undefined], ['audio', 'bed.flac', 'audio', 10.125, 15.125]]);
-  expect(wizardDraft({ ...h, pipeline: 't2v', references: undefined }, none, key)!.video!.refs).toEqual([]);
+  expect(wizardDraft({ ...h, pipeline: 't2v', videoRefs: undefined }, none, key)!.video!.refs).toEqual([]);
+});
+
+it('Movie Maker music bed: tempo and lyrics language travel with the draft when set', () => {
+  const h = { ...base, wizard: 'movie', strategy: 'music', pipeline: 't2m', source: 'movie', positive: '', music: { style: 'jazz', lyrics: '[Verse] x', seconds: 30, bpm: 85, language: 'de' } } as WizardHandoff;
+  expect(wizardDraft(h, none, key)!.music).toEqual({ style: 'jazz', lyrics: '[Verse] x', seconds: 30, bpm: 85, language: 'de' });
 });

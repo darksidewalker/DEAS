@@ -66,7 +66,7 @@ def intent_music():
 
 
 def intent_audio_ref(trim_start=2.0, trim_end=7.0):
-    """A REF2VA shot with a cast picture and a slice of the music track as audio reference (the H3-reference mode of UX-22d5d1)."""
+    """A REF2VA shot with a picture reference and a slice of the music track as audio reference (the H3-reference mode of UX-22d5d1)."""
     base = gas.h3_base()
     base.update({'positivePrompt': PROMPT1, 'seed': 4713, 'frames': 124, 'outputPrefix': 'video/movie/audioref'})
     base['h3'] = {'mode': 'REF2VA', 'audioVae': gas.H3_AUDIO_VAE, 'shiftVideo': 10, 'shiftAudio': 3, 'references': [],

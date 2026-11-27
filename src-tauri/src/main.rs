@@ -153,6 +153,7 @@ fn main() {
             deas::movie_store::native_movie_check,
             deas::movie_store::native_movie_save,
             deas::movie_mix::native_movie_mix,
+            deas::movie_stitch::native_movie_stitch,
             deas::movie_mix::native_movie_pick_music,
             deas::movie_mix::native_movie_music_info,
             deas::native_jobs_history_outputs,

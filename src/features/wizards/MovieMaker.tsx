@@ -1,23 +1,42 @@
 import { useEffect, useRef, useState } from 'react';
 import { convertFileSrc, isTauri } from '@tauri-apps/api/core';
 import { useI18n } from '../../i18n/I18nProvider';
-import { pickMedia } from '../../lib/analysis';
-import { LORA_STRENGTH, MIX_LIMITS, MOVIE_CAST_ROLES, addCast, markResultsMissing, setMix, setMusicFile, setShotLoras, setShotModel, deliveredSeconds, reviseItem, newMovie, removeCast, setBrief, setCastRefs, setCastRole, setItemTitle, setLocked, editItem, type MovieCastRole, type MovieManifest } from '../../lib/movieManifest';
+import { LORA_STRENGTH, MIX_LIMITS, SAMPLING_LIMITS, manifestProblem, setRender, setShotSampling, roleOf, assignMedia, dropMedia, scenesUsing, setTransition, type MediaRole, addMedia, addScene, removeMedia, setMediaNote, markResultsMissing, removeScene, scenesSeconds, setMix, setMusicFile, setSceneInputs, setSceneSeconds, setShotLoras, setShotModel, reviseItem, newMovie, setBrief, setItemTitle, setLocked, editItem, type MovieItem, type MovieManifest } from '../../lib/movieManifest';
 import type { LlmModel } from '../../lib/llm';
-import { applyPlan, h3ActualSeconds, planDiff, segmentLimits, type PlanCheck } from '../../lib/movieStory';
-import { PLANNER_MAX_CHARS, listPlannerModels, logMovieNotice, plannerDestination, plannerPayload, requestPlan } from '../../lib/movieStoryRun';
+import { applyMusic, applyPlan, h3ActualSeconds, musicDiff, planDiff, segmentLimits, type MusicCheck, type PlanCheck, type PlanMode } from '../../lib/movieStory';
+import { PLANNER_MAX_CHARS, listPlannerModels, logMovieNotice, musicPayload, plannerDestination, plannerPayload, requestMusic, requestPlan } from '../../lib/movieStoryRun';
 import { recordShotRun, shotHandoff } from '../../lib/movieSegments';
 import { chainHandoff, chainOf } from '../../lib/movieChainRun';
-import { MUSIC_FAMILIES, isRestrictedMusicFamily, mixMusic, musicInfo, mixPlan, musicHandoff, musicSeconds, pickMusic, recordGeneratedMusic, recordScore, setMusicLoras, setMusicPrompt } from '../../lib/movieMusic';
+import { MUSIC_FAMILIES, isRestrictedMusicFamily, mixMusic, musicInfo, mixPlan, musicHandoff, musicSeconds, pickMusic, recordGeneratedMusic, recordScore, setMusicFields, setMusicLoras, setMusicPrompt } from '../../lib/movieMusic';
+import { MUSIC_BPM, MUSIC_PRESETS, musicPreset, presetDialect, presetName, styleFor } from '../../lib/musicPresets';
+import { MOVIE_RESOLUTIONS, modelVariant, movieRender, movieSize, shotSampling } from '../../lib/movieRender';
+import { SHOT_FAMILY } from '../../lib/movieSegments';
+import { aceLanguages } from '../../lib/musicIntent';
+import { forgetPref, readPref, writePref } from '../../lib/preferences';
 import { AssemblyError, assemblyPlan, assembleMovie, recordFilm } from '../../lib/movieAssemble';
 import { realAssembleDeps, stopAssemblyJob } from '../../lib/movieAssembleRun';
+import { needsStitch, nextMovieStep } from '../../lib/movieRun';
 import type { JobStatus } from '../../lib/jobs';
+import { AspectPicker } from '../studio/AspectPicker';
+import type { MediaRoots } from '../media/MediaLibrary';
+import { SceneInputMarks, SceneInputs } from './SceneInputs';
+import { MovieTimeline, type MoviePanelTarget } from './MovieTimeline';
+import { MoviePanel } from './MoviePanel';
+import { MoviePlayer } from './MoviePlayer';
+import { MovieMediaPool, MovieMediaSettings, describeMediaPicture } from './MovieMedia';
+import { MoviePlanPreview } from './MoviePlanPreview';
+import '../downloads/installedGallery.css';
 import builtinFamilies from '../../families/builtin.json' with { type: 'json' };
 import { modelsForFamilies, type WizardHandoff, type WizardModel, type WizardRun } from '../../lib/wizards';
 import { checkMovie, listMovies, newMovieId, openMovie, saveMovie, type MovieCheck, type MovieList } from '../../lib/movies';
 
-const ASPECTS = ['16:9', '9:16', '1:1', '4:3'];
 const fileName = (p: string) => p.split(/[\\/]/).pop() ?? p;
+/** The movie being edited survives leaving the tab, switching wizards and restarting the app (saved movies stay explicit files). */
+const DRAFT_KEY = 'wizards.movie.draft';
+const DRAFT_MAX_CHARS = 2_000_000;
+type MovieDraft = { movie: MovieManifest; dirty: boolean };
+const readDraft = (): MovieDraft | null => readPref<MovieDraft | null>(DRAFT_KEY, null, (v): v is MovieDraft => !!v && typeof v === 'object' && typeof (v as MovieDraft).dirty === 'boolean' && manifestProblem((v as MovieDraft).movie) === undefined);
+const languageLabel = (code: string, locale: string) => { try { return `${new Intl.DisplayNames([locale], { type: 'language' }).of(code) ?? code} (${code})`; } catch { return code; } };
 
 /**
  * Movie Maker, first stages (UX-22d2): Brief and Cast / references. This only edits and saves the movie plan; nothing here generates,
@@ -25,7 +44,10 @@ const fileName = (p: string) => p.split(/[\\/]/).pop() ?? p;
  */
 const PLAN_FAMILY = 'minimax-h3';
 export interface MovieMakerProps {
-  modelsRoot?: string;
+  /** The environment root Prompt Forge and Chat use for their LLM configuration and models (not the models folder). */
+  root?: string;
+  /** Input/output folders for the media panel the scene inputs are picked from (Generate's own). */
+  mediaRoots?: MediaRoots;
   /** Backend address for the final Join (Continuity's Join clips recipe). */
   endpoint?: string;
   /** Installed models as the Dark Wizards tab scanned them (null while unknown). */
@@ -35,26 +57,46 @@ export interface MovieMakerProps {
   outcome?: { n: number; error?: string; run?: WizardRun };
   handoff?: number;
 }
-export function MovieMaker({ modelsRoot, endpoint, models = null, onPrepare, outcome, handoff }: MovieMakerProps) {
-  const { t } = useI18n();
+export function MovieMaker({ root, mediaRoots, endpoint, models = null, onPrepare, outcome, handoff }: MovieMakerProps) {
+  const { t, locale } = useI18n();
   const native = isTauri();
-  const [movie, setMovie] = useState<MovieManifest>(() => newMovie(newMovieId(), ''));
-  const [dirty, setDirty] = useState(false);
+  const restored = useRef<MovieDraft | null | undefined>(undefined);
+  if (restored.current === undefined) restored.current = readDraft();
+  const [movie, setMovie] = useState<MovieManifest>(() => restored.current?.movie ?? newMovie(newMovieId(), ''));
+  const [dirty, setDirty] = useState(() => restored.current?.dirty ?? false);
+  // Every change is kept as the working draft (debounced); a saved movie file is still only written by *Save movie*.
+  useEffect(() => {
+    const id = window.setTimeout(() => { const text = JSON.stringify({ movie, dirty }); if (text.length <= DRAFT_MAX_CHARS) writePref(DRAFT_KEY, { movie, dirty }); else forgetPref(DRAFT_KEY); }, 300);
+    return () => window.clearTimeout(id);
+  }, [movie, dirty]);
+  const latest = useRef({ movie, dirty }); latest.current = { movie, dirty };
+  useEffect(() => () => { const d = latest.current; if (JSON.stringify(d).length <= DRAFT_MAX_CHARS) writePref(DRAFT_KEY, d); }, []);
   const [saved, setSaved] = useState<MovieList | null>(null);
-  const [note, setNote] = useState('');
+  const [note, setNote] = useState(() => restored.current?.dirty ? t('wizards.movie.restored') : '');
   const [error, setError] = useState('');
   const [gone, setGone] = useState<MovieCheck | null>(null);
-  const [role, setRole] = useState<MovieCastRole>('actor');
-  const [name, setName] = useState('');
+  // Which card's settings are open in the non-blocking panel (a scene, the music or the film).
+  const [panel, setPanel] = useState<MoviePanelTarget>(null);
+  const [describing, setDescribing] = useState(false);
+  const [refused, setRefused] = useState<string[]>([]);
+  const [inputsOpen, setInputsOpen] = useState('');
+  const [planMode, setPlanMode] = useState<PlanMode>('suggest');
   const [llm, setLlm] = useState<LlmModel[] | null>(null);
   const [llmKey, setLlmKey] = useState('');
   const [planning, setPlanning] = useState(false);
-  const [ask, setAsk] = useState<{ host: string; chars: number; cast: number } | null>(null);
+  const [ask, setAsk] = useState<{ host: string; chars: number; scenes: number; mode: PlanMode | 'music' } | null>(null);
+  const [musicCheck, setMusicCheck] = useState<MusicCheck | null>(null);
+  const [musicReplace, setMusicReplace] = useState(false);
   const [check, setCheck] = useState<PlanCheck | null>(null);
   const limits = segmentLimits(PLAN_FAMILY);
   const h3Models = models ? modelsForFamilies([PLAN_FAMILY], models) : [];
-  const [h3Path, setH3Path] = useState('');
-  const h3Model = h3Models.find(m => m.path === h3Path) ?? h3Models[0];
+  // The default video model is part of the movie (its Steps/CFG belong to it); the first installed one when unset or gone.
+  const render = movieRender(movie);
+  const h3Model = h3Models.find(m => m.name === render.model) ?? h3Models[0];
+  const startFor = (shot?: MovieItem) => shotSampling(movie, shot, SHOT_FAMILY, shot?.model || h3Model?.name || '', h3Model?.name ?? '');
+  const movieSampling = startFor();
+  const variant = h3Model ? modelVariant(SHOT_FAMILY, h3Model.name) : undefined;
+  const fixedSize = render.source === 'movie' ? movieSize(movie.aspect, render.resolution, SHOT_FAMILY) : undefined;
   // The shot Generate is making for us: which hand-over number it has and which segment it belongs to.
   const sent = useRef<{ n: number; id: string } | null>(null);
   const [shotState, setShotState] = useState<{ id: string; state: string; error?: string } | null>(null);
@@ -66,24 +108,26 @@ export function MovieMaker({ modelsRoot, endpoint, models = null, onPrepare, out
     resolveModel: (name: string) => { const x = h3Models.find(y => y.name === name); return x && { name: x.name, path: x.path }; },
     hasLora: (name: string) => h3Loras.some(x => x.name === name),
   };
-  const makeShot = (id: string, run: boolean) => {
-    if (!onPrepare || !h3Model) return;
-    if (referenceMode && !track) { setError(t('wizards.movie.music.trackUnknown')); return; }
+  const makeShot = (id: string, run: boolean): boolean => {
+    if (!onPrepare || !h3Model) return false;
+    if (referenceMode && !track) { setError(t('wizards.movie.music.trackUnknown')); return false; }
     const r = shotHandoff(movie, id, { name: h3Model.name, path: h3Model.path }, run, convertFileSrc, env, track);
-    if ('blocked' in r) { setError(r.detail ? `${t(r.blocked)} ${r.detail}` : t(r.blocked)); return; }
+    if ('blocked' in r) { setError(r.detail ? `${t(r.blocked)} ${r.detail}` : t(r.blocked)); return false; }
     setError(''); setNote(r.skipped ? t('wizards.movie.shot.skipped', { count: String(r.skipped) }) : '');
     sent.current = { n: (handoff ?? 0) + 1, id }; setShotState(run ? { id, state: 'queued' } : null);
     onPrepare(r.handoff);
+    return true;
   };
   // A chain reports one shot after the other (`run.step`); a lone shot reports once. The chain is busy until its last shot ends or one fails.
-  const makeChain = (id: string, run: boolean) => {
+  const makeChain = (id: string, run: boolean): boolean => {
     const found = chainOf(movie, id);
-    if (!onPrepare || !h3Model || !found) return;
+    if (!onPrepare || !h3Model || !found) return false;
     const r = chainHandoff(movie, found.chain, found.index, { name: h3Model.name, path: h3Model.path }, run, convertFileSrc, env, referenceMode);
-    if ('blocked' in r) { setError(r.detail ? `${t(r.blocked)} ${r.detail}` : t(r.blocked)); return; }
+    if ('blocked' in r) { setError(r.detail ? `${t(r.blocked)} ${r.detail}` : t(r.blocked)); return false; }
     setError(''); setNote(r.skipped ? t('wizards.movie.shot.skipped', { count: String(r.skipped) }) : '');
     sent.current = { n: (handoff ?? 0) + 1, id }; setChainBusy(run); setShotState(run ? { id, state: 'queued' } : null);
     onPrepare(r.handoff);
+    return true;
   };
   useEffect(() => {
     const s = sent.current, r = outcome?.run;
@@ -105,40 +149,54 @@ export function MovieMaker({ modelsRoot, endpoint, models = null, onPrepare, out
     const shot = movie.items.find(i => i.id === id), found = chainOf(movie, id);
     const continued = !!found && found.chain.ids[0] !== id;
     setMovie(m => recordShotRun(m, id, r, shot?.seconds ? h3ActualSeconds(shot.seconds, continued) : undefined)); setDirty(true);
+    // A scene (re)made on its own: the film is stitched again once every scene is made (owner-requested default).
+    if (lastShot && r.state === 'succeeded') setRestitch(true);
   }, [outcome]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const refresh = async () => { if (!native) return; try { setSaved(await listMovies()); } catch (e) { setError(e instanceof Error ? e.message : String(e)); } };
   useEffect(() => { void refresh(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
-    if (!native || !modelsRoot) { setLlm([]); return; }
+    if (!native || !root) { setLlm([]); return; }
     let alive = true;
-    listPlannerModels(modelsRoot).then(list => { if (alive) { setLlm(list); setLlmKey(k => k || (list[0] ? `${list[0].provider}:${list[0].id}` : '')); } }, () => { if (alive) setLlm([]); });
+    listPlannerModels(root).then(list => { if (alive) { setLlm(list); setLlmKey(k => k || (list[0] ? `${list[0].provider}:${list[0].id}` : '')); } }, () => { if (alive) setLlm([]); });
     return () => { alive = false; };
-  }, [native, modelsRoot]);
+  }, [native, root]);
   const llmModel = llm?.find(m => `${m.provider}:${m.id}` === llmKey);
   const story = movie.items.find(i => i.kind === 'story');
   const segments = movie.items.filter(i => i.kind === 'segment');
-  const nameOf = (id: string) => movie.items.find(i => i.id === id)?.title || id;
-  const payload = limits ? plannerPayload(movie, limits) : undefined;
-  const planBlocked = !native || !modelsRoot ? t('wizards.movie.plan.native') : !limits ? t('wizards.movie.plan.noLimits') : !llmModel ? t('wizards.movie.plan.noModel')
+  const payload = limits ? plannerPayload(movie, limits, planMode) : undefined;
+  const planBlocked = !native || !root ? t('wizards.movie.plan.native') : !limits ? t('wizards.movie.plan.noLimits') : !llmModel ? t('wizards.movie.plan.noModel')
     : !movie.items.find(i => i.id === 'brief')?.text.trim() ? t('wizards.movie.plan.needStory') : payload && payload.chars > PLANNER_MAX_CHARS ? t('wizards.movie.plan.tooLong', { max: String(PLANNER_MAX_CHARS) }) : '';
-  const run = async () => {
-    if (!llmModel || !limits || !modelsRoot) return;
-    setAsk(null); setError(''); setNote(''); setCheck(null); setPlanning(true);
-    try { setCheck(await requestPlan(modelsRoot, llmModel, movie, limits)); }
+  const run = async (mode: PlanMode | 'music') => {
+    if (!llmModel || !limits || !root) return;
+    setAsk(null); setError(''); setNote('');
+    if (mode === 'music') {
+      setMusicCheck(null); setWritingMusic(true);
+      try { setMusicCheck(await requestMusic(root, llmModel, movie)); }
+      catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+      finally { setWritingMusic(false); }
+      return;
+    }
+    setCheck(null); setPlanning(true); setPlanMode(mode);
+    try { setCheck(await requestPlan(root, llmModel, movie, limits, mode)); }
     catch (e) { setError(e instanceof Error ? e.message : String(e)); }
     finally { setPlanning(false); }
   };
   // A model on another machine only ever receives the brief after the destination and contents are shown and confirmed here.
-  const begin = async () => {
-    if (planBlocked || !llmModel || !payload || !modelsRoot) return;
+  const begin = async (mode: PlanMode | 'music') => {
+    if ((mode === 'music' ? musicWriteBlocked : planBlocked) || !llmModel || !limits || !root) return;
     setError(''); setNote('');
     try {
-      const where = await plannerDestination(modelsRoot, llmModel);
-      if (where.remote) setAsk({ host: where.host, chars: payload.disclosure.storyCharacters, cast: payload.disclosure.castEntries }); else await run();
+      const where = await plannerDestination(root, llmModel);
+      const sent = mode === 'music' ? musicPayload(movie) : plannerPayload(movie, limits, mode);
+      if (where.remote) setAsk({ host: where.host, chars: sent.disclosure.storyCharacters, scenes: sent.disclosure.scenes, mode }); else await run(mode);
     } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
   };
-  const diff = check?.plan ? planDiff(movie, check.plan) : undefined;
+  const [writingMusic, setWritingMusic] = useState(false);
+  const musicWriteBlocked = !native || !root ? t('wizards.movie.plan.native') : !llmModel ? t('wizards.movie.plan.noModel')
+    : !movie.items.find(i => i.id === 'brief')?.text.trim() ? t('wizards.movie.plan.needStory') : musicPayload(movie).chars > PLANNER_MAX_CHARS ? t('wizards.movie.plan.tooLong', { max: String(PLANNER_MAX_CHARS) }) : '';
+  const [rewriteMade, setRewriteMade] = useState(false);
+  const diff = check?.plan ? planDiff(movie, check.plan, { rewriteMade }) : undefined;
   const final = movie.items.find(i => i.id === 'final');
   const filmPlan = assemblyPlan(movie);
   const owned = useRef<{ cancelled: boolean; job?: JobStatus } | null>(null);
@@ -189,13 +247,18 @@ export function MovieMaker({ modelsRoot, endpoint, models = null, onPrepare, out
   const musicLoraFamily = musicModel && !isRestrictedMusicFamily(musicModel.family) ? (builtinFamilies as { id: string; loraFamily?: string }[]).find(f => f.id === musicModel.family)?.loraFamily : undefined;
   const musicLoraModels = models && musicLoraFamily ? models.filter(x => x.category === 'loras' && x.family === musicLoraFamily) : [];
   const musicLoras = music?.loras ?? [];
-  const makeMusic = (run: boolean) => {
-    if (!onPrepare || !musicModel) return;
-    const r = musicHandoff(movie, { name: musicModel.name, path: musicModel.path, family: musicModel.family }, run, name => musicLoraModels.some(x => x.name === name));
-    if ('blocked' in r) { setError('detail' in r ? `${t(r.blocked)} ${r.detail}` : t(r.blocked)); return; }
+  // Music texts: a preset is shown in the chosen model's dialect (ACE-Step tags or YuE2's Style line); tempo and language are ACE-Step's.
+  const aceMusic = !isRestrictedMusicFamily(musicModel?.family);
+  const musicStyleShown = styleFor(music?.text ?? '', music?.preset, musicModel?.family);
+  const presetValue = (() => { const p = musicPreset(music?.preset); return p && [p.ace, p.yue2].includes((music?.text ?? '').trim()) ? p.id : ''; })();
+  const makeMusic = (run: boolean): boolean => {
+    if (!onPrepare || !musicModel) return false;
+    const r = musicHandoff(movie, { name: musicModel.name, path: musicModel.path, family: musicModel.family }, run, name => musicLoraModels.some(x => x.name === name), render.source === 'movie');
+    if ('blocked' in r) { setError('detail' in r ? `${t(r.blocked)} ${r.detail}` : t(r.blocked)); return false; }
     setError(''); setNote('');
     sent.current = { n: (handoff ?? 0) + 1, id: 'music' }; setShotState(run ? { id: 'music', state: 'queued' } : null);
     onPrepare(r.handoff);
+    return true;
   };
   const generating = shotState?.id === 'music' && (shotState.state === 'queued' || shotState.state === 'running');
   const mixBlocked = !native ? t('wizards.movie.music.native') : musicPlan.ok ? '' : t(`wizards.movie.music.why.${musicPlan.why}`);
@@ -211,6 +274,35 @@ export function MovieMaker({ modelsRoot, endpoint, models = null, onPrepare, out
     finally { setMixing(false); }
   };
   const musicSecs = musicSeconds(movie);
+  // --- Make the movie: one step after the other until the film (and its music) is done; Stop ends the run after the current step.
+  const [autoRun, setAutoRun] = useState(false);
+  const [restitch, setRestitch] = useState(false);
+  const lastStep = useRef('');
+  const busy = making || !!joining || mixing || generating;
+  const caps = { musicModel: !!musicModel, canStitch: native && !!endpoint };
+  const step = nextMovieStep(movie, caps);
+  useEffect(() => {
+    if (!autoRun || busy) return;
+    const key = step.kind === 'scene' ? `scene:${step.id}:${movie.items.find(i => i.id === step.id)?.revision}` : step.kind;
+    // The same step twice without progress means it could not start (the reason is on screen): stop instead of looping.
+    if (key === lastStep.current && step.kind !== 'done') { setAutoRun(false); return; }
+    lastStep.current = key;
+    const started = step.kind === 'scene' ? (step.chain ? makeChain(step.id, true) : makeShot(step.id, true))
+      : step.kind === 'film' ? (joinBlocked ? (setError(joinBlocked), false) : (void join(), true))
+      : step.kind === 'music' ? makeMusic(true)
+      : step.kind === 'mix' ? (musicPlan.ok ? (void mixIt(), true) : false)
+      : null;
+    if (started === false) { setAutoRun(false); return; }
+    if (started === null) {
+      setAutoRun(false); if (step.kind === 'done') setNote(t('wizards.movie.run.done')); else if (step.kind === 'blocked') setError(t(`wizards.movie.run.blocked.${step.why}`));
+    }
+  }, [autoRun, busy, step.kind, step.kind === 'scene' ? step.id : '', movie]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!restitch || autoRun || busy) return;
+    setRestitch(false);
+    if (native && endpoint && needsStitch(movie)) void join();
+  }, [restitch, autoRun, busy, movie]); // eslint-disable-line react-hooks/exhaustive-deps
+  const startRun = () => { setError(''); setNote(''); lastStep.current = ''; setAutoRun(true); };
   const scoredClip = score?.state === 'done' ? score.revisions.find(r => r.n === score.revision)?.result?.outputId : undefined;
   const filmClip = final?.state === 'done' ? final.revisions.find(r => r.n === final.revision)?.result?.outputId : undefined;
   const why = (w: string) => t(`wizards.movie.film.why.${w}`);
@@ -223,7 +315,29 @@ export function MovieMaker({ modelsRoot, endpoint, models = null, onPrepare, out
     try { setMovie(f(movie)); setDirty(true); } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
   };
   const brief = movie.items.find(i => i.id === 'brief')!;
-  const cast = movie.items.filter(i => i.kind === 'cast');
+  // + adds after the open scene (else at the end); − removes the open scene.
+  const scene = panel?.kind === 'scene' ? segments.find(i => i.id === panel.id) : undefined;
+  const sceneIndex = scene ? segments.indexOf(scene) : segments.length - 1;
+  // Pictures without a note are described by the chosen model through Media Analysis' describe path (only the text is kept);
+  // a model on another machine only gets them after the same confirmation as the plan.
+  const describeAll = async () => {
+    if (!root || !llmModel || describing) return;
+    const todo = (movie.media ?? []).filter(x => x.media === 'image' && !x.note?.trim());
+    if (!todo.length) return;
+    try {
+      const where = await plannerDestination(root, llmModel);
+      if (where.remote && !window.confirm(t('wizards.movie.media.remoteConfirm', { count: String(todo.length), host: where.host }))) return;
+    } catch (e) { setError(e instanceof Error ? e.message : String(e)); return; }
+    setDescribing(true); setError('');
+    let failed = '';
+    for (const x of todo) {
+      try { const text = await describeMediaPicture(root, llmModel.id, convertFileSrc(x.path), x.path.split(/[\\/]/).pop() ?? 'picture.png'); if (text) setMovie(m => setMediaNote(m, x.path, text)); setDirty(true); }
+      catch (e) { failed = e instanceof Error ? e.message : String(e); }
+    }
+    setDescribing(false);
+    if (failed) setError(t('wizards.movie.media.describeFailed', { error: failed }));
+  };
+  const newSceneSeconds = limits ? Math.min(limits.max, Math.max(limits.min, 5)) : 5;
   const save = async () => {
     setError(''); setNote('');
     try { await saveMovie(movie.title.trim() ? movie : { ...movie, title: t('wizards.movie.untitled') }); setDirty(false); setNote(t('wizards.movie.saved')); await refresh(); }
@@ -239,65 +353,128 @@ export function MovieMaker({ modelsRoot, endpoint, models = null, onPrepare, out
       void checkMovie(id).then(c => setGone(c.missing.length || c.truncated ? c : null), () => setError(t('wizards.movie.check.failed')));
     } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
   };
-  const fresh = () => { if (dirty && !window.confirm(t('wizards.movie.discard'))) return; setMovie(newMovie(newMovieId(), '')); setGone(null); setDirty(false); setError(''); setNote(''); };
-  const addRefs = async (id: string, current: string[]) => {
-    try { const path = await pickMedia(t('wizards.movie.refsTitle')); if (path && !current.includes(path)) change(m => setCastRefs(m, id, [...current, path])); }
+  const fresh = () => { if (dirty && !window.confirm(t('wizards.movie.discard'))) return; setMovie(newMovie(newMovieId(), '')); setGone(null); setDirty(false); setError(''); setNote(''); setCheck(null); setMusicCheck(null); forgetPref(DRAFT_KEY); };
+  // Steps in the order a movie is made; each step says when it is done, so the next thing to do is visible.
+  const steps = [
+    { n: 1, key: 'idea', done: !!brief.text.trim() || !!movie.media?.length },
+    { n: 2, key: 'plan', done: !!story || segments.some(g => g.text.trim()) },
+    { n: 3, key: 'scenes', done: !!segments.length && segments.every(g => g.state === 'done') },
+    { n: 4, key: 'film', done: final?.state === 'done' },
+  ];
+  // The one thing to do next: the first step that is not done.
+  const nextKey = steps.find(s => !s.done)?.key;
+  const panelScene = panel?.kind === 'scene' ? segments.find(i => i.id === panel.id) : undefined;
+  const panelMedia = panel?.kind === 'media' ? movie.media?.find(x => x.path === panel.path) : undefined;
+  const poolScenes = segments.map((g, n) => ({ id: g.id, name: g.title.trim() || t('wizards.movie.scene.untitled', { n: String(n + 1) }) }));
+  const assign = (path: string, scenes: string[], role: MediaRole, label?: string) => {
+    setError('');
+    try { const r = assignMedia(movie, path, scenes, role, label); setMovie(r.movie); setDirty(true); setRefused(r.refused); }
     catch (e) { setError(e instanceof Error ? e.message : String(e)); }
   };
-
-  return <div className="forge-card wizards-form" data-wizard-form="movie">
-    <div className="forge-card-head"><h3 className="forge-card-title">{t('wizards.movie.name')}</h3></div>
-    <p className="forge-note" data-movie-notice>{t('wizards.movie.notice')}</p>
-    <div className="wizards-step">
-      <span className="forge-note">{t('wizards.movie.brief')}</span>
-      <div className="wizards-fields">
+  return <div className="forge-card wizards-form movie-maker" data-wizard-form="movie">
+    <div className="forge-card-head movie-head">
+      <h3 className="forge-card-title">{t('wizards.movie.name')}</h3>
+      <div className="movie-button-group" role="group" aria-label={t('wizards.movie.file')}>
+        <button type="button" className="forge-ghost" data-movie-new onClick={fresh}>{t('wizards.movie.new')}</button>
+        <button type="button" className="action-button" data-movie-save disabled={!native || !dirty} onClick={() => void save()}>{t('wizards.movie.save')}</button>
+      </div>
+      {dirty && <span className="forge-note" data-movie-dirty>{t('wizards.movie.unsaved')}</span>}
+    </div>
+    <ol className="movie-steps" data-movie-steps>{steps.map(s => <li key={s.key} className={s.done ? 'is-done' : s.key === nextKey ? 'is-next' : ''} data-movie-step={s.key} aria-current={s.key === nextKey ? 'step' : undefined}><span className="movie-step-n">{s.done ? '✓' : s.n}</span>{t(`wizards.movie.steps.${s.key}`)}</li>)}</ol>
+    <p className="forge-note movie-next" data-movie-next>{t(`wizards.movie.next.${nextKey ?? 'done'}`)}</p>
+    <details className="movie-help" data-movie-help>
+      <summary className="forge-note">{t('wizards.movie.help.title')}</summary>
+      <ol className="forge-note"><li>{t('wizards.movie.help.one')}</li><li>{t('wizards.movie.help.two')}</li><li>{t('wizards.movie.help.three')}</li></ol>
+    </details>
+    <section className="wizards-step movie-section" data-movie-section="idea">
+      <h4 className="movie-section-title"><span className="movie-step-n">{steps[0].n}</span> {t('wizards.movie.steps.idea')}</h4>
+      <p className="forge-note" data-movie-notice>{t('wizards.movie.ideaHint')}</p>
+      <div className="wizards-fields movie-idea-head">
         <label className="forge-field"><span>{t('wizards.movie.movieTitle')}</span>
           <input type="text" data-movie-title value={movie.title} maxLength={120} onChange={e => change(m => setBrief(m, { title: e.target.value }))}/></label>
-        <label className="forge-field"><span>{t('wizards.movie.seconds')}</span>
-          <input type="number" data-movie-seconds min={1} max={600} step={1} value={movie.targetSeconds}
-            onChange={e => { const n = Number(e.target.value); if (Number.isFinite(n) && n >= 1 && n <= 600) change(m => setBrief(m, { targetSeconds: n })); }}/></label>
         <label className="forge-field"><span>{t('wizards.movie.aspect')}</span>
-          <select data-movie-aspect value={movie.aspect} onChange={e => change(m => setBrief(m, { aspect: e.target.value }))}>
-            {(ASPECTS.includes(movie.aspect) ? ASPECTS : [...ASPECTS, movie.aspect]).map(a => <option key={a} value={a}>{a}</option>)}
+          <AspectPicker data-movie-aspect value={movie.aspect} omit={['custom']} onChange={a => change(m => setBrief(m, { aspect: a }))}/></label>
+        <label className="forge-field"><span>{t('wizards.movie.render.source')}</span>
+          <select data-movie-render-source value={render.source} title={t('wizards.movie.render.sourceHint')} onChange={e => change(m => setRender(m, { source: e.target.value as 'movie' | 'generate' }))}>
+            <option value="movie">{t('wizards.movie.render.movie')}</option><option value="generate">{t('wizards.movie.render.generate')}</option>
           </select></label>
+        {render.source === 'movie' && <>
+          <label className="forge-field"><span>{t('studio.run.resolution.title')}</span>
+            <select data-movie-render-resolution value={render.resolution} onChange={e => change(m => setRender(m, { resolution: e.target.value }))}>
+              {MOVIE_RESOLUTIONS.map(r => <option key={r} value={r}>{r === 'model' ? t('studio.run.resolution.model') : r}</option>)}
+            </select></label>
+          <label className="forge-field movie-num"><span>{t('studio.run.steps')}</span>
+            <input type="number" data-movie-render-steps min={SAMPLING_LIMITS.steps[0]} max={SAMPLING_LIMITS.steps[1]} step={1} value={movieSampling?.steps ?? ''}
+              onChange={e => { const v = Number(e.target.value); if (e.target.value !== '' && Number.isFinite(v)) change(m => setRender(m, { steps: v })); }}/></label>
+          <label className="forge-field movie-num"><span>{t('studio.run.cfg')}</span>
+            <input type="number" data-movie-render-cfg min={SAMPLING_LIMITS.cfg[0]} max={SAMPLING_LIMITS.cfg[1]} step={0.1} value={movieSampling?.cfg ?? ''}
+              onChange={e => { const v = Number(e.target.value); if (e.target.value !== '' && Number.isFinite(v)) change(m => setRender(m, { cfg: v })); }}/></label>
+          {(render.steps !== undefined || render.cfg !== undefined) && <button type="button" className="forge-ghost movie-render-reset" data-movie-render-reset title={t('wizards.movie.render.resetHint')} aria-label={t('wizards.movie.render.resetHint')}
+            onClick={() => change(m => setRender(m, { steps: undefined, cfg: undefined }))}>{t('wizards.movie.render.reset')}</button>}
+        </>}
       </div>
+      <p className="forge-note" data-movie-render-note>{render.source === 'generate' ? t('wizards.movie.render.generateNote')
+        : t('wizards.movie.render.movieNote', {
+          size: movie.aspect === 'auto' ? t('wizards.movie.render.autoSize') : fixedSize ? `${fixedSize.width}×${fixedSize.height}` : '—',
+          steps: String(movieSampling?.steps ?? '—'), cfg: String(movieSampling?.cfg ?? '—'), sampler: `${movieSampling?.sampler ?? '—'} / ${movieSampling?.scheduler ?? '—'}`,
+          model: h3Model?.name ?? t('wizards.movie.render.noModel'),
+        }) + (render.source === 'movie' && render.steps === undefined && render.cfg === undefined ? ` ${t(variant ? 'wizards.movie.render.variantStart' : 'wizards.movie.render.familyStart', { variant: variant?.id ?? '' })}` : '')}</p>
+      {movie.aspect === 'auto' && <p className="forge-note" data-movie-aspect-auto>{t('wizards.movie.aspectAuto')}</p>}
       <label className="forge-field"><span>{t('wizards.movie.story')}</span>
-        <textarea data-movie-story rows={5} maxLength={20000} value={brief.text} placeholder={t('wizards.movie.storyPlaceholder')} onChange={e => change(m => editItem(m, 'brief', e.target.value))}/></label>
-    </div>
-    <div className="wizards-step" data-movie-cast>
-      <span className="forge-note">{t('wizards.movie.cast')}</span>
-      <p className="forge-note">{t('wizards.movie.castHint')}</p>
-      <div className="wizards-row">
-        <label className="forge-field"><span>{t('wizards.movie.castRole')}</span>
-          <select data-movie-new-role value={role} onChange={e => setRole(e.target.value as MovieCastRole)}>
-            {MOVIE_CAST_ROLES.map(r => <option key={r} value={r}>{t(`wizards.movie.role.${r}`)}</option>)}
-          </select></label>
-        <label className="forge-field"><span>{t('wizards.movie.castName')}</span>
-          <input type="text" data-movie-new-name value={name} maxLength={80} onChange={e => setName(e.target.value)}/></label>
-        <button type="button" className="forge-ghost" data-movie-add disabled={!name.trim()} onClick={() => { change(m => addCast(m, role, name.trim())); setName(''); }}>{t('wizards.movie.castAdd')}</button>
+        <textarea data-movie-story rows={4} maxLength={20000} value={brief.text} placeholder={t('wizards.movie.storyPlaceholder')} onChange={e => change(m => editItem(m, 'brief', e.target.value))}/></label>
+      <MovieMediaPool media={movie.media ?? []} scenes={poolScenes} usedIn={path => scenesUsing(movie, path)} roleOf={path => roleOf(movie, path)} roots={mediaRoots} toSrc={convertFileSrc} describing={describing}
+        open={panel?.kind === 'media' ? panel.path : undefined} onOpen={path => { setRefused([]); setPanel({ kind: 'media', path }); }}
+        onAdd={items => change(m => addMedia(m, items))} onRemove={path => { change(m => dropMedia(m, path)); if (panel?.kind === 'media' && panel.path === path) setPanel(null); }}
+        onDropOnScene={(path, id) => { const x = movie.media?.find(y => y.path === path); if (x) assign(path, [...new Set([...scenesUsing(movie, path), id])], roleOf(movie, path), x.label); }}
+        onDescribe={native && root && llmModel ? describeAll : null}/>
+      <div className="movie-music-brief" data-movie-music-brief>
+        <h5 className="movie-subtitle">{t('wizards.movie.music.title')}</h5>
+        <p className="forge-note">{t('wizards.movie.music.briefHint')}</p>
+        <div className="wizards-fields movie-music-row">
+          <label className="forge-field"><span>{t('wizards.movie.music.preset')}</span>
+            <select data-movie-music-preset value={presetValue} onChange={e => { const p = musicPreset(e.target.value); change(m => p ? setMusicFields(setMusicPrompt(m, p[presetDialect(musicModel?.family)]), { preset: p.id, bpm: p.bpm }) : setMusicFields(m, { preset: undefined })); }}>
+              <option value="">{t('wizards.movie.music.presetOwn')}</option>
+              {MUSIC_PRESETS.map(p => <option key={p.id} value={p.id}>{presetName(p, locale)}</option>)}
+            </select></label>
+          {aceMusic && <label className="forge-field movie-num"><span>{t('wizards.movie.music.bpm')}</span>
+            <input type="number" data-movie-music-bpm min={MUSIC_BPM[0]} max={MUSIC_BPM[1]} step={1} value={music?.bpm ?? ''} placeholder={t('wizards.movie.music.bpmAuto')} title={t('wizards.movie.music.bpmHint')}
+              onChange={e => { const v = Number(e.target.value); change(m => setMusicFields(m, { bpm: e.target.value === '' || !Number.isFinite(v) ? undefined : v })); }}/></label>}
+          {aceMusic && (!!music?.lyrics?.trim() || !!music?.vocals) && <label className="forge-field"><span>{t('wizards.movie.music.language')}</span>
+            <select data-movie-music-language value={music?.language ?? 'en'} onChange={e => change(m => setMusicFields(m, { language: e.target.value }))}>
+              {aceLanguages.filter(l => l !== 'unknown').map(l => <option key={l} value={l}>{languageLabel(l, locale)}</option>)}
+            </select></label>}
+        </div>
+        <div className="movie-music-texts">
+          <label className="forge-field"><span>{t('wizards.movie.music.prompt')}</span>
+            <textarea data-movie-music-prompt rows={3} maxLength={2000} value={musicStyleShown} placeholder={t('wizards.movie.music.promptPlaceholder')} onChange={e => change(m => setMusicPrompt(m, e.target.value))}/></label>
+          <label className="forge-field"><span>{t('wizards.movie.music.lyrics')}</span>
+            <textarea data-movie-music-lyrics rows={3} maxLength={4000} value={music?.lyrics ?? ''} placeholder={t('wizards.movie.music.lyricsPlaceholder')} onChange={e => change(m => setMusicFields(m, { lyrics: e.target.value }))}/></label>
+        </div>
+        <div className="wizards-row movie-button-group">
+          <label className="forge-note movie-check"><input type="checkbox" data-movie-music-vocals checked={!!music?.vocals} onChange={e => change(m => setMusicFields(m, { vocals: e.target.checked }))}/> {t('wizards.movie.music.vocals')}</label>
+          <button type="button" className="forge-ghost" data-movie-music-write disabled={!!musicWriteBlocked || writingMusic || planning} title={musicWriteBlocked || t('wizards.movie.music.writeHint')} onClick={() => void begin('music')}>{t(writingMusic ? 'wizards.movie.plan.busy' : 'wizards.movie.music.write')}</button>
+        </div>
+        {musicCheck && !musicCheck.music && <div className="wizards-step" data-movie-music-invalid>
+          <p className="error-message" role="alert">{t('wizards.movie.plan.invalid')}</p>
+          <ul>{musicCheck.errors.slice(0, 6).map((e, n) => <li key={n} className="forge-note">{e}</li>)}</ul>
+        </div>}
+        {musicCheck?.music && (() => { const mu = musicCheck.music, d = musicDiff(movie, mu, musicReplace); return <div className="wizards-step movie-plan-music" data-movie-music-proposal>
+          <strong>{t('wizards.movie.music.proposal')}</strong>
+          {mu.music && <p className="forge-note">{t(`wizards.movie.plan.musicField.${d.style}`, { field: t('wizards.movie.music.prompt'), value: mu.music })}</p>}
+          {mu.musicBpm && <p className="forge-note">{t(`wizards.movie.plan.musicField.${d.bpm}`, { field: t('wizards.movie.music.bpm'), value: String(mu.musicBpm) })}</p>}
+          {mu.musicLyrics && <><p className="forge-note">{t(`wizards.movie.plan.musicField.${d.lyrics}`, { field: t('wizards.movie.music.lyrics'), value: t('wizards.movie.plan.lyricsBelow') })}</p><pre className="movie-plan-lyrics">{mu.musicLyrics}</pre></>}
+          {musicCheck.warnings.map((w, n) => <p key={n} className="forge-note">{w}</p>)}
+          <label className="forge-note movie-check"><input type="checkbox" data-movie-music-replace checked={musicReplace} onChange={e => setMusicReplace(e.target.checked)}/> {t('wizards.movie.music.replace')}</label>
+          <div className="wizards-row movie-button-group">
+            <button type="button" className="action-button" data-movie-music-apply onClick={() => { change(m => applyMusic(m, mu, musicReplace)); setMusicCheck(null); setMusicReplace(false); }}>{t('wizards.movie.plan.apply')}</button>
+            <button type="button" className="forge-ghost" data-movie-music-discard onClick={() => { setMusicCheck(null); setMusicReplace(false); }}>{t('wizards.movie.plan.discard')}</button>
+          </div>
+        </div>; })()}
       </div>
-      {!cast.length && <p className="forge-note" data-movie-cast-empty>{t('wizards.movie.castEmpty')}</p>}
-      {cast.map(c => <div className="wizards-step" key={c.id} data-movie-cast-item={c.id}>
-        <div className="wizards-row">
-          <select aria-label={t('wizards.movie.castRole')} data-movie-role value={c.role ?? 'actor'} disabled={!!c.locked} onChange={e => change(m => setCastRole(m, c.id, e.target.value as MovieCastRole))}>
-            {MOVIE_CAST_ROLES.map(r => <option key={r} value={r}>{t(`wizards.movie.role.${r}`)}</option>)}
-          </select>
-          <input type="text" aria-label={t('wizards.movie.castName')} data-movie-cast-name value={c.title} maxLength={80} disabled={!!c.locked} onChange={e => change(m => setItemTitle(m, c.id, e.target.value))}/>
-          <label className="forge-note"><input type="checkbox" data-movie-lock checked={!!c.locked} onChange={e => change(m => setLocked(m, c.id, e.target.checked))}/> {t('wizards.movie.lock')}</label>
-          <button type="button" className="forge-ghost" data-movie-remove disabled={!!c.locked} onClick={() => change(m => removeCast(m, c.id))}>{t('wizards.movie.castRemove')}</button>
-        </div>
-        <textarea aria-label={t('wizards.movie.castDesc')} data-movie-cast-text rows={2} maxLength={2000} disabled={!!c.locked} value={c.text} placeholder={t('wizards.movie.castDescPlaceholder')} onChange={e => change(m => editItem(m, c.id, e.target.value))}/>
-        <div className="wizards-row">
-          <button type="button" className="forge-ghost" data-movie-add-ref disabled={!native || !!c.locked || (c.refs?.length ?? 0) >= 16} onClick={() => void addRefs(c.id, c.refs ?? [])}>{t('wizards.movie.refsAdd')}</button>
-          <span className="forge-note">{t('wizards.movie.refsCount', { count: String(c.refs?.length ?? 0) })}</span>
-        </div>
-        {(c.refs ?? []).map(p => <div className="wizards-row" key={p} data-movie-ref>
-          <span className="forge-note wizards-name" title={p}>{fileName(p)}</span>
-          <button type="button" className="forge-ghost" data-movie-ref-remove disabled={!!c.locked} aria-label={t('wizards.movie.refRemove', { name: fileName(p) })} onClick={() => change(m => setCastRefs(m, c.id, (c.refs ?? []).filter(x => x !== p)))}>{t('wizards.movie.refRemoveShort')}</button>
-        </div>)}
-      </div>)}
-    </div>
-    <div className="wizards-step" data-movie-plan>
+    </section>
+    <section className="wizards-step movie-section" data-movie-section="plan">
+      <h4 className="movie-section-title"><span className="movie-step-n">{steps[1].n}</span> {t('wizards.movie.steps.plan')}</h4>
+    <div data-movie-plan>
       <span className="forge-note">{t('wizards.movie.plan.title')}</span>
       <p className="forge-note">{t('wizards.movie.plan.intro')}</p>
       {limits && <p className="forge-note" data-movie-limits>{t('wizards.movie.plan.limits', { min: String(limits.min), max: String(limits.max), step: String(limits.step ?? 0.1) })}{limits.unverified ? ` ${t('wizards.movie.plan.unverified')}` : ''}</p>}
@@ -306,15 +483,16 @@ export function MovieMaker({ modelsRoot, endpoint, models = null, onPrepare, out
         <select data-movie-llm value={llmKey} onChange={e => { setLlmKey(e.target.value); setAsk(null); }}>
           {llm.map(m => <option key={`${m.provider}:${m.id}`} value={`${m.provider}:${m.id}`}>{m.provider === 'local' ? m.name : `${m.name} (${m.provider})`}</option>)}
         </select></label>}
-      <div className="wizards-row">
-        <button type="button" className="action-button" data-movie-plan-run disabled={!!planBlocked || planning} title={planBlocked || undefined} onClick={() => void begin()}>{t(planning ? 'wizards.movie.plan.busy' : 'wizards.movie.plan.run')}</button>
+      <div className="wizards-row movie-button-group">
+        <button type="button" className="action-button" data-movie-plan-run disabled={!!planBlocked || planning} title={planBlocked || undefined} onClick={() => void begin('suggest')}>{t(planning && planMode === 'suggest' ? 'wizards.movie.plan.busy' : 'wizards.movie.plan.run')}</button>
+        <button type="button" className="forge-ghost" data-movie-plan-write disabled={!!planBlocked || planning || !segments.length} title={planBlocked || (!segments.length ? t('wizards.movie.plan.writeNeedsScenes') : undefined)} onClick={() => void begin('write')}>{t(planning && planMode === 'write' ? 'wizards.movie.plan.busy' : 'wizards.movie.plan.write')}</button>
         {planBlocked && <span className="forge-note" data-movie-plan-blocked>{planBlocked}</span>}
       </div>
       {ask && <div className="wizards-step" role="alertdialog" aria-label={t('wizards.movie.plan.remoteTitle')} data-movie-remote>
         <strong>{t('wizards.movie.plan.remoteTitle')}</strong>
-        <p className="forge-note">{t('wizards.movie.plan.remoteBody', { chars: String(ask.chars), cast: String(ask.cast), host: ask.host })}</p>
-        <div className="wizards-row">
-          <button type="button" className="action-button" data-movie-remote-send onClick={() => { logMovieNotice('plan-remote'); void run(); }}>{t('wizards.movie.plan.remoteSend')}</button>
+        <p className="forge-note">{t('wizards.movie.plan.remoteBody', { chars: String(ask.chars), scenes: String(ask.scenes), host: ask.host })}</p>
+        <div className="wizards-row movie-button-group">
+          <button type="button" className="action-button" data-movie-remote-send onClick={() => { logMovieNotice('plan-remote'); void run(ask.mode); }}>{t('wizards.movie.plan.remoteSend')}</button>
           <button type="button" className="forge-ghost" data-movie-remote-cancel onClick={() => setAsk(null)}>{t('wizards.movie.plan.cancel')}</button>
         </div>
       </div>}
@@ -326,87 +504,113 @@ export function MovieMaker({ modelsRoot, endpoint, models = null, onPrepare, out
         <strong>{t('wizards.movie.plan.diffTitle', { segments: String(check.plan.segments.length) })}</strong>
         <p className="forge-note">{t('wizards.movie.plan.diffLine', { added: String(diff.added), changed: String(diff.changed.length), unchanged: String(diff.unchanged.length), locked: String(diff.lockedKept.length), removed: String(diff.removed.length) })}</p>
         <p className="forge-note">{t('wizards.movie.plan.diffStory', { state: t(`wizards.movie.plan.state.${diff.story}`) })}</p>
+        {segments.some(g => g.state === 'done') && <label className="forge-note"><input type="checkbox" data-movie-plan-rewrite checked={rewriteMade} onChange={e => setRewriteMade(e.target.checked)}/> {t('wizards.movie.plan.rewriteMade')}</label>}
         {!!diff.staleAfter.length && <p className="forge-note" data-movie-plan-stale>{t('wizards.movie.plan.stale', { count: String(diff.staleAfter.length) })}</p>}
+        <MoviePlanPreview movie={movie} plan={check.plan} options={{ rewriteMade }}/>
         {check.warnings.map((w, n) => <p key={n} className="forge-note" data-movie-plan-warning>{w}</p>)}
-        <div className="wizards-row">
-          <button type="button" className="action-button" data-movie-plan-apply onClick={() => { const plan = check.plan!; change(m => applyPlan(m, plan)); logMovieNotice('plan-applied'); setCheck(null); setNote(t('wizards.movie.plan.applied')); }}>{t('wizards.movie.plan.apply')}</button>
+        <div className="wizards-row movie-button-group">
+          <button type="button" className="action-button" data-movie-plan-apply onClick={() => { const plan = check.plan!; change(m => applyPlan(m, plan, { rewriteMade })); logMovieNotice('plan-applied'); setCheck(null); setRewriteMade(false); setNote(t('wizards.movie.plan.applied')); }}>{t('wizards.movie.plan.apply')}</button>
           <button type="button" className="forge-ghost" data-movie-plan-discard onClick={() => setCheck(null)}>{t('wizards.movie.plan.discard')}</button>
         </div>
       </div>}
     </div>
-    {story && <div className="wizards-step" data-movie-story-stage>
-      <span className="forge-note">{t('wizards.movie.plan.lore')}</span>
-      <textarea aria-label={t('wizards.movie.plan.lore')} data-movie-lore rows={4} maxLength={20000} disabled={!!story.locked} value={story.text} onChange={e => change(m => editItem(m, story.id, e.target.value))}/>
-      <label className="forge-note"><input type="checkbox" data-movie-lock-story checked={!!story.locked} onChange={e => change(m => setLocked(m, story.id, e.target.checked))}/> {t('wizards.movie.lock')}</label>
-      <span className="forge-note">{t('wizards.movie.plan.segments')}</span>
+      {story && <details className="movie-lore" data-movie-story-stage>
+        <summary className="forge-note">{t('wizards.movie.plan.lore')}</summary>
+        <textarea aria-label={t('wizards.movie.plan.lore')} data-movie-lore rows={4} maxLength={20000} disabled={!!story.locked} value={story.text} onChange={e => change(m => editItem(m, story.id, e.target.value))}/>
+      </details>}
+    </section>
+    <section className="wizards-step movie-section" data-movie-scenes>
+      <div className="wizards-step-head">
+        <h4 className="movie-section-title"><span className="movie-step-n">{steps[2].n}</span> {t('wizards.movie.steps.scenes')}</h4>
+        <span className="forge-note" data-movie-length>{t('wizards.movie.scenesLength', { seconds: String(scenesSeconds(movie)), actual: String(Math.round(segments.reduce((a, g, n) => a + h3ActualSeconds(g.seconds ?? 0, !!g.continuous && n > 0), 0) * 100) / 100) })}</span>
+      </div>
+      <p className="forge-note">{t('wizards.movie.scenesHint')}</p>
       {!!segments.length && !h3Model && <p className="forge-note" data-movie-shot-nomodel>{t('wizards.movie.shot.noModel')}</p>}
       {!!segments.length && h3Models.length > 1 && <label className="forge-field"><span>{t('wizards.movie.shot.model')}</span>
-        <select data-movie-shot-model value={h3Model?.path ?? ''} onChange={e => setH3Path(e.target.value)}>{h3Models.map(m => <option key={m.path} value={m.path}>{m.name}</option>)}</select></label>}
-      {segments.map((g, n) => <div className="wizards-step" key={g.id} data-movie-segment={g.id}>
-        <div className="wizards-row">
-          <strong className="forge-note">{n + 1}</strong>
-          <input type="text" aria-label={t('wizards.movie.plan.segTitle')} data-movie-seg-title value={g.title} maxLength={200} disabled={!!g.locked} onChange={e => change(m => setItemTitle(m, g.id, e.target.value))}/>
-          <label className="forge-note">{t('wizards.movie.plan.segSeconds')} <input type="number" data-movie-seg-seconds min={limits?.min ?? 1} max={limits?.max ?? 15} step={limits?.step ?? 0.5} value={g.seconds ?? 0} disabled={!!g.locked}
-            onChange={e => { const v = Number(e.target.value); if (Number.isFinite(v) && v > 0) change(m => reviseItem(m, g.id, { seconds: v })); }}/></label>
-          <label className="forge-note"><input type="checkbox" data-movie-seg-continuous checked={!!g.continuous} disabled={n === 0 || !!g.locked} onChange={e => change(m => reviseItem(m, g.id, { continuous: e.target.checked }))}/> {t('wizards.movie.plan.segContinuous')}</label>
-          <label className="forge-note"><input type="checkbox" data-movie-seg-lock checked={!!g.locked} onChange={e => change(m => setLocked(m, g.id, e.target.checked))}/> {t('wizards.movie.lock')}</label>
-        </div>
-        <textarea aria-label={t('wizards.movie.plan.segPrompt')} data-movie-seg-prompt rows={2} maxLength={4000} disabled={!!g.locked} value={g.text} onChange={e => change(m => editItem(m, g.id, e.target.value))}/>
-        <details data-movie-shot-settings={g.id}>
-          <summary className="forge-note">{t('wizards.movie.shot.settings', { count: String(g.loras?.length ?? 0) })}</summary>
-          {continued(g.id) ? <p className="forge-note" data-movie-shot-inherits>{t('wizards.movie.shot.inherits')}</p> : <>
-            <label className="forge-field"><span>{t('wizards.movie.shot.ownModel')}</span>
-              <select data-movie-shot-own-model value={g.model ?? ''} disabled={!!g.locked} onChange={e => change(m => setShotModel(m, g.id, e.target.value || null))}>
-                <option value="">{t('wizards.movie.shot.defaultModel', { name: h3Model?.name ?? '—' })}</option>
-                {g.model && !h3Models.some(x => x.name === g.model) && <option value={g.model}>{g.model}</option>}
-                {h3Models.map(x => <option key={x.path} value={x.name}>{x.name}</option>)}
-              </select></label>
-            {(g.loras ?? []).map(l => <div className="wizards-row" key={l.name} data-movie-lora={l.name}>
-              <select aria-label={t('wizards.movie.shot.loraName')} data-movie-lora-name value={l.name} disabled={!!g.locked}
-                onChange={e => change(m => setShotLoras(m, g.id, (g.loras ?? []).map(x => x.name === l.name ? { ...x, name: e.target.value } : x)))}>
-                <option value={l.name}>{l.name}{h3Loras.some(x => x.name === l.name) ? '' : ` — ${t('wizards.movie.shot.loraGone')}`}</option>
-                {h3Loras.filter(x => x.name !== l.name && !(g.loras ?? []).some(y => y.name === x.name)).map(x => <option key={x.path} value={x.name}>{x.name}</option>)}
-              </select>
-              <input type="number" aria-label={t('wizards.movie.shot.loraStrength', { name: l.name })} data-movie-lora-strength min={LORA_STRENGTH[0]} max={LORA_STRENGTH[1]} step={0.05} value={l.strength} disabled={!!g.locked}
-                onChange={e => { const v = Number(e.target.value); if (Number.isFinite(v)) change(m => setShotLoras(m, g.id, (g.loras ?? []).map(x => x.name === l.name ? { ...x, strength: v } : x))); }}/>
-              <button type="button" className="forge-ghost" data-movie-lora-remove disabled={!!g.locked} aria-label={t('wizards.movie.shot.loraRemove', { name: l.name })} onClick={() => change(m => setShotLoras(m, g.id, (g.loras ?? []).filter(x => x.name !== l.name)))}>{t('wizards.movie.castRemove')}</button>
-            </div>)}
-            {(() => { const free = h3Loras.find(x => !(g.loras ?? []).some(l => l.name === x.name)); return <button type="button" className="forge-ghost" data-movie-lora-add disabled={!!g.locked || !free || (g.loras?.length ?? 0) >= 8} title={h3Loras.length ? undefined : t('wizards.movie.shot.noLora')}
-              onClick={() => free && change(m => setShotLoras(m, g.id, [...(g.loras ?? []), { name: free.name, strength: 1 }]))}>{t('wizards.movie.shot.loraAdd')}</button>; })()}
-          </>}
-        </details>
-        <div className="wizards-row" data-movie-shot={g.id}>
-          <span className="forge-note" data-movie-shot-state>{t(`wizards.movie.shot.state.${shotState?.id === g.id && (shotState.state === 'queued' || shotState.state === 'running') ? 'running' : g.state}`)}</span>
-          <button type="button" className="forge-ghost" data-movie-shot-prepare disabled={!native || !onPrepare || !h3Model || making || continued(g.id)} title={shotBlock(g, n)} onClick={() => chainLen(g.id) > 1 ? makeChain(g.id, false) : makeShot(g.id, false)}>{t(chainLen(g.id) > 1 ? 'wizards.movie.shot.prepareChain' : 'wizards.movie.shot.prepare')}</button>
-          <button type="button" className="action-button" data-movie-shot-make disabled={!native || !onPrepare || !h3Model || making || continued(g.id)} title={shotBlock(g, n)} onClick={() => chainLen(g.id) > 1 ? makeChain(g.id, true) : makeShot(g.id, true)}>{chainLen(g.id) > 1 ? t(g.state === 'done' ? 'wizards.movie.shot.chainAgain' : 'wizards.movie.shot.makeChain', { count: String(chainLen(g.id)) }) : t(g.state === 'done' ? 'wizards.movie.shot.again' : 'wizards.movie.shot.make')}</button>
-        </div>
-        {shotState?.id === g.id && shotState.error && <p className="error-message" role="alert" data-movie-shot-error>{shotState.error}</p>}
-        {g.state === 'done' && (() => { const out = g.revisions.find(r => r.n === g.revision)?.result?.outputId; return out && /\.(mp4|webm|mkv|mov)$/i.test(out) ? <video className="wizards-preview" src={convertFileSrc(out)} controls preload="metadata" data-movie-shot-video/> : null; })()}
-        <p className="forge-note" data-movie-seg-actual>{t('wizards.movie.plan.actual', { seconds: (Math.round(h3ActualSeconds(g.seconds ?? 0, !!g.continuous) * 100) / 100).toString() })}</p>
-        {(g.dialogue ?? []).map((d, k) => <p key={k} className="forge-note" data-movie-seg-line>{t('wizards.movie.plan.line', { name: nameOf(d.castId), line: d.line })}</p>)}
-      </div>)}
-      {!!segments.length && <p className="forge-note" data-movie-total>{t('wizards.movie.plan.total', {
-        planned: String(deliveredSeconds(movie, 0)), actual: String(Math.round(segments.reduce((a, g) => a + h3ActualSeconds(g.seconds ?? 0, !!g.continuous), 0) * 100) / 100), target: String(movie.targetSeconds) })}</p>}
-    </div>}
-    {final && <div className="wizards-step" data-movie-film>
-      <span className="forge-note">{t('wizards.movie.film.title')}</span>
-      <p className="forge-note">{t('wizards.movie.film.intro')}</p>
-      {!filmPlan.ok && filmPlan.missing.length > 0 && <ul data-movie-film-missing>{filmPlan.missing.map(x => <li key={x.id} className="forge-note">{t('wizards.movie.film.missing', { title: x.title, why: why(x.why) })}</li>)}</ul>}
-      {final.state === 'stale' && <p className="forge-note" data-movie-film-stale>{t('wizards.movie.film.stale')}</p>}
-      <div className="wizards-row">
-        <button type="button" className="action-button" data-movie-film-run disabled={!!joinBlocked || !!joining} title={joinBlocked || undefined} onClick={() => void join()}>{t(final.state === 'done' ? 'wizards.movie.film.again' : 'wizards.movie.film.run')}</button>
-        {joining && <button type="button" className="forge-ghost" data-movie-film-stop onClick={stopJoin}>{t('wizards.run.stop')}</button>}
-        {joining && <span className="forge-note" role="status" data-movie-film-progress>{joining}</span>}
-        {joinBlocked && !joining && <span className="forge-note" data-movie-film-blocked>{joinBlocked}</span>}
+        <select data-movie-shot-model value={h3Model?.name ?? ''} onChange={e => change(m => setRender(m, { model: e.target.value, steps: undefined, cfg: undefined }))}>{h3Models.map(m => <option key={m.path} value={m.name}>{m.name}</option>)}</select></label>}
+      <MovieTimeline scenes={segments} music={music} film={final} open={panel} onOpen={setPanel} toSrc={convertFileSrc}
+        running={id => shotState?.id === id && (shotState.state === 'queued' || shotState.state === 'running')}
+        onRename={(id, title) => change(m => setItemTitle(m, id, title))}
+        onTransition={(id, kind, seconds) => { change(m => setTransition(m, id, kind, seconds)); setRestitch(true); }}
+        onAdd={() => { const next = addScene(movie, newSceneSeconds, scene?.id); change(() => next); const id = next.items.filter(i => i.kind === 'segment')[sceneIndex + 1]?.id; if (id) setPanel({ kind: 'scene', id }); }}
+        onRemove={id => {
+          // A made scene holds a finished clip: ask first (the file itself stays where it is). The open panel moves to a neighbour.
+          const at = segments.findIndex(g => g.id === id), g = segments[at];
+          if (!g || (g.state === 'done' && !window.confirm(t('wizards.movie.scene.removeMade', { name: g.title.trim() || t('wizards.movie.scene.untitled', { n: String(at + 1) }) })))) return;
+          change(m => removeScene(m, id));
+          if (panel?.kind === 'scene' && panel.id === id) { const next = segments[at + 1]?.id ?? segments[at - 1]?.id; setPanel(next ? { kind: 'scene', id: next } : null); }
+        }}/>
+    </section>
+    <section className="wizards-step movie-section" data-movie-section="make">
+      <h4 className="movie-section-title"><span className="movie-step-n">{steps[3].n}</span> {t('wizards.movie.steps.film')}</h4>
+      <p className="forge-note">{t('wizards.movie.run.hint')}</p>
+      <div className="wizards-row movie-button-group">
+        <button type="button" className="action-button" data-movie-run disabled={!native || !onPrepare || !h3Model || autoRun || busy || !segments.length} title={!h3Model ? t('wizards.movie.shot.noModel') : undefined} onClick={startRun}>{t(autoRun ? 'wizards.movie.run.running' : step.kind === 'done' ? 'wizards.movie.run.again' : 'wizards.movie.run.start')}</button>
+        {autoRun && <button type="button" className="forge-ghost" data-movie-run-stop onClick={() => setAutoRun(false)}>{t('wizards.movie.run.stop')}</button>}
       </div>
-      {mismatch && <p className="forge-note" role="alert" data-movie-film-mismatch>{t('wizards.movie.film.mismatch', { got: String(mismatch.got), want: String(mismatch.want) })}</p>}
-      {filmClip && /\.(mp4|webm|mkv|mov)$/i.test(filmClip) && <video className="wizards-preview" src={convertFileSrc(filmClip)} controls preload="metadata" data-movie-film-video/>}
-    </div>}
-    {final && <div className="wizards-step" data-movie-music>
+      {autoRun && <p className="forge-note" role="status" data-movie-run-step>{t(`wizards.movie.run.step.${step.kind}`, { name: step.kind === 'scene' ? (movie.items.find(i => i.id === step.id)?.title || t('wizards.movie.scene.untitled', { n: String(segments.findIndex(i => i.id === step.id) + 1) })) : '' })}</p>}
+    </section>
+    {panelScene && (() => { const g = panelScene, n = segments.indexOf(g); return <MoviePanel kind="scene" title={g.title.trim() || t('wizards.movie.scene.untitled', { n: String(n + 1) })} onClose={() => setPanel(null)}>
+      <div className="wizards-step movie-scene-editor" key={g.id} data-movie-segment={g.id}>
+          <div className="wizards-row">
+                        <label className="forge-note">{t('wizards.movie.plan.segSeconds')} <input type="number" data-movie-seg-seconds min={limits?.min ?? 1} max={limits?.max ?? 15} step={limits?.step ?? 0.5} value={g.seconds ?? 0} disabled={!!g.locked}
+              onChange={e => { const v = Number(e.target.value); if (Number.isFinite(v) && v > 0) change(m => setSceneSeconds(m, g.id, v)); }}/></label>
+          </div>
+          <textarea aria-label={t('wizards.movie.plan.segPrompt')} data-movie-seg-prompt rows={3} maxLength={4000} disabled={!!g.locked} value={g.text} placeholder={t('wizards.movie.scene.promptPlaceholder')} onChange={e => change(m => editItem(m, g.id, e.target.value))}/>
+          <div className="wizards-row" data-movie-scene-inputs={g.id}>
+            <SceneInputMarks inputs={g.inputs} toSrc={convertFileSrc}/>
+            <button type="button" className="forge-ghost" data-movie-scene-inputs-open disabled={!!g.locked} onClick={() => setInputsOpen(g.id)}>{t('wizards.movie.scene.inputs')}</button>
+          </div>
+          <details data-movie-shot-settings={g.id}>
+            <summary className="forge-note">{t('wizards.movie.shot.settings', { count: String(g.loras?.length ?? 0) })}</summary>
+            {continued(g.id) ? <p className="forge-note" data-movie-shot-inherits>{t('wizards.movie.shot.inherits')}</p> : <>
+              <label className="forge-field"><span>{t('wizards.movie.shot.ownModel')}</span>
+                <select data-movie-shot-own-model value={g.model ?? ''} disabled={!!g.locked} onChange={e => change(m => setShotModel(m, g.id, e.target.value || null))}>
+                  <option value="">{t('wizards.movie.shot.defaultModel', { name: h3Model?.name ?? '—' })}</option>
+                  {g.model && !h3Models.some(x => x.name === g.model) && <option value={g.model}>{g.model}</option>}
+                  {h3Models.map(x => <option key={x.path} value={x.name}>{x.name}</option>)}
+                </select></label>
+              {render.source === 'movie' && (() => { const eff = startFor(g); return <div className="wizards-row" data-movie-shot-sampling={g.id}>
+                <label className="forge-note">{t('studio.run.steps')} <input type="number" data-movie-shot-steps min={SAMPLING_LIMITS.steps[0]} max={SAMPLING_LIMITS.steps[1]} step={1} value={g.sampling?.steps ?? ''} placeholder={String(eff?.steps ?? '')} disabled={!!g.locked}
+                  onChange={e => { const v = Number(e.target.value); change(m => setShotSampling(m, g.id, { ...g.sampling, steps: e.target.value === '' || !Number.isFinite(v) ? undefined : v })); }}/></label>
+                <label className="forge-note">{t('studio.run.cfg')} <input type="number" data-movie-shot-cfg min={SAMPLING_LIMITS.cfg[0]} max={SAMPLING_LIMITS.cfg[1]} step={0.1} value={g.sampling?.cfg ?? ''} placeholder={String(eff?.cfg ?? '')} disabled={!!g.locked}
+                  onChange={e => { const v = Number(e.target.value); change(m => setShotSampling(m, g.id, { ...g.sampling, cfg: e.target.value === '' || !Number.isFinite(v) ? undefined : v })); }}/></label>
+                <span className="forge-note" data-movie-shot-sampling-note>{t('wizards.movie.shot.samplingNote', { steps: String(eff?.steps ?? '—'), cfg: String(eff?.cfg ?? '—') })}</span>
+              </div>; })()}
+              {(g.loras ?? []).map(l => <div className="wizards-row" key={l.name} data-movie-lora={l.name}>
+                <select aria-label={t('wizards.movie.shot.loraName')} data-movie-lora-name value={l.name} disabled={!!g.locked}
+                  onChange={e => change(m => setShotLoras(m, g.id, (g.loras ?? []).map(x => x.name === l.name ? { ...x, name: e.target.value } : x)))}>
+                  <option value={l.name}>{l.name}{h3Loras.some(x => x.name === l.name) ? '' : ` — ${t('wizards.movie.shot.loraGone')}`}</option>
+                  {h3Loras.filter(x => x.name !== l.name && !(g.loras ?? []).some(y => y.name === x.name)).map(x => <option key={x.path} value={x.name}>{x.name}</option>)}
+                </select>
+                <input type="number" aria-label={t('wizards.movie.shot.loraStrength', { name: l.name })} data-movie-lora-strength min={LORA_STRENGTH[0]} max={LORA_STRENGTH[1]} step={0.05} value={l.strength} disabled={!!g.locked}
+                  onChange={e => { const v = Number(e.target.value); if (Number.isFinite(v)) change(m => setShotLoras(m, g.id, (g.loras ?? []).map(x => x.name === l.name ? { ...x, strength: v } : x))); }}/>
+                <button type="button" className="forge-ghost" data-movie-lora-remove disabled={!!g.locked} aria-label={t('wizards.movie.shot.loraRemove', { name: l.name })} onClick={() => change(m => setShotLoras(m, g.id, (g.loras ?? []).filter(x => x.name !== l.name)))}>{t('wizards.movie.castRemove')}</button>
+              </div>)}
+              {(() => { const free = h3Loras.find(x => !(g.loras ?? []).some(l => l.name === x.name)); return <button type="button" className="forge-ghost" data-movie-lora-add disabled={!!g.locked || !free || (g.loras?.length ?? 0) >= 8} title={h3Loras.length ? undefined : t('wizards.movie.shot.noLora')}
+                onClick={() => free && change(m => setShotLoras(m, g.id, [...(g.loras ?? []), { name: free.name, strength: 1 }]))}>{t('wizards.movie.shot.loraAdd')}</button>; })()}
+            </>}
+          </details>
+          <div className="wizards-row movie-button-group" data-movie-shot={g.id}>
+            <span className="forge-note" data-movie-shot-state>{t(`wizards.movie.shot.state.${shotState?.id === g.id && (shotState.state === 'queued' || shotState.state === 'running') ? 'running' : g.state}`)}</span>
+            <button type="button" className="forge-ghost" data-movie-shot-prepare disabled={!native || !onPrepare || !h3Model || making || continued(g.id)} title={shotBlock(g, n)} onClick={() => chainLen(g.id) > 1 ? makeChain(g.id, false) : makeShot(g.id, false)}>{t(chainLen(g.id) > 1 ? 'wizards.movie.shot.prepareChain' : 'wizards.movie.shot.prepare')}</button>
+            <button type="button" className="action-button" data-movie-shot-make disabled={!native || !onPrepare || !h3Model || making || continued(g.id)} title={shotBlock(g, n)} onClick={() => chainLen(g.id) > 1 ? makeChain(g.id, true) : makeShot(g.id, true)}>{chainLen(g.id) > 1 ? t(g.state === 'done' ? 'wizards.movie.shot.chainAgain' : 'wizards.movie.shot.makeChain', { count: String(chainLen(g.id)) }) : t(g.state === 'done' ? 'wizards.movie.shot.again' : 'wizards.movie.shot.make')}</button>
+          </div>
+          {shotState?.id === g.id && shotState.error && <p className="error-message" role="alert" data-movie-shot-error>{shotState.error}</p>}
+          {g.state === 'done' && (() => { const out = g.revisions.find(r => r.n === g.revision)?.result?.outputId; return out && /\.(mp4|webm|mkv|mov)$/i.test(out) ? <MoviePlayer path={out} media="video" toSrc={convertFileSrc} data-movie-shot-video/> : null; })()}
+          <p className="forge-note" data-movie-seg-actual>{t('wizards.movie.plan.actual', { seconds: (Math.round(h3ActualSeconds(g.seconds ?? 0, !!g.continuous) * 100) / 100).toString() })}</p>
+          {(g.dialogue ?? []).map((d, k) => <p key={k} className="forge-note" data-movie-seg-line>{t('wizards.movie.plan.line', { name: d.speaker, line: d.line })}</p>)}
+      </div>
+    </MoviePanel>; })()}
+    {panelMedia && <MoviePanel kind="media" title={panelMedia.path.split(/[\\/]/).pop() ?? panelMedia.path} onClose={() => setPanel(null)}>
+      <MovieMediaSettings item={panelMedia} scenes={poolScenes} used={scenesUsing(movie, panelMedia.path)} current={roleOf(movie, panelMedia.path)} refused={refused} toSrc={convertFileSrc}
+        onNote={note => change(m => setMediaNote(m, panelMedia.path, note))} onAssign={(scenes, role, label) => assign(panelMedia.path, scenes, role, label)}/>
+    </MoviePanel>}
+    {panel?.kind === 'music' && final && <MoviePanel kind="music" title={t('wizards.movie.music.title')} onClose={() => setPanel(null)}>
+      <div className="wizards-step" data-movie-music>
       <span className="forge-note">{t('wizards.movie.music.title')}</span>
       <p className="forge-note">{t('wizards.movie.music.intro')}</p>
-      <label className="forge-field"><span>{t('wizards.movie.music.prompt')}</span>
-        <textarea data-movie-music-prompt rows={2} maxLength={2000} value={music?.text ?? ''} placeholder={t('wizards.movie.music.promptPlaceholder')} onChange={e => change(m => setMusicPrompt(m, e.target.value))}/></label>
+      <p className="forge-note" data-movie-music-summary>{musicStyleShown.trim() ? t('wizards.movie.music.summary', { style: musicStyleShown.trim(), kind: t(music?.lyrics?.trim() ? 'wizards.movie.music.withLyrics' : 'wizards.movie.music.instrumental') }) : t('wizards.movie.music.needPrompt')}</p>
       {musicModels.length > 1 && <label className="forge-field"><span>{t('wizards.movie.music.model')}</span>
         <select data-movie-music-model value={musicModel?.path ?? ''} onChange={e => setMusicPath(e.target.value)}>{musicModels.map(x => <option key={x.path} value={x.path}>{x.name}</option>)}</select></label>}
       {isRestrictedMusicFamily(musicModel?.family) && <p className="forge-note" data-movie-music-licence>{t('wizards.movie.music.licence')}</p>}
@@ -426,13 +630,13 @@ export function MovieMaker({ modelsRoot, endpoint, models = null, onPrepare, out
           onClick={() => free && change(m => setMusicLoras(m, [...musicLoras, { name: free.name, strength: 1 }]))}>{t('wizards.movie.shot.loraAdd')}</button>; })()}
         {!musicLoraModels.length && <p className="forge-note" data-movie-music-nolora>{t('wizards.movie.music.noLora')}</p>}
       </details>}
-      <div className="wizards-row">
+      <div className="wizards-row movie-button-group">
         <button type="button" className="forge-ghost" data-movie-music-prepare disabled={!native || !onPrepare || !musicModel || making} onClick={() => makeMusic(false)}>{t('wizards.movie.music.prepare')}</button>
         <button type="button" className="action-button" data-movie-music-generate disabled={!native || !onPrepare || !musicModel || making} title={musicModel ? undefined : t('wizards.movie.music.noModel')} onClick={() => makeMusic(true)}>{t(generating ? 'wizards.movie.music.generating' : 'wizards.movie.music.generate', { seconds: String(musicSecs) })}</button>
         {!musicModel && <span className="forge-note" data-movie-music-nomodel>{t('wizards.movie.music.noModel')}</span>}
       </div>
       {shotState?.id === 'music' && shotState.error && <p className="error-message" role="alert" data-movie-music-error>{shotState.error}</p>}
-      <div className="wizards-row">
+      <div className="wizards-row movie-button-group">
         <button type="button" className="forge-ghost" data-movie-music-pick disabled={!native} onClick={() => void chooseMusic()}>{t(music?.file ? 'wizards.movie.music.change' : 'wizards.movie.music.pick')}</button>
         {music?.file && <span className="forge-note wizards-name" title={music.file} data-movie-music-file>{fileName(music.file)}</span>}
         {music?.file && <button type="button" className="forge-ghost" data-movie-music-clear onClick={() => change(m => setMusicFile(m, null))}>{t('wizards.movie.music.clear')}</button>}
@@ -447,18 +651,34 @@ export function MovieMaker({ modelsRoot, endpoint, models = null, onPrepare, out
           <option value="mix">{t('wizards.movie.music.modeMix')}</option><option value="h3-reference">{t('wizards.movie.music.modeH3')}</option>
         </select></label>}
       {score?.mix && <p className="forge-note" data-movie-music-hint>{t(score.mix.mode === 'mix' ? 'wizards.movie.music.hint' : 'wizards.movie.music.hintH3')}</p>}
-      <div className="wizards-row">
+      <div className="wizards-row movie-button-group">
         <button type="button" className="action-button" data-movie-music-run disabled={!!mixBlocked || mixing} title={mixBlocked || undefined} onClick={() => void mixIt()}>{t(mixing ? 'wizards.movie.music.mixing' : score?.state === 'done' ? 'wizards.movie.music.again' : 'wizards.movie.music.run')}</button>
         {mixBlocked && <span className="forge-note" data-movie-music-blocked>{mixBlocked}</span>}
       </div>
       {score && (score.state === 'stale' || (score.state === 'planned' && score.revisions.some(r => r.result))) && <p className="forge-note" data-movie-music-stale>{t('wizards.movie.music.stale')}</p>}
-      {scoredClip && /\.(mp4|webm|mkv|mov)$/i.test(scoredClip) && <video className="wizards-preview" src={convertFileSrc(scoredClip)} controls preload="metadata" data-movie-scored-video/>}
-    </div>}
-    <div className="wizards-row wizards-actions">
-      <button type="button" className="action-button" data-movie-save disabled={!native || !dirty} onClick={() => void save()}>{t('wizards.movie.save')}</button>
-      <button type="button" className="forge-ghost" data-movie-new onClick={fresh}>{t('wizards.movie.new')}</button>
-      {dirty && <span className="forge-note" data-movie-dirty>{t('wizards.movie.unsaved')}</span>}
-    </div>
+      {scoredClip && /\.(mp4|webm|mkv|mov)$/i.test(scoredClip) && <MoviePlayer path={scoredClip} media="video" toSrc={convertFileSrc} data-movie-scored-video/>}
+
+      </div>
+    </MoviePanel>}
+    {panel?.kind === 'film' && final && <MoviePanel kind="film" title={t('wizards.movie.film.title')} onClose={() => setPanel(null)}>
+      <div className="wizards-step" data-movie-film>
+      <span className="forge-note">{t('wizards.movie.film.title')}</span>
+      <p className="forge-note">{t('wizards.movie.film.intro')}</p>
+      {!filmPlan.ok && filmPlan.missing.length > 0 && <ul data-movie-film-missing>{filmPlan.missing.map(x => <li key={x.id} className="forge-note">{t('wizards.movie.film.missing', { title: x.title, why: why(x.why) })}</li>)}</ul>}
+      {final.state === 'stale' && <p className="forge-note" data-movie-film-stale>{t('wizards.movie.film.stale')}</p>}
+      <div className="wizards-row movie-button-group">
+        <button type="button" className="action-button" data-movie-film-run disabled={!!joinBlocked || !!joining} title={joinBlocked || undefined} onClick={() => void join()}>{t(final.state === 'done' ? 'wizards.movie.film.again' : 'wizards.movie.film.run')}</button>
+        {joining && <button type="button" className="forge-ghost" data-movie-film-stop onClick={stopJoin}>{t('wizards.run.stop')}</button>}
+        {joining && <span className="forge-note" role="status" data-movie-film-progress>{joining}</span>}
+        {joinBlocked && !joining && <span className="forge-note" data-movie-film-blocked>{joinBlocked}</span>}
+      </div>
+      {mismatch && <p className="forge-note" role="alert" data-movie-film-mismatch>{t('wizards.movie.film.mismatch', { got: String(mismatch.got), want: String(mismatch.want) })}</p>}
+      {filmClip && /\.(mp4|webm|mkv|mov)$/i.test(filmClip) && <MoviePlayer path={filmClip} media="video" toSrc={convertFileSrc} data-movie-film-video/>}
+
+      </div>
+    </MoviePanel>}
+      {inputsOpen && (() => { const g = segments.find(i => i.id === inputsOpen); return g ? <SceneInputs family="minimax-h3" title={g.title || t('wizards.movie.scene.untitled', { n: String(segments.indexOf(g) + 1) })} inputs={g.inputs} seconds={g.seconds ?? 5} roots={mediaRoots} endpoint={endpoint} root={root} toSrc={convertFileSrc}
+        onChange={inputs => change(m => setSceneInputs(m, g.id, inputs))} onInsert={tag => change(m => editItem(m, g.id, `${m.items.find(i => i.id === g.id)?.text.trimEnd() ?? ''} ${tag}`.trim()))} onClose={() => setInputsOpen('')}/> : null; })()}
     <div className="wizards-step" data-movie-saved>
       <span className="forge-note">{t('wizards.movie.open')}</span>
       {saved && !saved.movies.length && <p className="forge-note" data-movie-none>{t('wizards.movie.none')}</p>}

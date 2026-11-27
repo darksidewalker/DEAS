@@ -1,10 +1,10 @@
 import { expect, it } from 'vitest';
-import { completeItem, newMovie, setBrief, setMix, setMusicFile, addCast } from './movieManifest';
+import { completeItem, newMovie, setBrief, setMix, setMusicFile } from './movieManifest';
 import { applyPlan } from './movieStory';
 import { mixPlan, recordScore } from './movieMusic';
 
 const film = (done: boolean) => {
-  let m = applyPlan(addCast(setBrief(newMovie('m', 'F'), { story: 's' }), 'actor', 'A'), { lore: 'l', segments: [{ title: 'A', prompt: 'a', seconds: 5, castIds: [], continuous: false, dialogue: [] }] });
+  let m = applyPlan(setBrief(newMovie('m', 'F'), { story: 's' }), { lore: 'l', segments: [{ title: 'A', prompt: 'a', seconds: 5, continuous: false, dialogue: [] }] });
   if (done) m = ['seg-1', 'final'].reduce((x, id) => completeItem(x, id, { outputId: `/out/${id}.mp4` }), m);
   return setMusicFile(m, '/music/bed.wav');
 };
@@ -76,4 +76,35 @@ it('a generated track becomes the music file and result, makes the scored film o
   expect(recordGeneratedMusic(m, { state: 'failed' }).items.find(i => i.kind === 'music')!.state).toBe('failed');
   expect(recordGeneratedMusic(m, { state: 'succeeded', picture: { path: '/out/x.png' } }).items.find(i => i.kind === 'music')!.state).toBe('failed');
   expect(recordGeneratedMusic(newMovie('x', 'x'), { state: 'failed' }).items.length).toBe(1);
+});
+
+import { setMusicFields } from './movieMusic';
+import { MUSIC_PRESETS } from './musicPresets';
+import { manifestProblem } from './movieManifest';
+
+it('a preset rides in the model\'s dialect; lyrics, tempo and language go along for ACE-Step 1.5; the movie\'s settings bring the model\'s sampling', () => {
+  const p = MUSIC_PRESETS.find(x => x.id === 'noir-jazz')!;
+  let m = setMusicFields(setMusicPrompt(film(true), p.ace), { preset: p.id, bpm: p.bpm });
+  const yue = musicHandoff(m, { name: 'yue2.safetensors', path: '/m/y', family: 'yue2' }, false);
+  expect('handoff' in yue && yue.handoff.music).toEqual({ style: p.yue2, lyrics: '', seconds: 5 }); // YuE2 has no tempo control
+  m = setMusicFields(m, { lyrics: '  [Verse]\nRain on the window  ', language: 'de', vocals: true });
+  const ace = musicHandoff(m, { name: 'ace.safetensors', path: '/m/ace', family: 'ace-step-1-5-turbo' }, true, undefined, true);
+  expect('handoff' in ace && ace.handoff.music).toEqual({ style: p.ace, lyrics: '[Verse]\nRain on the window', seconds: 5, bpm: 85, language: 'de' });
+  expect('handoff' in ace && ace.handoff.sampling).toEqual({ steps: 8, cfg: 1, sampler: 'euler', scheduler: 'simple' });
+  const xl = musicHandoff(m, { name: 'ace-xl.safetensors', path: '/m/xl', family: 'ace-step-1-5-xl-base' }, true, undefined, true);
+  expect('handoff' in xl && xl.handoff.sampling).toEqual({ steps: 50, cfg: 6, sampler: 'euler', scheduler: 'simple' });
+  // Generate's own settings: no sampling is handed over.
+  expect(musicHandoff(m, { name: 'ace.safetensors', path: '/m/ace', family: 'ace-step-1-5-turbo' }, true)).not.toHaveProperty('handoff.sampling');
+  expect(manifestProblem(m)).toBeUndefined();
+});
+
+it('music settings are cleaned: empty clears, tempo clamped and whole, the music item is created when needed', () => {
+  let m = setMusicFields(newMovie('x', 'x'), { bpm: 999.6, lyrics: 'la', vocals: true });
+  let mu = m.items.find(i => i.kind === 'music')!;
+  expect([mu.bpm, mu.lyrics, mu.vocals]).toEqual([300, 'la', true]);
+  m = setMusicFields(m, { bpm: undefined, lyrics: '', vocals: false });
+  mu = m.items.find(i => i.kind === 'music')!;
+  expect([mu.bpm, mu.lyrics, mu.vocals]).toEqual([undefined, undefined, undefined]);
+  expect(setMusicFields(m, { lyrics: '' })).toBe(m);
+  expect(manifestProblem(m)).toBeUndefined();
 });

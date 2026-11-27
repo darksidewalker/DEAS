@@ -18,14 +18,158 @@ const MAX_REVISIONS: usize = 20;
 const MAX_TEXT: usize = 20_000;
 const MAX_MOVIES: usize = 500;
 const SUFFIX: &str = ".movie.json";
-const KINDS: [&str; 8] = [
-    "brief", "cast", "story", "voice", "music", "segment", "assemble", "score",
+const KINDS: [&str; 7] = [
+    "brief", "story", "voice", "music", "segment", "assemble", "score",
 ];
-const ROLES: [&str; 4] = ["actor", "location", "prop", "style"];
 const MAX_REFS: usize = 16;
+const MAX_MEDIA: usize = 32;
 const MAX_DIALOGUE: usize = 32;
 const MAX_LORAS: usize = 8;
 const STATES: [&str; 4] = ["planned", "done", "stale", "failed"];
+
+const MEDIA: [&str; 3] = ["image", "video", "audio"];
+const REF_KEYS: [&str; 16] = [
+    "path",
+    "media",
+    "mediaMode",
+    "second",
+    "strength",
+    "trimStart",
+    "trimEnd",
+    "sourceDuration",
+    "label",
+    "instructions",
+    "who",
+    "whoAxis",
+    "boxes",
+    "keep",
+    "drop",
+    "description",
+];
+fn path_ok(v: &Value) -> bool {
+    v.as_str()
+        .is_some_and(|p| (1..=1024).contains(&p.len()) && !p.contains('\0'))
+}
+fn media_ok(v: &Value) -> bool {
+    path_ok(&v["path"]) && v["media"].as_str().is_some_and(|m| MEDIA.contains(&m))
+}
+fn in_range(v: &Value, lo: f64, hi: f64) -> bool {
+    v.as_f64()
+        .is_some_and(|x| x.is_finite() && (lo..=hi).contains(&x))
+}
+fn opt_text(v: Option<&Value>, max: usize) -> bool {
+    v.is_none_or(|t| t.as_str().is_some_and(|t| t.chars().count() <= max))
+}
+/// Same rules as `movieManifest.ts::sceneInputsProblem`: typed, bounded, no unknown keys.
+fn scene_inputs_problem(v: &Value) -> Option<&'static str> {
+    let Some(o) = v.as_object() else {
+        return Some("bad scene inputs");
+    };
+    if o.keys()
+        .any(|k| !["first", "last", "source", "refs"].contains(&k.as_str()))
+    {
+        return Some("bad scene inputs");
+    }
+    for k in ["first", "last", "source"] {
+        if let Some(m) = o.get(k) {
+            if !media_ok(m) || m.as_object().is_none_or(|m| m.len() != 2) {
+                return Some("bad scene inputs");
+            }
+        }
+    }
+    let refs = o.get("refs")?;
+    let Some(refs) = refs.as_array() else {
+        return Some("bad scene inputs");
+    };
+    if refs.len() > MAX_REFS {
+        return Some("bad scene inputs");
+    }
+    for r in refs {
+        let Some(ro) = r.as_object() else {
+            return Some("bad scene inputs");
+        };
+        let ok = media_ok(r)
+            && ro.keys().all(|k| REF_KEYS.contains(&k.as_str()))
+            && r["mediaMode"]
+                .as_str()
+                .is_some_and(|m| ["video", "audio", "video_audio"].contains(&m))
+            && in_range(&r["second"], 0.0, 3600.0)
+            && in_range(&r["strength"], 0.0, 10.0)
+            && ["trimStart", "trimEnd", "sourceDuration"]
+                .iter()
+                .all(|k| ro.get(*k).is_none_or(|t| in_range(t, 0.0, 36000.0)))
+            && opt_text(ro.get("label"), 40)
+            && ["instructions", "keep", "drop", "description"]
+                .iter()
+                .all(|k| opt_text(ro.get(*k), 4000))
+            && ro.get("who").is_none_or(|w| {
+                w.as_array().is_some_and(|a| {
+                    a.len() <= 32
+                        && a.iter()
+                            .all(|n| n.as_u64().is_some_and(|n| (1..=32).contains(&n)))
+                })
+            })
+            && ro
+                .get("whoAxis")
+                .is_none_or(|w| w.as_str().is_some_and(|w| ["y", "z", "none"].contains(&w)))
+            && ro.get("boxes").is_none_or(|b| {
+                b.as_array().is_some_and(|a| {
+                    a.len() <= 32
+                        && a.iter().all(|x| {
+                            x["n"].as_u64().is_some_and(|n| (1..=32).contains(&n))
+                                && x["box"].as_array().is_some_and(|c| {
+                                    c.len() == 4 && c.iter().all(|c| in_range(c, 0.0, 1.0))
+                                })
+                        })
+                })
+            });
+        if !ok {
+            return Some("bad scene inputs");
+        }
+    }
+    None
+}
+
+/// Same rules as `movieManifest.ts::samplingProblem`: optional whole Steps 1–150 and CFG 0–30, the given extra keys, nothing else.
+fn sampling_ok(v: &Value, extra: &[&str]) -> bool {
+    v.as_object().is_some_and(|o| {
+        o.keys()
+            .all(|k| k == "steps" || k == "cfg" || extra.contains(&k.as_str()))
+            && o.get("steps")
+                .is_none_or(|s| s.as_u64().is_some_and(|s| (1..=150).contains(&s)))
+            && o.get("cfg").is_none_or(|c| in_range(c, 0.0, 30.0))
+    })
+}
+/// Same rules as `movieManifest.ts::renderProblem`.
+fn render_ok(v: &Value) -> bool {
+    sampling_ok(v, &["source", "model", "resolution"])
+        && v["source"]
+            .as_str()
+            .is_some_and(|s| s == "movie" || s == "generate")
+        && v.get("model").is_none_or(|m| {
+            m.as_str()
+                .is_some_and(|m| (1..=300).contains(&m.len()) && !m.contains('\0'))
+        })
+        && v.get("resolution")
+            .is_none_or(|r| r.as_str().is_some_and(|r| (1..=20).contains(&r.len())))
+}
+/// Music-only settings: lyrics, ACE-Step tempo and lyrics language, the preset id and the planner-writes-lyrics flag.
+fn music_settings_ok(i: &Value) -> bool {
+    let lower = |v: &Value, lo: usize, hi: usize, digits: bool| {
+        v.as_str().is_some_and(|s| {
+            (lo..=hi).contains(&s.len())
+                && s.bytes().all(|b| {
+                    b.is_ascii_lowercase() || (digits && (b.is_ascii_digit() || b == b'-'))
+                })
+        })
+    };
+    opt_text(i.get("lyrics"), 4000)
+        && i.get("bpm")
+            .is_none_or(|b| b.as_u64().is_some_and(|b| (10..=300).contains(&b)))
+        && i.get("language").is_none_or(|l| lower(l, 2, 8, false))
+        && i.get("preset").is_none_or(|p| lower(p, 1, 60, true))
+        && i.get("vocals").is_none_or(Value::is_boolean)
+}
 
 fn id_ok(s: &str) -> bool {
     (1..=80).contains(&s.len())
@@ -57,6 +201,34 @@ pub fn problem(m: &Value) -> Option<&'static str> {
     }
     if !positive(o.get("targetSeconds")) {
         return Some("bad target length");
+    }
+    if let Some(pool) = o.get("media") {
+        let ok = pool.as_array().is_some_and(|a| {
+            let paths: HashSet<&str> = a.iter().filter_map(|x| x["path"].as_str()).collect();
+            a.len() <= MAX_MEDIA
+                && paths.len() == a.len()
+                && a.iter().all(|x| {
+                    media_ok(x)
+                        && x.as_object().is_some_and(|o| {
+                            o.keys().all(|k| {
+                                ["path", "media", "note", "role", "label"].contains(&k.as_str())
+                            })
+                        })
+                        && opt_text(x.get("note"), 2000)
+                        && opt_text(x.get("label"), 40)
+                        && x.get("role").is_none_or(|r| {
+                            r.as_str().is_some_and(|r| {
+                                ["reference", "first", "last", "source"].contains(&r)
+                            })
+                        })
+                })
+        });
+        if !ok {
+            return Some("bad media pool");
+        }
+    }
+    if o.get("render").is_some_and(|r| !render_ok(r)) {
+        return Some("bad render settings");
     }
     let Some(items) = o
         .get("items")
@@ -159,30 +331,29 @@ pub fn problem(m: &Value) -> Option<&'static str> {
                 return Some("bad mix settings");
             }
         }
-        if kind != "cast" && (i.get("role").is_some() || i.get("refs").is_some()) {
-            return Some("role/refs are cast-only");
-        }
-        if i.get("role")
-            .is_some_and(|r| !r.as_str().is_some_and(|r| ROLES.contains(&r)))
+        if i.get("sampling")
+            .is_some_and(|s| kind != "segment" || !sampling_ok(s, &[]))
         {
-            return Some("unknown cast role");
+            return Some("bad shot sampling");
         }
-        if let Some(refs) = i.get("refs") {
-            let ok = refs.as_array().is_some_and(|a| {
-                let paths: HashSet<&str> = a.iter().filter_map(Value::as_str).collect();
-                a.len() <= MAX_REFS
-                    && paths.len() == a.len()
-                    && paths
-                        .iter()
-                        .all(|p| (1..=1024).contains(&p.len()) && !p.contains('\0'))
-            });
-            if !ok {
-                return Some("bad references");
+        let music_keys = ["lyrics", "bpm", "language", "preset", "vocals"]
+            .iter()
+            .any(|k| i.get(*k).is_some());
+        if music_keys && (kind != "music" || !music_settings_ok(i)) {
+            return Some("bad music settings");
+        }
+        if let Some(inputs) = i.get("inputs") {
+            if kind != "segment" {
+                return Some("bad scene inputs (scenes only)");
+            }
+            if let Some(problem) = scene_inputs_problem(inputs) {
+                return Some(problem);
             }
         }
         let segment_only = [
             "seconds",
             "continuous",
+            "blend",
             "dialogue",
             "entry",
             "exit",
@@ -217,6 +388,12 @@ pub fn problem(m: &Value) -> Option<&'static str> {
             if !positive(i.get("seconds")) || i.get("continuous").is_some_and(|c| !c.is_boolean()) {
                 return Some("bad segment");
             }
+            if i.get("blend").is_some_and(|b| {
+                !in_range(b, 0.25, 3.0)
+                    || i.get("continuous").and_then(Value::as_bool) == Some(true)
+            }) {
+                return Some("bad blend");
+            }
             if ["entry", "exit"]
                 .iter()
                 .any(|k| i.get(*k).is_some_and(|v| !text_ok(v)))
@@ -233,9 +410,9 @@ pub fn problem(m: &Value) -> Option<&'static str> {
                 let ok = d.as_array().is_some_and(|a| {
                     a.len() <= MAX_DIALOGUE
                         && a.iter().all(|x| {
-                            x.get("castId")
+                            x.get("speaker")
                                 .and_then(Value::as_str)
-                                .is_some_and(|c| ids.contains(c))
+                                .is_some_and(|c| (1..=80).contains(&c.chars().count()))
                                 && x.get("line")
                                     .and_then(Value::as_str)
                                     .is_some_and(|l| (1..=1000).contains(&l.chars().count()))
@@ -371,13 +548,28 @@ pub fn list(dir: &Path) -> Value {
 }
 
 const MAX_CHECKS: usize = 2000;
-/// Which files a stored movie points at are gone: the current revision's result of every item and every cast reference. Only paths read
+/// Which files a stored movie points at are gone: the current revision's result of every item and every scene input. Only paths read
 /// from the stored manifest are looked at (never a path from the webview), by metadata only — nothing is opened, read, copied or changed.
 pub fn check(dir: &Path, id: &str) -> Result<Value, String> {
     let m: Value =
         serde_json::from_str(&open(dir, id)?).map_err(|_| "MOVIE_MALFORMED".to_owned())?;
     let (mut missing, mut checked) = (Vec::new(), 0usize);
     let mut truncated = false;
+    for path in m["media"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|x| x["path"].as_str())
+    {
+        if checked >= MAX_CHECKS {
+            truncated = true;
+            break;
+        }
+        checked += 1;
+        if !std::fs::metadata(path).is_ok_and(|m| m.is_file()) {
+            missing.push(serde_json::json!({ "id": "brief", "kind": "reference", "path": path }));
+        }
+    }
     'items: for item in m["items"].as_array().into_iter().flatten() {
         let current = item["revision"].as_u64();
         let results = item["revisions"]
@@ -387,11 +579,17 @@ pub fn check(dir: &Path, id: &str) -> Result<Value, String> {
             .filter(|r| r["n"].as_u64() == current)
             .filter_map(|r| r["result"]["outputId"].as_str())
             .map(|p| ("result", p));
-        let refs = item["refs"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(Value::as_str)
+        let inputs = &item["inputs"];
+        let refs = ["first", "last", "source"]
+            .iter()
+            .filter_map(|k| inputs[*k]["path"].as_str())
+            .chain(
+                inputs["refs"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|r| r["path"].as_str()),
+            )
             .map(|p| ("reference", p));
         let music = item["file"].as_str().into_iter().map(|p| ("music", p));
         for (kind, path) in results.chain(refs).chain(music) {

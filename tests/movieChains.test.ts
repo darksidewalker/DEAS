@@ -1,11 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { addCast, newMovie, setBrief } from '../src/lib/movieManifest.ts';
+import { newMovie, setBrief } from '../src/lib/movieManifest.ts';
 import { applyPlan } from '../src/lib/movieStory.ts';
 import { chainPlan, chainSession, chains, extensionFrames, firstTakeFrames, overlapFor } from '../src/lib/movieChains.ts';
 
-const shot = (title: string, seconds: number, continuous: boolean) => ({ title, prompt: title + ' action', seconds, castIds: [], continuous, dialogue: [] });
-const film = (shots: ReturnType<typeof shot>[]) => applyPlan(addCast(setBrief(newMovie('movie-ab12cd34', 'F'), { story: 's' }), 'actor', 'Anna'), { lore: 'l', segments: shots });
+const shot = (title: string, seconds: number, continuous: boolean) => ({ title, prompt: title + ' action', seconds, continuous, dialogue: [] });
+const film = (shots: ReturnType<typeof shot>[]) => applyPlan(setBrief(newMovie('movie-ab12cd34', 'F'), { story: 's' }), { lore: 'l', segments: shots });
 
 test('a cut starts a new chain; continued shots join the chain before them', () => {
   const m = film([shot('A', 5, false), shot('B', 5, true), shot('C', 5, true), shot('D', 5, false), shot('E', 5, true)]);

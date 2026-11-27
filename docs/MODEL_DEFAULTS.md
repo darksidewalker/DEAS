@@ -44,6 +44,10 @@ defaults"); nothing in Studio changes because of this file.
 | ace-step | (variant-specific music profiles) | Variant-specific; see ACE-Step table below. Turbo values are not valid generic defaults. | **applied per resolved variant; unresolved identities blocked** | [Comfy ACE-Step 1.0](https://docs.comfy.org/tutorials/audio/ace-step/ace-step-v1), [Comfy ACE-Step 1.5](https://docs.comfy.org/tutorials/audio/ace-step/ace-step-v1-5) |
 | yue2 | 1024², 32, CFG 1, dpm_2, sgm_uniform | Official template identical (music model; the 32/1/dpm_2/sgm_uniform is its KSampler leg) | keep | [audio_yue2_text2music.json](https://github.com/Comfy-Org/workflow_templates/blob/main/templates/audio_yue2_text2music.json) |
 
+## MiniMax H3: turbo-merge variant (filename evidence)
+
+`builtin.json` → `minimax-h3.variants` declares one variant: a file whose name contains the whole word *turbo* or *lightning* is treated as a merge of the 8-step turbo LoRA. Its starting values are **8 steps, CFG 1**; the sampler/scheduler stay the family's res_multistep / simple. This follows the official template note that the 8-step turbo LoRA runs at 8 steps and CFG 1, and the DaSiWa merge recipes (`*.txt` beside the model: *H3 Turbo complete*, `pika_h3_flex_turbo_8step`). The evidence is the filename only: a merged LoRA leaves no header marker. Since 0.3.47 Movie Maker uses these values as starting Steps/CFG. Generate's own starting settings still use the family defaults (30 / CFG 3).
+
 ## ACE-Step: variant-specific reference settings
 
 These are the shipped per-variant music starting settings; template-backed rows follow official Comfy-Org graphs. Regular Base/SFT uses a documented DEAS step choice within the manufacturer’s recommendation. Training variants cannot be established from shared tensor shapes alone. AIO/split is a loader form, not a different training variant; the XL DiT and code-LM size are independent.
