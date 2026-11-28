@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.49
+
+- **Movie Maker keeps the shots it already made.** A shot, chain, music bed, film stitch or mix that finished late — after you edited a scene, removed and re-added one, changed a transition, picked another music track, or switched to another movie — no longer marks the newer plan complete. Each run is bound to the draft, scene revision and effective inputs it was started with, and a reply that no longer matches is dropped instead of written into the film. The shot, chain and music buttons now share one active slot, so a second hand-over cannot replace a running generation; **New** and **Saved movies → open** wait until the running stage settles, and the film panel keeps its **Stop** button while a stitch runs.
+- **Stop after this step stops the run.** Pressing it during the last scene (or during a chain that finishes it) no longer starts an automatic film stitch, music generation or mix; a whole Continuity chain still finishes and keeps its clips. The automatic re-stitch now happens only for an intentional single remake or a changed transition.
+- **A chain that cannot continue says why.** If Generate cannot start a shot, or cannot pin the previous take's clip after a shot succeeded, Movie Maker now learns that the chain ended: the reason is shown, the clips that were made stay, and the run settles instead of hanging. Stopping a chain in Generate delivers the shot that was still finishing first, then reports the chain as ended once.
+
 ## 0.3.48
 
 - **Movie Maker: remove a scene with the ✕ on its card.** The **−** button beside **+** (which removed whichever scene was open) is gone. Every scene card now has its own **✕**. A scene that is not made is removed at once, a made scene asks first (its clip file stays on disk), and a scene that is being made cannot be removed.

@@ -5,7 +5,7 @@ import { Workbench } from './Workbench';
 import { I18nProvider } from '../../i18n/I18nProvider';
 import { checkRecipePrerequisites } from '../../lib/recipePrerequisites';
 import { scanModels } from '../../lib/models';
-import { loadDiagnosticJobOutput, pollWorkbench, readCurrentWorkbench, readH3Session, runWorkbenchJob, uploadInput, uploadMask, waitForWorkbenchJob } from '../../lib/jobs';
+import { loadDiagnosticJobOutput, pollWorkbench, readCurrentWorkbench, readH3Session, runWorkbenchJob, stopWorkbench, stopWorkbenchJob, uploadInput, uploadMask, waitForWorkbenchJob } from '../../lib/jobs';
 import type { WizardHandoff } from '../../lib/wizards';
 
 const picture = { name: 'street.png', path: '/pics/street.png', src: 'asset://localhost//pics/street.png' };
@@ -484,6 +484,208 @@ test('a Movie Maker chain hand-over that asks to run starts Run all by itself an
   expect(reports().find(r => r.state === 'succeeded')!.step.total).toBe(2);
   expect(JSON.parse(localStorage.getItem('deas.pref.studio.run.continuity') ?? '{"session":"none"}').session).not.toBe('mm-movie-x-c1');
 });
+
+test('a Movie Maker chain whose first shot cannot start stops Run all and reports the reason for that hand-over while leaving Studio Continuity unchanged', async () => {
+  const userPlan = { enabled: true, session: 'my-session', outputMode: 'segment', steps: [{ id: 'u1', seconds: 5, action: 'user shot' }] };
+  localStorage.setItem('deas.pref.studio.run.continuity', JSON.stringify(userPlan));
+  const { applied, props, view } = await videoWorkbench();
+  vi.mocked(runWorkbenchJob).mockRejectedValueOnce(new Error('queue rejected first take'));
+  view.rerender(<I18nProvider><Workbench {...props} wizard={{ ...chain, n: 43, run: true }}/></I18nProvider>);
+  await waitFor(() => expect(applied).toHaveBeenCalledWith(43, undefined, {
+    state: 'unknown',
+    error: 'queue rejected first take',
+    step: { index: 0, shotId: 'seg-1', total: 2 },
+  }), { timeout: 5000 });
+  expect(runWorkbenchJob).toHaveBeenCalledTimes(1);
+  await waitFor(() => expect((document.querySelector('[data-movie-plan-release]') as HTMLButtonElement | null)?.disabled).toBe(false));
+
+  // A capability block reached before `runWorkbenchJob` also reports the concrete reason for that hand-over number.
+  // For a non-GGUF H3 run the backend capability check that owns Run is the sampler/scheduler and node allowlist
+  // (the family's components come from the local model scan), so the block drops the sampler the recipe needs.
+  vi.mocked(checkRecipePrerequisites).mockResolvedValue({
+    ...videoEvidence,
+    allowlist: { ...videoEvidence.allowlist, samplers: [] },
+  });
+  fireEvent.click(document.querySelector('[data-continuity-open]')!);
+  fireEvent.click(within(screen.getByRole('dialog', { name: 'Continuity' })).getByRole('button', { name: 'Close' }));
+  // Trigger a capability refresh via Options dock so the missing sampler blocks Run before submission.
+  fireEvent.click(document.querySelector('[data-dock-tab="options"]')!);
+  await waitFor(() => expect((document.querySelector('[data-run]') as HTMLButtonElement).disabled).toBe(true));
+  view.rerender(<I18nProvider><Workbench {...props} wizard={{ ...chain, n: 44, run: true }}/></I18nProvider>);
+  // The reason is the unavailable list naming the sampler the recipe needs (res_multistep is Generate's current sampler).
+  await waitFor(() => expect(applied).toHaveBeenCalledWith(44, undefined, expect.objectContaining({
+    state: 'unknown',
+    error: expect.stringContaining('res_multistep'),
+    step: { index: 0, shotId: 'seg-1', total: 2 },
+  })), { timeout: 5000 });
+  expect(runWorkbenchJob).toHaveBeenCalledTimes(1);
+
+  // Release the Movie Maker plan and restore prerequisites: ordinary Studio Continuity never emits wizard outcomes on failure.
+  vi.mocked(checkRecipePrerequisites).mockResolvedValue({
+    ...videoEvidence,
+    allowlist: { ...videoEvidence.allowlist, nodes: [...videoEvidence.allowlist.nodes, 'UNETLoader', 'CLIPLoader', 'VAELoader'], diffusionModels: ['h3.safetensors'], textEncoders: ['minimax_h3_encoder.safetensors'], vaes: ['h3_video_vae.safetensors', 'h3_audio_vae.safetensors'], clipTypes: ['minimax'] },
+  });
+  fireEvent.click(document.querySelector('[data-dock-tab="media"]')!);
+  fireEvent.click(document.querySelector('[data-dock-tab="options"]')!);
+  await waitFor(() => expect((document.querySelector('[data-run]') as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(document.querySelector('[data-movie-plan-release]')!);
+  applied.mockClear();
+  vi.mocked(runWorkbenchJob).mockRejectedValueOnce(new Error('studio continuity error'));
+  fireEvent.click(document.querySelector('[data-continuity-open]')!);
+  fireEvent.click(screen.getByRole('button', { name: 'Run all' }));
+  await waitFor(() => expect(runWorkbenchJob).toHaveBeenCalledTimes(2), { timeout: 5000 });
+  await new Promise(resolve => setTimeout(resolve, 50));
+  expect(applied).not.toHaveBeenCalled();
+}, 30000);
+
+test('a Movie Maker chain where pinClip fails after an intermediate shot reports the finished clip first and then reports why the chain cannot continue', async () => {
+  const userPlan = { enabled: true, session: 'my-session', outputMode: 'segment', steps: [{ id: 'u1', seconds: 5, action: 'one' }, { id: 'u2', seconds: 4, action: 'two' }] };
+  localStorage.setItem('deas.pref.studio.run.continuity', JSON.stringify(userPlan));
+  const { applied, props, view } = await videoWorkbench();
+  let n = 0;
+  vi.mocked(runWorkbenchJob).mockImplementation(async (base, intent) => ({ ...heldJob(`chain-${++n}`, 'queued', base), intent }));
+  vi.mocked(pollWorkbench).mockImplementation(async () => collection(await Promise.all(vi.mocked(runWorkbenchJob).mock.results.map(async (r, i) => ({
+    ...(await r.value),
+    state: 'succeeded' as const,
+    outputRoot: '/out',
+    outputs: [{ filename: `shot${i + 1}.mp4`, subfolder: 'video', type: 'output' as const, format: 'video/h264-mp4' }],
+  })))));
+
+  // 1. Session read rejects after step 0 succeeded: step 0's clip is delivered first, step 1 never starts, and step 1's abort is reported.
+  vi.mocked(readH3Session).mockRejectedValueOnce(new Error('H3 session read failed'));
+  view.rerender(<I18nProvider><Workbench {...props} wizard={{ ...chain, n: 45, run: true }}/></I18nProvider>);
+  await waitFor(() => expect(applied).toHaveBeenCalledWith(45, undefined, {
+    state: 'unknown',
+    error: 'H3 session read failed',
+    step: { index: 1, shotId: 'seg-2', total: 2 },
+  }), { timeout: 8000 });
+  expect(runWorkbenchJob).toHaveBeenCalledTimes(1);
+  const calls45 = applied.mock.calls.filter(c => c[0] === 45).map(c => c[2]).filter(Boolean);
+  const step0At = calls45.findIndex(r => r.state === 'succeeded' && r.step?.shotId === 'seg-1' && r.picture?.path === '/out/video/shot1.mp4');
+  const abortAt = calls45.findIndex(r => r.state === 'unknown' && r.step?.shotId === 'seg-2' && r.error === 'H3 session read failed');
+  expect(step0At).toBeGreaterThanOrEqual(0);
+  expect(abortAt).toBeGreaterThan(step0At);
+  await waitFor(() => expect((document.querySelector('[data-movie-plan-release]') as HTMLButtonElement | null)?.disabled).toBe(false));
+
+  // 2. Session read resolves with no matching clip: `resolveClip` fails with `noClip`, stopping before step 1 and reporting back.
+  vi.mocked(readH3Session).mockResolvedValueOnce({ latestId: null, clips: [] } as never);
+  view.rerender(<I18nProvider><Workbench {...props} wizard={{ ...chain, n: 46, run: true }}/></I18nProvider>);
+  await waitFor(() => expect(applied).toHaveBeenCalledWith(46, undefined, expect.objectContaining({
+    state: 'unknown',
+    error: expect.stringMatching(/\S/),
+    step: { index: 1, shotId: 'seg-2', total: 2 },
+  })), { timeout: 8000 });
+  expect(runWorkbenchJob).toHaveBeenCalledTimes(2);
+  const calls46 = applied.mock.calls.filter(c => c[0] === 46).map(c => c[2]).filter(Boolean);
+  expect(calls46.some(r => r.state === 'succeeded' && r.step?.shotId === 'seg-1' && r.picture?.path === '/out/video/shot2.mp4')).toBe(true);
+
+  // 3. Ordinary Studio Continuity (`userPlan`) stays unchanged: a `pinClip` failure stops Run all locally without calling `onWizardApplied`.
+  await waitFor(() => expect((document.querySelector('[data-movie-plan-release]') as HTMLButtonElement | null)?.disabled).toBe(false));
+  fireEvent.click(document.querySelector('[data-movie-plan-release]')!);
+  applied.mockClear();
+  vi.mocked(readH3Session).mockRejectedValueOnce(new Error('user session read failed'));
+  fireEvent.click(document.querySelector('[data-continuity-open]')!);
+  fireEvent.click(screen.getByRole('button', { name: 'Run all' }));
+  await waitFor(() => expect(readH3Session).toHaveBeenCalledWith(expect.any(String), 'my-session'), { timeout: 8000 });
+  await new Promise(resolve => setTimeout(resolve, 50));
+  expect(runWorkbenchJob).toHaveBeenCalledTimes(3);
+  expect(applied).not.toHaveBeenCalled();
+}, 30000);
+
+test('stopping a Movie Maker chain in Generate delivers a reconciled intermediate clip before ending the chain, avoids duplicate notices on cancelled jobs, and leaves Studio Continuity unchanged', async () => {
+  const userPlan = { enabled: true, session: 'my-session', outputMode: 'segment', steps: [{ id: 'u1', seconds: 5, action: 'one' }, { id: 'u2', seconds: 4, action: 'two' }] };
+  localStorage.setItem('deas.pref.studio.run.continuity', JSON.stringify(userPlan));
+  const { applied, props, view } = await videoWorkbench();
+
+  // 1. Stop all (`stop()`): intermediate shot reconciles as `succeeded` in `stopWorkbench()` -> valid clip delivered first, then chain ended, no step 1.
+  vi.mocked(runWorkbenchJob).mockImplementationOnce(async (base, intent) => ({ ...heldJob('chain-s1', 'running', base), intent }));
+  vi.mocked(pollWorkbench).mockImplementation(async () => collection([{ ...heldJob('chain-s1', 'running', evidence.baseUrl) }]));
+  vi.mocked(stopWorkbench).mockResolvedValueOnce({
+    ...collection([{ ...heldJob('chain-s1', 'succeeded', evidence.baseUrl), outputRoot: '/out', outputs: [{ filename: 'shot1.mp4', subfolder: 'video', type: 'output' as const, format: 'video/h264-mp4' }] }]),
+    outcome: 'settled', discarded: 0, issues: [],
+  });
+  view.rerender(<I18nProvider><Workbench {...props} wizard={{ ...chain, n: 47, run: true }}/></I18nProvider>);
+  await waitFor(() => expect(applied).toHaveBeenCalledWith(47, undefined, expect.objectContaining({ state: 'running', step: { index: 0, shotId: 'seg-1', total: 2 } })), { timeout: 5000 });
+  fireEvent.click(document.querySelector('[data-run-stop]')!);
+  fireEvent.click(document.querySelector('[data-run-stop-all]')!);
+  await waitFor(() => expect(applied).toHaveBeenCalledWith(47, undefined, expect.objectContaining({
+    state: 'unknown',
+    error: expect.stringMatching(/\S/),
+    step: { index: 1, shotId: 'seg-2', total: 2 },
+  })), { timeout: 5000 });
+  expect(stopWorkbench).toHaveBeenCalledTimes(1);
+  expect(runWorkbenchJob).toHaveBeenCalledTimes(1);
+  expect(readH3Session).not.toHaveBeenCalled();
+  const calls47 = applied.mock.calls.filter(c => c[0] === 47).map(c => c[2]).filter(Boolean);
+  const s1ClipAt = calls47.findIndex(r => r.state === 'succeeded' && r.step?.shotId === 'seg-1' && r.picture?.path === '/out/video/shot1.mp4');
+  const s1EndAt = calls47.findIndex(r => r.state === 'unknown' && r.step?.shotId === 'seg-2');
+  expect(s1ClipAt).toBeGreaterThanOrEqual(0);
+  expect(s1EndAt).toBeGreaterThan(s1ClipAt);
+
+  // 2. Stop current (`stopJob()`): intermediate shot stays `running` during `stopWorkbenchJob` and reconciles as `succeeded` on poll -> clip first, then chain ended.
+  vi.mocked(runWorkbenchJob).mockImplementationOnce(async (base, intent) => ({ ...heldJob('chain-s2', 'running', base), intent }));
+  let s2Stopped = false;
+  vi.mocked(pollWorkbench).mockImplementation(async () => collection([{
+    ...heldJob('chain-s2', s2Stopped ? 'succeeded' : 'running', evidence.baseUrl),
+    ...(s2Stopped ? { outputRoot: '/out', outputs: [{ filename: 'shot2.mp4', subfolder: 'video', type: 'output' as const, format: 'video/h264-mp4' }] } : {}),
+  }]));
+  vi.mocked(stopWorkbenchJob).mockImplementationOnce(async job => { s2Stopped = true; return { ...job, state: 'running' }; });
+  view.rerender(<I18nProvider><Workbench {...props} wizard={{ ...chain, n: 48, run: true }}/></I18nProvider>);
+  await waitFor(() => expect(applied).toHaveBeenCalledWith(48, undefined, expect.objectContaining({ state: 'running', step: { index: 0, shotId: 'seg-1', total: 2 } })), { timeout: 5000 });
+  fireEvent.click(document.querySelector('[data-run-stop]')!);
+  fireEvent.click(document.querySelector('[data-run-stop-current]')!);
+  await waitFor(() => expect(applied).toHaveBeenCalledWith(48, undefined, expect.objectContaining({
+    state: 'unknown',
+    error: expect.stringMatching(/\S/),
+    step: { index: 1, shotId: 'seg-2', total: 2 },
+  })), { timeout: 8000 });
+  expect(stopWorkbenchJob).toHaveBeenCalledTimes(1);
+  expect(runWorkbenchJob).toHaveBeenCalledTimes(2);
+  const calls48 = applied.mock.calls.filter(c => c[0] === 48).map(c => c[2]).filter(Boolean);
+  const s2ClipAt = calls48.findIndex(r => r.state === 'succeeded' && r.step?.shotId === 'seg-1' && r.picture?.path === '/out/video/shot2.mp4');
+  const s2EndAt = calls48.findIndex(r => r.state === 'unknown' && r.step?.shotId === 'seg-2');
+  expect(s2ClipAt).toBeGreaterThanOrEqual(0);
+  expect(s2EndAt).toBeGreaterThan(s2ClipAt);
+
+  // 3. Stopped job reconciles as `cancelled`: single terminal notice, no duplicate `unknown` notice.
+  vi.mocked(runWorkbenchJob).mockImplementationOnce(async (base, intent) => ({ ...heldJob('chain-s3', 'running', base), intent }));
+  vi.mocked(pollWorkbench).mockImplementation(async () => collection([{ ...heldJob('chain-s3', 'running', evidence.baseUrl) }]));
+  vi.mocked(stopWorkbench).mockResolvedValueOnce({
+    ...collection([{ ...heldJob('chain-s3', 'cancelled', evidence.baseUrl) }]),
+    outcome: 'settled', discarded: 0, issues: [],
+  });
+  view.rerender(<I18nProvider><Workbench {...props} wizard={{ ...chain, n: 49, run: true }}/></I18nProvider>);
+  await waitFor(() => expect(applied).toHaveBeenCalledWith(49, undefined, expect.objectContaining({ state: 'running', step: { index: 0, shotId: 'seg-1', total: 2 } })), { timeout: 5000 });
+  fireEvent.click(document.querySelector('[data-run-stop]')!);
+  fireEvent.click(document.querySelector('[data-run-stop-all]')!);
+  await waitFor(() => expect(applied).toHaveBeenCalledWith(49, undefined, expect.objectContaining({
+    state: 'cancelled',
+    error: expect.stringMatching(/\S/),
+    step: { index: 0, shotId: 'seg-1', total: 2 },
+  })), { timeout: 5000 });
+  await new Promise(resolve => setTimeout(resolve, 50));
+  const terminal49 = applied.mock.calls.filter(c => c[0] === 49 && c[2] && c[2].state !== 'queued' && c[2].state !== 'running');
+  expect(terminal49).toHaveLength(1);
+
+  // 4. Ordinary Studio Continuity (`userPlan`) stays unchanged when stopped and reconciling as `succeeded`.
+  await waitFor(() => expect((document.querySelector('[data-movie-plan-release]') as HTMLButtonElement | null)?.disabled).toBe(false));
+  fireEvent.click(document.querySelector('[data-movie-plan-release]')!);
+  applied.mockClear();
+  vi.mocked(runWorkbenchJob).mockImplementationOnce(async (base, intent) => ({ ...heldJob('user-s1', 'running', base), intent }));
+  vi.mocked(stopWorkbench).mockResolvedValueOnce({
+    ...collection([{ ...heldJob('user-s1', 'succeeded', evidence.baseUrl), outputRoot: '/out', outputs: [{ filename: 'u1.mp4', subfolder: 'video', type: 'output' as const, format: 'video/h264-mp4' }] }]),
+    outcome: 'settled', discarded: 0, issues: [],
+  });
+  fireEvent.click(document.querySelector('[data-continuity-open]')!);
+  fireEvent.click(screen.getByRole('button', { name: 'Run all' }));
+  await waitFor(() => expect(runWorkbenchJob).toHaveBeenCalledTimes(4), { timeout: 5000 });
+  fireEvent.click(within(screen.getByRole('dialog', { name: 'Continuity' })).getByRole('button', { name: 'Close' }));
+  fireEvent.click(document.querySelector('[data-run-stop]')!);
+  fireEvent.click(document.querySelector('[data-run-stop-all]')!);
+  await new Promise(resolve => setTimeout(resolve, 50));
+  expect(runWorkbenchJob).toHaveBeenCalledTimes(4);
+  expect(applied).not.toHaveBeenCalled();
+}, 30000);
 
 test('a Movie Maker music bed hand-over fills the ACE-Step draft (style, no lyrics, the film\'s length), runs it, and reports the audio file', async () => {
   const view = await mountAce();
