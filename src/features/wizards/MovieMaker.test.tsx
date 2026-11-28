@@ -1,9 +1,10 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { invoke } from '@tauri-apps/api/core';
 import { I18nProvider } from '../../i18n/I18nProvider';
 import { MovieMaker } from './MovieMaker';
-import { completeItem, newMovie, setBrief, setSceneInputs } from '../../lib/movieManifest';
+import { addMedia, completeItem, newMovie, setBrief, setMix, setMusicFile, setSceneInputs } from '../../lib/movieManifest';
+import { setMusicPrompt } from '../../lib/movieMusic';
 import { applyPlan } from '../../lib/movieStory';
 import * as assembleRun from '../../lib/movieAssembleRun';
 
@@ -1033,4 +1034,544 @@ it('removing a made scene asks first; cancelling keeps it, an unmade one goes wi
   ask.mockReturnValue(true);
   fireEvent.click(q('[data-movie-scene-remove="seg-1"]'));
   expect(q('[data-movie-scenes-empty]')).toBeTruthy();
+});
+
+const deferred = <T,>() => {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej; });
+  return { promise, resolve, reject };
+};
+
+it('shares one generation slot across scene, chain and music handoffs, defers New/Open while a stage is active, and keeps stitch Stop reachable', async () => {
+  let mA = applyPlan(setBrief(newMovie('movie-a', 'Movie A'), { story: 's' }), { lore: 'l', segments: [
+    { title: 'A', prompt: 'a', seconds: 5, continuous: false, dialogue: [] },
+    { title: 'B', prompt: 'b', seconds: 5, continuous: false, dialogue: [] },
+  ] });
+  mA = setMusicPrompt(completeItem(mA, 'seg-1', { outputId: '/out/a.mp4', seconds: 5 }), 'calm piano');
+  const mB = applyPlan(setBrief(newMovie('movie-b', 'Movie B'), { story: 's' }), { lore: 'l', segments: [
+    { title: 'One', prompt: 'one', seconds: 5, continuous: false, dialogue: [] },
+  ] });
+  stored[mA.id] = JSON.stringify(mA); stored[mB.id] = JSON.stringify(mB);
+  const joinWait = deferred<void>();
+  vi.mocked(assembleRun.realAssembleDeps).mockImplementation((_ep, onJob) => ({
+    inspect: async p => ({ sourceId: p, blockers: [], durationSeconds: 5 }), upload: async id => id,
+    preflight: async () => ({ ok: true, issues: [], seconds: 10 }), epoch: async () => ({ epoch: 1, stopping: false }),
+    run: async () => { const job = { id: 'job-join', state: 'running', outputs: [] } as any; onJob(job); return job; },
+    wait: async j => { await joinWait.promise; return { ...j, state: 'cancelled', outputs: [] }; },
+    stitch: async () => { throw new Error('no blend'); },
+  }));
+  vi.mocked(assembleRun.stopAssemblyJob).mockResolvedValue(undefined as any);
+  vi.mocked(invoke).mockImplementation(async (command, args) => {
+    const a = args as Record<string, any>;
+    if (command === 'native_movie_list') return { movies: Object.entries(stored).map(([id, text]) => { const x = JSON.parse(text); return { id, title: x.title, items: x.items.length, targetSeconds: x.targetSeconds, updated: 1 }; }), damaged: 0 };
+    if (command === 'native_movie_open') return stored[a.id];
+    if (command === 'native_movie_check') return { missing: [], checked: 1, truncated: false };
+    if (command === 'native_llm_models') return { models: [], warnings: [] };
+    if (command === 'native_logs_movie_notice') return null;
+    throw new Error('unexpected ' + String(command));
+  });
+  const onPrepare = vi.fn();
+  const ui = (outcome?: any, handoff?: number) => <I18nProvider><MovieMaker root="/env" endpoint="http://backend" models={[h3, ace] as any} onPrepare={onPrepare} outcome={outcome} handoff={handoff}/></I18nProvider>;
+  const view = render(ui());
+  fireEvent.click(await waitFor(() => { const b = q('[data-movie-open="movie-a"]'); expect(b).toBeTruthy(); return b; }));
+  await waitFor(() => expect((q('[data-movie-title]') as HTMLInputElement).value).toBe('Movie A'));
+
+  // 1. Scene generation in flight blocks music Prepare/Generate, other scene Prepare/Make, and New/Open, while navigation stays usable.
+  fireEvent.click(inScene('seg-2', '[data-movie-shot-make]'));
+  expect(onPrepare).toHaveBeenCalledTimes(1);
+  openCard('music');
+  expect((q('[data-movie-music-prepare]') as HTMLButtonElement).disabled).toBe(true);
+  expect((q('[data-movie-music-generate]') as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.click(q('[data-movie-music-generate]'));
+  expect((inScene('seg-1', '[data-movie-shot-prepare]') as HTMLButtonElement).disabled).toBe(true);
+  expect((inScene('seg-1', '[data-movie-shot-make]') as HTMLButtonElement).disabled).toBe(true);
+  expect((q('[data-movie-new]') as HTMLButtonElement).disabled).toBe(true);
+  expect((q('[data-movie-open="movie-b"]') as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.click(q('[data-movie-new]'));
+  fireEvent.click(q('[data-movie-open="movie-b"]'));
+  expect(onPrepare).toHaveBeenCalledTimes(1);
+  expect((q('[data-movie-title]') as HTMLInputElement).value).toBe('Movie A');
+  view.rerender(ui({ n: 1, run: { state: 'failed', error: 'stopped' } }, 1));
+  await waitFor(() => expect((q('[data-movie-new]') as HTMLButtonElement).disabled).toBe(false));
+
+  // 2. Music generation in flight likewise blocks scene Prepare/Make and New/Open until the music run settles.
+  openCard('music');
+  fireEvent.click(q('[data-movie-music-generate]'));
+  expect(onPrepare).toHaveBeenCalledTimes(2);
+  expect((inScene('seg-1', '[data-movie-shot-prepare]') as HTMLButtonElement).disabled).toBe(true);
+  expect((inScene('seg-1', '[data-movie-shot-make]') as HTMLButtonElement).disabled).toBe(true);
+  expect((q('[data-movie-new]') as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.click(inScene('seg-1', '[data-movie-shot-prepare]'));
+  expect(onPrepare).toHaveBeenCalledTimes(2);
+  view.rerender(ui({ n: 2, run: { state: 'succeeded', job: { id: 'jm' }, picture: { path: '/out/bed.flac', audio: true, width: 0, height: 0, seed: 1, checkpoint: 'ace' } } }, 2));
+  await waitFor(() => expect((inScene('seg-2', '[data-movie-shot-make]') as HTMLButtonElement).disabled).toBe(false));
+
+  // 3. Active stitch keeps its handle and Stop button reachable, defers New/Open until settled, then releases cleanly.
+  fireEvent.click(inScene('seg-2', '[data-movie-shot-make]'));
+  view.rerender(ui({ n: 3, run: { state: 'succeeded', job: { id: 'j2' }, picture: vid('/out/b.mp4') } }, 3));
+  openCard('film');
+  await waitFor(() => expect(q('[data-movie-film-stop]')).toBeTruthy());
+  expect((q('[data-movie-new]') as HTMLButtonElement).disabled).toBe(true);
+  expect((q('[data-movie-open="movie-b"]') as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.click(q('[data-movie-new]'));
+  pick('seg-1'); openCard('film'); // navigation remains available and Stop stays reachable
+  expect(q('[data-movie-film-stop]')).toBeTruthy();
+  fireEvent.click(q('[data-movie-film-stop]'));
+  expect(assembleRun.stopAssemblyJob).toHaveBeenCalledWith(expect.objectContaining({ id: 'job-join' }));
+  await act(async () => { joinWait.resolve(); await joinWait.promise; });
+  await waitFor(() => expect((q('[data-movie-open="movie-b"]') as HTMLButtonElement).disabled).toBe(false));
+  vi.spyOn(window, 'confirm').mockReturnValue(true);
+  fireEvent.click(q('[data-movie-open="movie-b"]'));
+  await waitFor(() => expect((q('[data-movie-title]') as HTMLInputElement).value).toBe('Movie B'));
+  expect(onPrepare).toHaveBeenCalledTimes(3);
+});
+
+it('deferred scene and chain completions reject revised/replaced scenes, changed later-scene chain references and changed H3 audio-reference inputs', async () => {
+  let mA = applyPlan(setBrief(newMovie('movie-a', 'Movie A'), { story: 's' }), { lore: 'l', segments: [
+    { title: 'A', prompt: 'v1', seconds: 5, continuous: false, dialogue: [] },
+    { title: 'B', prompt: 'b', seconds: 5, continuous: false, dialogue: [] },
+  ] });
+  mA = addMedia(completeItem(mA, 'seg-1', { outputId: '/out/a-v1.mp4', jobId: 'job-v1', seconds: 5 }), [{ path: '/pics/ben.png', media: 'image', note: 'Ben' }]);
+  let mRef = applyPlan(setBrief(newMovie('movie-ref', 'Ref Movie'), { story: 's' }), { lore: 'l', segments: [
+    { title: 'One', prompt: 'one', seconds: 5, continuous: false, dialogue: [] },
+    { title: 'Two', prompt: 'two', seconds: 5, continuous: false, dialogue: [] },
+  ] });
+  mRef = setSceneInputs(mRef, 'seg-2', { refs: [{ path: '/pics/anna.png', media: 'image', mediaMode: 'video', second: 0, strength: 1 }] });
+  mRef = setMix(setMusicFile(mRef, '/music/bed.flac'), { mode: 'h3-reference' });
+  stored[mA.id] = JSON.stringify(mA); stored[mRef.id] = JSON.stringify(mRef);
+  const joins: string[][] = [];
+  vi.mocked(assembleRun.realAssembleDeps).mockReturnValue({
+    inspect: async p => ({ sourceId: p, blockers: [], durationSeconds: 5 }), upload: async id => id,
+    preflight: async () => ({ ok: true, issues: [], seconds: 10 }), epoch: async () => ({ epoch: 1, stopping: false }),
+    run: async intent => { joins.push((intent.h3.join as any).files.map((f: any) => f.filename)); return { id: 'jf', state: 'running', outputs: [] }; },
+    wait: async j => ({ ...j, state: 'succeeded', outputRoot: '/out', outputs: [{ filename: 'film.mp4', subfolder: 'video' }] }),
+    stitch: async () => { throw new Error('no blend'); },
+  });
+  const onPrepare = vi.fn();
+  let musicPathPick = '/music/other.flac';
+  const ui = (outcome?: any, handoff?: number) => <I18nProvider><MovieMaker root="/env" endpoint="http://backend" models={[h3] as any} onPrepare={onPrepare} outcome={outcome} handoff={handoff}/></I18nProvider>;
+  vi.mocked(invoke).mockImplementation(async (command, args) => {
+    const a = args as Record<string, any>;
+    if (command === 'native_movie_list') return { movies: Object.entries(stored).map(([id, text]) => { const x = JSON.parse(text); return { id, title: x.title, items: x.items.length, targetSeconds: x.targetSeconds, updated: 1 }; }), damaged: 0 };
+    if (command === 'native_movie_save') { const x = JSON.parse(a.manifest); stored[x.id] = a.manifest; return x.id; }
+    if (command === 'native_movie_open') return stored[a.id];
+    if (command === 'native_movie_check') return { missing: [], checked: 1, truncated: false };
+    if (command === 'native_llm_models') return { models: [], warnings: [] };
+    if (command === 'native_logs_movie_notice') return null;
+    if (command === 'native_movie_music_info') return { seconds: 40 };
+    if (command === 'native_movie_pick_music') return musicPathPick;
+    throw new Error('unexpected ' + String(command));
+  });
+  const view = render(ui());
+  fireEvent.click(await waitFor(() => { const b = q('[data-movie-open="movie-a"]'); expect(b).toBeTruthy(); return b; }));
+  await waitFor(() => expect((q('[data-movie-title]') as HTMLInputElement).value).toBe('Movie A'));
+
+  // 1. Edited scene revision: rev 2 starts, user edits to rev 3 before rev 2 finishes -> stale rev 2 result is ignored, rev 1 history stays.
+  fireEvent.change(inScene('seg-1', '[data-movie-seg-prompt]'), { target: { value: 'v2' } });
+  fireEvent.click(inScene('seg-1', '[data-movie-shot-make]'));
+  expect(onPrepare).toHaveBeenCalledTimes(1);
+  view.rerender(ui({ n: 1, run: { state: 'running', job: { id: 'job-v2' } } }, 1));
+  await waitFor(() => expect(stateOf('seg-1')).toBe('making …'));
+  fireEvent.change(inScene('seg-1', '[data-movie-seg-prompt]'), { target: { value: 'v3' } });
+  expect(stateOf('seg-1')).toBe('not made');
+  view.rerender(ui({ n: 1, run: { state: 'succeeded', job: { id: 'job-v2' }, picture: vid('/out/a-v2.mp4') } }, 1));
+  expect(stateOf('seg-1')).toBe('not made');
+  fireEvent.click(q('[data-movie-save]'));
+  await waitFor(() => expect(q('[data-movie-dirty]')).toBeNull());
+  const savedSeg1 = JSON.parse(calls('native_movie_save')[0].manifest as string).items.find((i: any) => i.id === 'seg-1');
+  expect([savedSeg1.state, savedSeg1.revision, savedSeg1.revisions.find((r: any) => r.n === 3)?.result]).toEqual(['planned', 3, undefined]);
+  expect(savedSeg1.revisions.find((r: any) => r.n === 1)?.result).toEqual({ outputId: '/out/a-v1.mp4', jobId: 'job-v1', seconds: 5 });
+
+  // 2. Replaced scene (same `seg-2` id and revision 1): late completion for the removed scene does not complete the new `seg-2`.
+  fireEvent.click(inScene('seg-2', '[data-movie-shot-make]'));
+  expect(onPrepare).toHaveBeenCalledTimes(2);
+  fireEvent.change(inScene('seg-2', '[data-movie-seg-prompt]'), { target: { value: 'discarded' } });
+  fireEvent.click(q('[data-movie-scene-remove="seg-2"]'));
+  pick('seg-1'); fireEvent.click(q('[data-movie-scene-add]'));
+  expect(q('[data-movie-scene-card="seg-2"]')).toBeTruthy();
+  view.rerender(ui({ n: 2, run: { state: 'succeeded', job: { id: 'job-seg2-old' }, picture: vid('/out/seg2-old.mp4') } }, 2));
+  expect(stateOf('seg-2')).toBe('not made');
+
+  // 3. Continuity chain: removing a later scene's reference invalidates even step 0 (`seg-1`), while an unchanged chain completes per step.
+  fireEvent.change(q('[data-movie-transition="seg-2"]'), { target: { value: 'seamless' } });
+  fireEvent.click(q('[data-movie-media-open="/pics/ben.png"]'));
+  fireEvent.click(q('[data-movie-media-scene="seg-2"]'));
+  fireEvent.click(inScene('seg-1', '[data-movie-shot-make]'));
+  expect(onPrepare).toHaveBeenCalledTimes(3);
+  expect(onPrepare.mock.calls[2][0]).toMatchObject({ pipeline: 'ref2v', videoRefs: [expect.objectContaining({ path: '/pics/ben.png' })] });
+  fireEvent.click(q('[data-movie-media-open="/pics/ben.png"]'));
+  fireEvent.click(q('[data-movie-media-auto]')); // removes `/pics/ben.png` from `seg-2` while `seg-1` itself is untouched
+  view.rerender(ui({ n: 3, run: { state: 'succeeded', job: { id: 'jc1' }, picture: vid('/out/c1.mp4'), step: { index: 0, shotId: 'seg-1', total: 2 } } }, 3));
+  view.rerender(ui({ n: 3, run: { state: 'succeeded', job: { id: 'jc2' }, picture: vid('/out/c2.mp4'), step: { index: 1, shotId: 'seg-2', total: 2 } } }, 3));
+  expect([stateOf('seg-1'), stateOf('seg-2'), joins.length]).toEqual(['not made', 'not made', 0]);
+
+  fireEvent.click(q('[data-movie-media-open="/pics/ben.png"]'));
+  fireEvent.click(q('[data-movie-media-scene="seg-2"]'));
+  fireEvent.click(inScene('seg-1', '[data-movie-shot-make]'));
+  expect(onPrepare).toHaveBeenCalledTimes(4);
+  view.rerender(ui({ n: 4, run: { state: 'succeeded', job: { id: 'jc3' }, picture: vid('/out/c3.mp4'), step: { index: 0, shotId: 'seg-1', total: 2 } } }, 4));
+  await waitFor(() => expect(stateOf('seg-1')).toBe('made'));
+  view.rerender(ui({ n: 4, run: { state: 'succeeded', job: { id: 'jc4' }, picture: vid('/out/c4.mp4'), step: { index: 1, shotId: 'seg-2', total: 2 } } }, 4));
+  await waitFor(() => expect(stateOf('seg-2')).toBe('made'));
+  await waitFor(() => expect(joins).toEqual([['/out/c3.mp4', '/out/c4.mp4']]));
+  await waitFor(() => expect((q('[data-movie-open="movie-ref"]') as HTMLButtonElement).disabled).toBe(false));
+
+  // 4. H3 audio-reference mode: changing an earlier scene's length or the music file invalidates the in-flight shot's audio slice.
+  vi.spyOn(window, 'confirm').mockReturnValue(true);
+  fireEvent.click(q('[data-movie-open="movie-ref"]'));
+  await waitFor(() => expect((q('[data-movie-title]') as HTMLInputElement).value).toBe('Ref Movie'));
+  await waitFor(() => expect(calls('native_movie_music_info')).toHaveLength(1));
+  fireEvent.click(inScene('seg-2', '[data-movie-shot-make]'));
+  expect(onPrepare).toHaveBeenCalledTimes(5);
+  expect(onPrepare.mock.calls[4][0]).toMatchObject({ audioRef: { path: '/music/bed.flac', trimStart: 5.167, trimEnd: 10.167 } });
+  fireEvent.change(inScene('seg-1', '[data-movie-seg-seconds]'), { target: { value: '8' } });
+  view.rerender(ui({ n: 5, run: { state: 'succeeded', job: { id: 'jr5' }, picture: vid('/out/ref-stale-trim.mp4') } }, 5));
+  expect(stateOf('seg-2')).toBe('not made');
+
+  fireEvent.click(inScene('seg-2', '[data-movie-shot-make]'));
+  expect(onPrepare).toHaveBeenCalledTimes(6);
+  openCard('music');
+  fireEvent.click(q('[data-movie-music-pick]'));
+  await waitFor(() => expect(q('[data-movie-music-file]')?.textContent).toBe('other.flac'));
+  view.rerender(ui({ n: 6, run: { state: 'succeeded', job: { id: 'jr6' }, picture: vid('/out/ref-stale-track.mp4') } }, 6));
+  expect(stateOf('seg-2')).toBe('not made');
+});
+
+it('deferred film and mix completions do not mark the draft complete after assembly inputs or mix settings changed, releasing the slot when settled', async () => {
+  const mJoin = filmMovie(true);
+  const mMix = setMusicFile(scoredMovie(true), '/music/bed.wav');
+  const mMixId = 'movie-mix';
+  stored[mJoin.id] = JSON.stringify(mJoin);
+  stored[mMixId] = JSON.stringify({ ...mMix, id: mMixId, title: 'Mix Movie' });
+  const joinWaits: ReturnType<typeof deferred<string>>[] = [];
+  const mixWaits: ReturnType<typeof deferred<{ path: string; seconds: number; ducked: boolean }>>[] = [];
+  vi.mocked(assembleRun.realAssembleDeps).mockReturnValue({
+    inspect: async p => ({ sourceId: p, blockers: [], durationSeconds: 5 }), upload: async id => id,
+    preflight: async () => ({ ok: true, issues: [], seconds: 10 }), epoch: async () => ({ epoch: 1, stopping: false }),
+    run: async () => ({ id: `jf-${joinWaits.length + 1}`, state: 'running', outputs: [] }),
+    wait: async j => { const d = deferred<string>(); joinWaits.push(d); const file = await d.promise; return { ...j, state: 'succeeded', outputRoot: '/out', outputs: [{ filename: file, subfolder: 'video' }] }; },
+    stitch: async () => { throw new Error('no blend'); },
+  });
+  vi.mocked(invoke).mockImplementation(async (command, args) => {
+    const a = args as Record<string, any>;
+    if (command === 'native_movie_list') return { movies: Object.entries(stored).map(([id, text]) => { const x = JSON.parse(text); return { id, title: x.title, items: x.items.length, targetSeconds: x.targetSeconds, updated: 1 }; }), damaged: 0 };
+    if (command === 'native_movie_open') return stored[a.id];
+    if (command === 'native_movie_check') return { missing: [], checked: 1, truncated: false };
+    if (command === 'native_llm_models') return { models: [], warnings: [] };
+    if (command === 'native_logs_movie_notice') return null;
+    if (command === 'native_movie_mix') { const d = deferred<{ path: string; seconds: number; ducked: boolean }>(); mixWaits.push(d); return d.promise; }
+    throw new Error('unexpected ' + String(command));
+  });
+  render(<I18nProvider><MovieMaker root="/env" endpoint="http://backend" models={[h3] as any} onPrepare={vi.fn()}/></I18nProvider>);
+  fireEvent.click(await waitFor(() => { const b = q(`[data-movie-open="${mJoin.id}"]`); expect(b).toBeTruthy(); return b; }));
+  await waitFor(() => expect(q('[data-movie-film-card]')).toBeTruthy());
+  openCard('film');
+  fireEvent.click(await waitFor(() => { const b = q('[data-movie-film-run]'); expect((b as HTMLButtonElement).disabled).toBe(false); return b; }));
+  await waitFor(() => expect(joinWaits).toHaveLength(1));
+  expect(q('[data-movie-film-progress]')).toBeTruthy();
+  expect(q('[data-movie-film-stop]')).toBeTruthy();
+  expect((q('[data-movie-new]') as HTMLButtonElement).disabled).toBe(true);
+  // Editing a scene changes the assembly inputs while the join is in flight; its late completion must not mark the film made.
+  fireEvent.change(inScene('seg-2', '[data-movie-seg-prompt]'), { target: { value: 'changed shot' } });
+  joinWaits[0].resolve('stale-film.mp4');
+  openCard('film');
+  await waitFor(() => expect(q('[data-movie-film-progress]')).toBeNull());
+  expect(q('[data-movie-film-video]')).toBeNull();
+  expect(q('[data-movie-film-card]').textContent).toContain('not made');
+
+  // Mix: changing levelDb while mixing keeps New/Open deferred until settled, ignores the stale mix, and then allows New movie cleanly.
+  vi.spyOn(window, 'confirm').mockReturnValue(true);
+  fireEvent.click(q(`[data-movie-open="${mMixId}"]`));
+  await waitFor(() => expect((q('[data-movie-title]') as HTMLInputElement).value).toBe('Mix Movie'));
+  openCard('music');
+  fireEvent.click(await waitFor(() => { const b = q('[data-movie-music-run]'); expect((b as HTMLButtonElement).disabled).toBe(false); return b; }));
+  await waitFor(() => expect(mixWaits).toHaveLength(1));
+  expect((q('[data-movie-new]') as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.change(q('[data-movie-mix="levelDb"]'), { target: { value: '-20' } });
+  await act(async () => {
+    mixWaits[0].resolve({ path: '/out/video/stale-scored.mp4', seconds: 10, ducked: true });
+    await mixWaits[0].promise;
+  });
+  await waitFor(() => expect((q('[data-movie-music-run]') as HTMLButtonElement).disabled).toBe(false));
+  expect(q('[data-movie-scored-video]')).toBeNull();
+  expect((q('[data-movie-new]') as HTMLButtonElement).disabled).toBe(false);
+  fireEvent.click(q('[data-movie-new]'));
+  expect((q('[data-movie-title]') as HTMLInputElement).value).toBe('');
+  expect([q('[data-movie-dirty]'), q('[data-movie-note]')]).toEqual([null, null]);
+});
+
+it('Stop after this step lets the active scene or Continuity chain finish and keeps its clip without starting stitch, music or mix', async () => {
+  let mStop = applyPlan(setBrief(newMovie('movie-stop', 'Stop Last'), { story: 's' }), { lore: 'l', segments: [
+    { title: 'A', prompt: 'a', seconds: 5, continuous: false, dialogue: [] },
+    { title: 'B', prompt: 'b', seconds: 4, continuous: false, dialogue: [] },
+  ] });
+  mStop = setMusicPrompt(completeItem(mStop, 'seg-1', { outputId: '/out/a.mp4', seconds: 5 }), 'calm piano');
+  const mChain = applyPlan(setBrief(newMovie('movie-chain', 'Stop Chain'), { story: 's' }), { lore: 'l', segments: [
+    { title: 'Start', prompt: 'a', seconds: 5, continuous: false, dialogue: [] },
+    { title: 'Cont', prompt: 'b', seconds: 4, continuous: true, dialogue: [] },
+  ] });
+  stored[mStop.id] = JSON.stringify(mStop); stored[mChain.id] = JSON.stringify(mChain);
+  const joins: string[][] = [];
+  let mixes = 0;
+  vi.mocked(assembleRun.realAssembleDeps).mockReturnValue({
+    inspect: async p => ({ sourceId: p, blockers: [], durationSeconds: 5 }), upload: async id => id,
+    preflight: async () => ({ ok: true, issues: [], seconds: 9 }), epoch: async () => ({ epoch: 1, stopping: false }),
+    run: async intent => { joins.push((intent.h3.join as any).files.map((f: any) => f.filename)); return { id: 'jf', state: 'running', outputs: [] }; },
+    wait: async j => ({ ...j, state: 'succeeded', outputRoot: '/out', outputs: [{ filename: 'film.mp4', subfolder: 'video' }] }),
+    stitch: async () => { throw new Error('no blend'); },
+  });
+  vi.mocked(invoke).mockImplementation(async (command, args) => {
+    const a = args as Record<string, any>;
+    if (command === 'native_movie_list') return { movies: Object.entries(stored).map(([id, text]) => { const x = JSON.parse(text); return { id, title: x.title, items: x.items.length, targetSeconds: x.targetSeconds, updated: 1 }; }), damaged: 0 };
+    if (command === 'native_movie_save') { const x = JSON.parse(a.manifest); stored[x.id] = a.manifest; return x.id; }
+    if (command === 'native_movie_open') return stored[a.id];
+    if (command === 'native_movie_check') return { missing: [], checked: 1, truncated: false };
+    if (command === 'native_llm_models') return { models: [], warnings: [] };
+    if (command === 'native_logs_movie_notice') return null;
+    if (command === 'native_movie_mix') { mixes++; return { path: '/out/video/scored.mp4', seconds: 9, ducked: true }; }
+    throw new Error('unexpected ' + String(command));
+  });
+  const onPrepare = vi.fn();
+  const ui = (outcome?: any, handoff?: number) => <I18nProvider><MovieMaker root="/env" endpoint="http://backend" models={[h3, ace] as any} onPrepare={onPrepare} outcome={outcome} handoff={handoff}/></I18nProvider>;
+  const view = render(ui());
+  fireEvent.click(await waitFor(() => { const b = q('[data-movie-open="movie-stop"]'); expect(b).toBeTruthy(); return b; }));
+  await waitFor(() => expect(q('[data-movie-run]')).toBeTruthy());
+  fireEvent.click(q('[data-movie-run]'));
+  await waitFor(() => expect(onPrepare).toHaveBeenCalledTimes(1));
+  expect(onPrepare.mock.calls[0][0]).toMatchObject({ strategy: 'seg-2', run: true });
+  view.rerender(ui({ n: 1, run: { state: 'running', job: { id: 'j2' } } }, 1));
+  await waitFor(() => expect(stateOf('seg-2')).toBe('making …'));
+  fireEvent.click(q('[data-movie-run-stop]'));
+  expect(q('[data-movie-run-stop]')).toBeNull();
+  expect(stateOf('seg-2')).toBe('making …'); // current stage keeps running with progress
+  view.rerender(ui({ n: 1, run: { state: 'succeeded', job: { id: 'j2' }, picture: vid('/out/b.mp4') } }, 1));
+  await waitFor(() => expect(stateOf('seg-2')).toBe('made'));
+  expect(inScene('seg-2', '[data-movie-shot-video]')).toBeTruthy();
+  expect([joins.length, onPrepare.mock.calls.length, mixes]).toEqual([0, 1, 0]);
+  expect(q('[data-movie-film-card]').textContent).toContain('not made');
+  // Saving and reopening a movie with all scenes made and an unmade film still starts nothing.
+  fireEvent.click(q('[data-movie-save]'));
+  await waitFor(() => expect(q('[data-movie-dirty]')).toBeNull());
+  fireEvent.click(q('[data-movie-open="movie-stop"]'));
+  await waitFor(() => expect(q('[data-movie-note]')?.textContent).toBe('Opened. Nothing was started.'));
+  expect([joins.length, onPrepare.mock.calls.length, mixes]).toEqual([0, 1, 0]);
+
+  // A Continuity chain remains one wizard stage: stopping during step 0 records both shots and stops before stitching.
+  fireEvent.click(q('[data-movie-open="movie-chain"]'));
+  await waitFor(() => expect((q('[data-movie-title]') as HTMLInputElement).value).toBe('Stop Chain'));
+  fireEvent.click(q('[data-movie-run]'));
+  await waitFor(() => expect(onPrepare).toHaveBeenCalledTimes(2));
+  expect(onPrepare.mock.calls[1][0]).toMatchObject({ continuity: { shotIds: ['seg-1', 'seg-2'] }, run: true });
+  view.rerender(ui({ n: 2, run: { state: 'running', step: { index: 0, shotId: 'seg-1', total: 2 } } }, 2));
+  await waitFor(() => expect(stateOf('seg-1')).toBe('making …'));
+  fireEvent.click(q('[data-movie-run-stop]'));
+  view.rerender(ui({ n: 2, run: { state: 'succeeded', job: { id: 'jc1' }, picture: vid('/out/c1.mp4'), step: { index: 0, shotId: 'seg-1', total: 2 } } }, 2));
+  await waitFor(() => expect(stateOf('seg-1')).toBe('made'));
+  view.rerender(ui({ n: 2, run: { state: 'succeeded', job: { id: 'jc2' }, picture: vid('/out/c2.mp4'), step: { index: 1, shotId: 'seg-2', total: 2 } } }, 2));
+  await waitFor(() => expect(stateOf('seg-2')).toBe('made'));
+  expect([joins.length, onPrepare.mock.calls.length, mixes]).toEqual([0, 2, 0]);
+});
+
+it('an intentional manual scene remake with deferred results still restitches the film once', async () => {
+  const m = scoredMovie(true);
+  stored[m.id] = JSON.stringify(m);
+  const joins: string[][] = [];
+  const joinDone = deferred<void>();
+  vi.mocked(assembleRun.realAssembleDeps).mockReturnValue({
+    inspect: async p => ({ sourceId: p, blockers: [], durationSeconds: 5 }), upload: async id => id,
+    preflight: async () => ({ ok: true, issues: [], seconds: 10 }), epoch: async () => ({ epoch: 1, stopping: false }),
+    run: async intent => { joins.push((intent.h3.join as any).files.map((f: any) => f.filename)); return { id: `jf-${joins.length}`, state: 'running', outputs: [] }; },
+    wait: async j => { await joinDone.promise; return { ...j, state: 'succeeded', outputRoot: '/out', outputs: [{ filename: 'film-remade.mp4', subfolder: 'video' }] }; },
+    stitch: async () => { throw new Error('no blend'); },
+  });
+  vi.mocked(invoke).mockImplementation(async (command, args) => {
+    const a = args as Record<string, any>;
+    if (command === 'native_movie_list') return { movies: [{ id: m.id, title: m.title, items: m.items.length, targetSeconds: m.targetSeconds, updated: 1 }], damaged: 0 };
+    if (command === 'native_movie_open') return stored[a.id];
+    if (command === 'native_movie_check') return { missing: [], checked: 1, truncated: false };
+    if (command === 'native_llm_models') return { models: [], warnings: [] };
+    if (command === 'native_logs_movie_notice') return null;
+    throw new Error('unexpected ' + String(command));
+  });
+  const onPrepare = vi.fn();
+  const ui = (outcome?: any, handoff?: number) => <I18nProvider><MovieMaker root="/env" endpoint="http://backend" models={[h3] as any} onPrepare={onPrepare} outcome={outcome} handoff={handoff}/></I18nProvider>;
+  const view = render(ui());
+  fireEvent.click(await waitFor(() => { const b = q(`[data-movie-open="${m.id}"]`); expect(b).toBeTruthy(); return b; }));
+  await waitFor(() => expect(q('[data-movie-film-card]')).toBeTruthy());
+  expect(joins).toEqual([]);
+  fireEvent.click(inScene('seg-2', '[data-movie-shot-make]'));
+  expect(onPrepare).toHaveBeenCalledTimes(1);
+  view.rerender(ui({ n: 1, run: { state: 'running', job: { id: 'jr1' } } }, 1));
+  await waitFor(() => expect(stateOf('seg-2')).toBe('making …'));
+  view.rerender(ui({ n: 1, run: { state: 'succeeded', job: { id: 'jr1' }, picture: vid('/out/seg-2-remade.mp4') } }, 1));
+  await waitFor(() => expect(joins).toEqual([['/out/seg-1.mp4', '/out/seg-2-remade.mp4']]));
+  joinDone.resolve();
+  openCard('film');
+  await waitFor(() => expect(q('[data-movie-film-video] video')?.getAttribute('src')).toBe('asset:///out/video/film-remade.mp4'));
+  expect(joins).toHaveLength(1);
+});
+
+it('terminal Continuity chain aborts unlock only on the matching hand-over, stop Make the movie, and preserve completed intermediate clips', async () => {
+  let mChain = applyPlan(setBrief(newMovie('movie-chain-abort', 'Chain Abort'), { story: 's' }), { lore: 'l', segments: [
+    { title: 'Start', prompt: 'Anna runs', seconds: 5, continuous: false, dialogue: [] },
+    { title: 'Cont', prompt: 'Anna turns', seconds: 4, continuous: true, dialogue: [] },
+    { title: 'Cut', prompt: 'Street', seconds: 5, continuous: false, dialogue: [] },
+  ] });
+  mChain = setMusicPrompt(mChain, 'calm piano');
+  const mOther = applyPlan(setBrief(newMovie('movie-other', 'Other Movie'), { story: 's' }), { lore: 'l', segments: [
+    { title: 'One', prompt: 'one', seconds: 5, continuous: false, dialogue: [] },
+  ] });
+  stored[mChain.id] = JSON.stringify(mChain); stored[mOther.id] = JSON.stringify(mOther);
+  const joins: string[][] = [];
+  vi.mocked(assembleRun.realAssembleDeps).mockReturnValue({
+    inspect: async p => ({ sourceId: p, blockers: [], durationSeconds: 5 }), upload: async id => id,
+    preflight: async () => ({ ok: true, issues: [], seconds: 14 }), epoch: async () => ({ epoch: 1, stopping: false }),
+    run: async intent => { joins.push((intent.h3.join as any).files.map((f: any) => f.filename)); return { id: 'jf', state: 'running', outputs: [] }; },
+    wait: async j => ({ ...j, state: 'succeeded', outputRoot: '/out', outputs: [{ filename: 'film.mp4', subfolder: 'video' }] }),
+    stitch: async () => { throw new Error('no blend'); },
+  });
+  vi.mocked(invoke).mockImplementation(async (command, args) => {
+    const a = args as Record<string, any>;
+    if (command === 'native_movie_list') return { movies: Object.entries(stored).map(([id, text]) => { const x = JSON.parse(text); return { id, title: x.title, items: x.items.length, targetSeconds: x.targetSeconds, updated: 1 }; }), damaged: 0 };
+    if (command === 'native_movie_open') return stored[a.id];
+    if (command === 'native_movie_check') return { missing: [], checked: 1, truncated: false };
+    if (command === 'native_llm_models') return { models: [], warnings: [] };
+    if (command === 'native_logs_movie_notice') return null;
+    throw new Error('unexpected ' + String(command));
+  });
+  const onPrepare = vi.fn();
+  const ui = (outcome?: any, handoff?: number) => <I18nProvider><MovieMaker root="/env" endpoint="http://backend" models={[h3, ace] as any} onPrepare={onPrepare} outcome={outcome} handoff={handoff}/></I18nProvider>;
+  const view = render(ui());
+  fireEvent.click(await waitFor(() => { const b = q('[data-movie-open="movie-chain-abort"]'); expect(b).toBeTruthy(); return b; }));
+  await waitFor(() => expect((q('[data-movie-title]') as HTMLInputElement).value).toBe('Chain Abort'));
+
+  // 1. First shot cannot start: an unrelated hand-over report keeps Movie Maker locked; the matching report unlocks it and stops autoRun.
+  fireEvent.click(q('[data-movie-run]'));
+  await waitFor(() => expect(onPrepare).toHaveBeenCalledTimes(1));
+  expect((q('[data-movie-new]') as HTMLButtonElement).disabled).toBe(true);
+  expect((q('[data-movie-open="movie-other"]') as HTMLButtonElement).disabled).toBe(true);
+  expect((inScene('seg-3', '[data-movie-shot-make]') as HTMLButtonElement).disabled).toBe(true);
+  expect(q('[data-movie-run-stop]')).toBeTruthy();
+
+  view.rerender(ui({ n: 99, run: { state: 'unknown', error: 'unrelated handoff', step: { index: 0, shotId: 'seg-1', total: 2 } } }, 1));
+  expect((q('[data-movie-new]') as HTMLButtonElement).disabled).toBe(true);
+  expect((q('[data-movie-open="movie-other"]') as HTMLButtonElement).disabled).toBe(true);
+  expect((inScene('seg-3', '[data-movie-shot-make]') as HTMLButtonElement).disabled).toBe(true);
+  expect(q('[data-movie-run-stop]')).toBeTruthy();
+
+  view.rerender(ui({ n: 1, run: { state: 'unknown', error: 'queue rejected first take', step: { index: 0, shotId: 'seg-1', total: 2 } } }, 1));
+  await waitFor(() => expect((q('[data-movie-new]') as HTMLButtonElement).disabled).toBe(false));
+  expect((q('[data-movie-open="movie-other"]') as HTMLButtonElement).disabled).toBe(false);
+  expect((inScene('seg-1', '[data-movie-shot-make]') as HTMLButtonElement).disabled).toBe(false);
+  expect((inScene('seg-3', '[data-movie-shot-make]') as HTMLButtonElement).disabled).toBe(false);
+  expect(q('[data-movie-run-stop]')).toBeNull();
+  expect(q('[data-movie-error]')?.textContent).toBe('queue rejected first take');
+  expect(inScene('seg-1', '[data-movie-shot-error]').textContent).toBe('queue rejected first take');
+  expect(['seg-1', 'seg-2', 'seg-3'].map(stateOf)).toEqual(['not made', 'not made', 'not made']);
+  expect([onPrepare.mock.calls.length, joins.length]).toEqual([1, 0]);
+
+  // 2. `pinClip` fails after intermediate shot `seg-1` succeeded: unrelated report keeps lock; matching report unlocks, stops autoRun, and preserves `seg-1`'s clip.
+  fireEvent.click(q('[data-movie-run]'));
+  await waitFor(() => expect(onPrepare).toHaveBeenCalledTimes(2));
+  view.rerender(ui({ n: 2, run: { state: 'succeeded', job: { id: 'jc1' }, picture: vid('/out/s1.mp4'), step: { index: 0, shotId: 'seg-1', total: 2 } } }, 2));
+  await waitFor(() => expect(stateOf('seg-1')).toBe('made'));
+  expect((q('[data-movie-new]') as HTMLButtonElement).disabled).toBe(true);
+  expect((q('[data-movie-open="movie-other"]') as HTMLButtonElement).disabled).toBe(true);
+  expect((inScene('seg-3', '[data-movie-shot-make]') as HTMLButtonElement).disabled).toBe(true);
+
+  view.rerender(ui({ n: 98, run: { state: 'unknown', error: 'unrelated abort', step: { index: 1, shotId: 'seg-2', total: 2 } } }, 2));
+  expect((q('[data-movie-new]') as HTMLButtonElement).disabled).toBe(true);
+  expect((inScene('seg-3', '[data-movie-shot-make]') as HTMLButtonElement).disabled).toBe(true);
+  expect(q('[data-movie-run-stop]')).toBeTruthy();
+
+  view.rerender(ui({ n: 2, run: { state: 'unknown', error: 'H3 session clip missing', step: { index: 1, shotId: 'seg-2', total: 2 } } }, 2));
+  await waitFor(() => expect((q('[data-movie-new]') as HTMLButtonElement).disabled).toBe(false));
+  expect((q('[data-movie-open="movie-other"]') as HTMLButtonElement).disabled).toBe(false);
+  expect((inScene('seg-1', '[data-movie-shot-make]') as HTMLButtonElement).disabled).toBe(false);
+  expect((inScene('seg-3', '[data-movie-shot-make]') as HTMLButtonElement).disabled).toBe(false);
+  openCard('music');
+  expect((q('[data-movie-music-generate]') as HTMLButtonElement).disabled).toBe(false);
+  expect(q('[data-movie-run-stop]')).toBeNull();
+  expect(['seg-1', 'seg-2', 'seg-3'].map(stateOf)).toEqual(['made', 'not made', 'not made']);
+  expect(inScene('seg-1', '[data-movie-shot-video] video').getAttribute('src')).toBe('asset:///out/s1.mp4');
+  expect(inScene('seg-2', '[data-movie-shot-error]').textContent).toBe('H3 session clip missing');
+  expect(q('[data-movie-error]')?.textContent).toBe('H3 session clip missing');
+  expect([onPrepare.mock.calls.length, joins.length]).toEqual([2, 0]);
+
+  vi.spyOn(window, 'confirm').mockReturnValue(true);
+  fireEvent.click(q('[data-movie-open="movie-other"]'));
+  await waitFor(() => expect((q('[data-movie-title]') as HTMLInputElement).value).toBe('Other Movie'));
+});
+
+it('Generate Stop after a reconciled intermediate chain shot keeps that clip and unlocks, and a stale succeeded music result stops Make the movie without mixing a newly picked track while valid music mixes', async () => {
+  let mChain = applyPlan(setBrief(newMovie('movie-gen-stop', 'Gen Stop'), { story: 's' }), { lore: 'l', segments: [
+    { title: 'Start', prompt: 'Anna runs', seconds: 5, continuous: false, dialogue: [] },
+    { title: 'Cont', prompt: 'Anna turns', seconds: 4, continuous: true, dialogue: [] },
+  ] });
+  mChain = setMusicPrompt(mChain, 'calm piano');
+  const mMusic = { ...setMusicPrompt(scoredMovie(true), 'calm piano'), id: 'movie-music-stale', title: 'Music Auto' };
+  stored[mChain.id] = JSON.stringify(mChain); stored[mMusic.id] = JSON.stringify(mMusic);
+  const mixes: Record<string, any>[] = [];
+  vi.mocked(invoke).mockImplementation(async (command, args) => {
+    const a = args as Record<string, any>;
+    if (command === 'native_movie_list') return { movies: Object.entries(stored).map(([id, text]) => { const x = JSON.parse(text); return { id, title: x.title, items: x.items.length, targetSeconds: x.targetSeconds, updated: 1 }; }), damaged: 0 };
+    if (command === 'native_movie_open') return stored[a.id];
+    if (command === 'native_movie_check') return { missing: [], checked: 1, truncated: false };
+    if (command === 'native_llm_models') return { models: [], warnings: [] };
+    if (command === 'native_logs_movie_notice') return null;
+    if (command === 'native_movie_pick_music') return '/music/picked.wav';
+    if (command === 'native_movie_mix') { mixes.push(a.request); return { path: '/out/video/scored.mp4', seconds: 10, ducked: true }; }
+    throw new Error('unexpected ' + String(command));
+  });
+  const onPrepare = vi.fn();
+  const ui = (outcome?: any, handoff?: number) => <I18nProvider><MovieMaker root="/env" endpoint="http://backend" models={[h3, ace] as any} onPrepare={onPrepare} outcome={outcome} handoff={handoff}/></I18nProvider>;
+  const view = render(ui());
+  fireEvent.click(await waitFor(() => { const b = q('[data-movie-open="movie-gen-stop"]'); expect(b).toBeTruthy(); return b; }));
+  await waitFor(() => expect((q('[data-movie-title]') as HTMLInputElement).value).toBe('Gen Stop'));
+
+  // 1. Generate Stop during step 0 where step 0 reconciles as succeeded: step 0's clip is recorded, then the stop notice unlocks Movie Maker and keeps seg-2 runnable (`not made`, not `failed`).
+  fireEvent.click(q('[data-movie-run]'));
+  await waitFor(() => expect(onPrepare).toHaveBeenCalledTimes(1));
+  view.rerender(ui({ n: 1, run: { state: 'succeeded', job: { id: 'jc1' }, picture: vid('/out/s1-reconciled.mp4'), step: { index: 0, shotId: 'seg-1', total: 2 } } }, 1));
+  await waitFor(() => expect(stateOf('seg-1')).toBe('made'));
+  expect((q('[data-movie-new]') as HTMLButtonElement).disabled).toBe(true);
+  view.rerender(ui({ n: 1, run: { state: 'unknown', error: 'The run was stopped.', step: { index: 1, shotId: 'seg-2', total: 2 } } }, 1));
+  await waitFor(() => expect((q('[data-movie-new]') as HTMLButtonElement).disabled).toBe(false));
+  expect(q('[data-movie-run-stop]')).toBeNull();
+  expect([stateOf('seg-1'), stateOf('seg-2')]).toEqual(['made', 'not made']);
+  expect(inScene('seg-1', '[data-movie-shot-video] video').getAttribute('src')).toBe('asset:///out/s1-reconciled.mp4');
+  expect((q('[data-movie-run]') as HTMLButtonElement).disabled).toBe(false);
+
+  // 2. Stale succeeded music result after user picked a track during `Make the movie`: slot unlocks, `autoRun` stops, and no mix starts on `/music/picked.wav`.
+  vi.spyOn(window, 'confirm').mockReturnValue(true);
+  fireEvent.click(q('[data-movie-open="movie-music-stale"]'));
+  await waitFor(() => expect((q('[data-movie-title]') as HTMLInputElement).value).toBe('Music Auto'));
+  fireEvent.click(q('[data-movie-run]'));
+  await waitFor(() => expect(onPrepare).toHaveBeenCalledTimes(2));
+  expect(onPrepare.mock.calls[1][0]).toMatchObject({ pipeline: 't2m', run: true });
+  expect(q('[data-movie-run-stop]')).toBeTruthy();
+  expect((q('[data-movie-new]') as HTMLButtonElement).disabled).toBe(true);
+  openCard('music');
+  fireEvent.click(q('[data-movie-music-pick]'));
+  await waitFor(() => expect(q('[data-movie-music-file]')?.textContent).toBe('picked.wav'));
+  expect(mixes).toHaveLength(0);
+  view.rerender(ui({ n: 2, run: { state: 'succeeded', job: { id: 'jm-stale' }, picture: { path: '/out/audio/stale.flac', audio: true, width: 0, height: 0, seed: 1, checkpoint: 'ace' } } }, 2));
+  await waitFor(() => expect((q('[data-movie-new]') as HTMLButtonElement).disabled).toBe(false));
+  expect((q('[data-movie-music-generate]') as HTMLButtonElement).disabled).toBe(false);
+  expect(q('[data-movie-run-stop]')).toBeNull();
+  expect(q('[data-movie-music-file]')?.textContent).toBe('picked.wav');
+  expect(mixes).toHaveLength(0);
+  expect(q('[data-movie-scored-video]')).toBeNull();
+
+  // 3. Valid matching music result still advances `Make the movie` automatically into the mix.
+  fireEvent.click(q('[data-movie-music-clear]'));
+  expect(q('[data-movie-music-file]')).toBeNull();
+  fireEvent.click(q('[data-movie-run]'));
+  await waitFor(() => expect(onPrepare).toHaveBeenCalledTimes(3));
+  view.rerender(ui({ n: 3, run: { state: 'succeeded', job: { id: 'jm-ok' }, picture: { path: '/out/audio/fresh.flac', audio: true, width: 0, height: 0, seed: 2, checkpoint: 'ace' } } }, 3));
+  await waitFor(() => expect(mixes).toEqual([expect.objectContaining({ film: '/out/video/film.mp4', music: '/out/audio/fresh.flac' })]));
+  openCard('music');
+  await waitFor(() => expect(q('[data-movie-scored-video]')).toBeTruthy());
+  expect(q('[data-movie-note]')?.textContent).toBe('The movie is made.');
 });

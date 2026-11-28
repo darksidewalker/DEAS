@@ -15,7 +15,7 @@ import { aceLanguages } from '../../lib/musicIntent';
 import { forgetPref, readPref, writePref } from '../../lib/preferences';
 import { AssemblyError, assemblyPlan, assembleMovie, recordFilm } from '../../lib/movieAssemble';
 import { realAssembleDeps, stopAssemblyJob } from '../../lib/movieAssembleRun';
-import { needsStitch, nextMovieStep } from '../../lib/movieRun';
+import { advanceItemEpochs, canApplyMusicGeneration, canApplySceneStep, canCompleteFilm, canCompleteMix, captureFilmSubmission, captureMixSubmission, captureMusicSubmission, captureSceneSubmission, needsStitch, nextMovieStep, pendingTargetShot, recordCompletedChainShot, shouldRestitchAfterShot, type PendingGeneration, type SceneInputContext, type ShotOrigin, type SubmittedFilm, type SubmittedMix } from '../../lib/movieRun';
 import type { JobStatus } from '../../lib/jobs';
 import { AspectPicker } from '../studio/AspectPicker';
 import type { MediaRoots } from '../media/MediaLibrary';
@@ -64,12 +64,24 @@ export function MovieMaker({ root, mediaRoots, endpoint, models = null, onPrepar
   if (restored.current === undefined) restored.current = readDraft();
   const [movie, setMovie] = useState<MovieManifest>(() => restored.current?.movie ?? newMovie(newMovieId(), ''));
   const [dirty, setDirty] = useState(() => restored.current?.dirty ?? false);
+  const [draft, setDraft] = useState(1);
+  const draftRef = useRef(1);
+  const openSeq = useRef(0);
+  const movieRef = useRef(movie); movieRef.current = movie;
+  const epochsRef = useRef<Map<string, number>>(new Map());
   // Every change is kept as the working draft (debounced); a saved movie file is still only written by *Save movie*.
   useEffect(() => {
     const id = window.setTimeout(() => { const text = JSON.stringify({ movie, dirty }); if (text.length <= DRAFT_MAX_CHARS) writePref(DRAFT_KEY, { movie, dirty }); else forgetPref(DRAFT_KEY); }, 300);
     return () => window.clearTimeout(id);
   }, [movie, dirty]);
   const latest = useRef({ movie, dirty }); latest.current = { movie, dirty };
+  const updateMovie = (next: MovieManifest, nextDirty: boolean, freshDraft = false) => {
+    epochsRef.current = freshDraft ? new Map() : advanceItemEpochs(movieRef.current, next, epochsRef.current);
+    movieRef.current = next;
+    latest.current = { movie: next, dirty: nextDirty };
+    setMovie(next);
+    setDirty(nextDirty);
+  };
   useEffect(() => () => { const d = latest.current; if (JSON.stringify(d).length <= DRAFT_MAX_CHARS) writePref(DRAFT_KEY, d); }, []);
   const [saved, setSaved] = useState<MovieList | null>(null);
   const [note, setNote] = useState(() => restored.current?.dirty ? t('wizards.movie.restored') : '');
@@ -97,60 +109,140 @@ export function MovieMaker({ root, mediaRoots, endpoint, models = null, onPrepar
   const movieSampling = startFor();
   const variant = h3Model ? modelVariant(SHOT_FAMILY, h3Model.name) : undefined;
   const fixedSize = render.source === 'movie' ? movieSize(movie.aspect, render.resolution, SHOT_FAMILY) : undefined;
-  // The shot Generate is making for us: which hand-over number it has and which segment it belongs to.
-  const sent = useRef<{ n: number; id: string } | null>(null);
-  const [shotState, setShotState] = useState<{ id: string; state: string; error?: string } | null>(null);
+  // The shot/chain/music Generate is making for us: active job ownership is global across drafts and released only when settled,
+  // while permission to publish a result is checked separately against the current draft, revisions and effective submitted inputs.
+  const sent = useRef<PendingGeneration | null>(null);
+  const [activePending, setActivePending] = useState<PendingGeneration | null>(null);
+  const setPending = (next: PendingGeneration | null) => { sent.current = next; setActivePending(next); };
+  const [shotState, setShotState] = useState<{ draft: number; id: string; state: string; error?: string } | null>(null);
   const [chainBusy, setChainBusy] = useState(false);
-  const making = chainBusy || (!!shotState && (shotState.state === 'queued' || shotState.state === 'running'));
+  const chainBusyRef = useRef(false);
+  const setChainActive = (next: boolean) => { chainBusyRef.current = next; setChainBusy(next); };
+  const isGenBusy = () => (!!sent.current && sent.current.run) || chainBusyRef.current;
+  const currentShotState = shotState?.draft === draft ? shotState : null;
+  const making = (!!activePending && activePending.run) || chainBusy;
   // A shot's own model and LoRAs are checked against what is installed before anything is handed over.
+  const modelsRef = useRef(models); modelsRef.current = models;
   const h3Loras = models ? models.filter(x => x.category === 'loras' && x.family === PLAN_FAMILY) : [];
   const env = {
     resolveModel: (name: string) => { const x = h3Models.find(y => y.name === name); return x && { name: x.name, path: x.path }; },
     hasLora: (name: string) => h3Loras.some(x => x.name === name),
   };
-  const makeShot = (id: string, run: boolean): boolean => {
-    if (!onPrepare || !h3Model) return false;
+  const sceneCtxFor = (m: MovieManifest): SceneInputContext => {
+    const all = modelsRef.current;
+    const h3List = all ? modelsForFamilies([PLAN_FAMILY], all) : [];
+    const loras = all ? all.filter(x => x.category === 'loras' && x.family === PLAN_FAMILY) : [];
+    const def = h3List.find(x => x.name === movieRender(m).model) ?? h3List[0];
+    const tInfo = trackInfoRef.current;
+    return {
+      defaultModel: def && { name: def.name, path: def.path },
+      toSrc: convertFileSrc,
+      env: {
+        resolveModel: (name: string) => { const x = h3List.find(y => y.name === name); return x && { name: x.name, path: x.path }; },
+        hasLora: (name: string) => loras.some(x => x.name === name),
+      },
+      track: tInfo ?? undefined,
+    };
+  };
+  const makeShot = (id: string, run: boolean, origin: ShotOrigin = 'manual'): boolean => {
+    if (isGenBusy() || !onPrepare || !h3Model) return false;
     if (referenceMode && !track) { setError(t('wizards.movie.music.trackUnknown')); return false; }
-    const r = shotHandoff(movie, id, { name: h3Model.name, path: h3Model.path }, run, convertFileSrc, env, track);
+    const cur = movieRef.current;
+    const r = shotHandoff(cur, id, { name: h3Model.name, path: h3Model.path }, run, convertFileSrc, env, track);
     if ('blocked' in r) { setError(r.detail ? `${t(r.blocked)} ${r.detail}` : t(r.blocked)); return false; }
+    const shot = cur.items.find(i => i.id === id && i.kind === 'segment');
+    const found = chainOf(cur, id), isContinued = !!found && found.chain.ids[0] !== id;
+    const sub = captureSceneSubmission((handoff ?? 0) + 1, draftRef.current, cur, epochsRef.current, [id], [shot?.seconds ? h3ActualSeconds(shot.seconds, isContinued) : undefined], run, origin, false, sceneCtxFor(cur));
+    if (!sub) return false;
     setError(''); setNote(r.skipped ? t('wizards.movie.shot.skipped', { count: String(r.skipped) }) : '');
-    sent.current = { n: (handoff ?? 0) + 1, id }; setShotState(run ? { id, state: 'queued' } : null);
+    setPending(sub); setChainActive(false); setShotState(run ? { draft: sub.draft, id, state: 'queued' } : null);
     onPrepare(r.handoff);
     return true;
   };
   // A chain reports one shot after the other (`run.step`); a lone shot reports once. The chain is busy until its last shot ends or one fails.
-  const makeChain = (id: string, run: boolean): boolean => {
-    const found = chainOf(movie, id);
-    if (!onPrepare || !h3Model || !found) return false;
-    const r = chainHandoff(movie, found.chain, found.index, { name: h3Model.name, path: h3Model.path }, run, convertFileSrc, env, referenceMode);
+  const makeChain = (id: string, run: boolean, origin: ShotOrigin = 'manual'): boolean => {
+    const cur = movieRef.current;
+    const found = chainOf(cur, id);
+    if (isGenBusy() || !onPrepare || !h3Model || !found) return false;
+    const r = chainHandoff(cur, found.chain, found.index, { name: h3Model.name, path: h3Model.path }, run, convertFileSrc, env, referenceMode);
     if ('blocked' in r) { setError(r.detail ? `${t(r.blocked)} ${r.detail}` : t(r.blocked)); return false; }
+    const sub = captureSceneSubmission((handoff ?? 0) + 1, draftRef.current, cur, epochsRef.current, found.chain.ids, r.actualSeconds, run, origin, true, sceneCtxFor(cur));
+    if (!sub) return false;
     setError(''); setNote(r.skipped ? t('wizards.movie.shot.skipped', { count: String(r.skipped) }) : '');
-    sent.current = { n: (handoff ?? 0) + 1, id }; setChainBusy(run); setShotState(run ? { id, state: 'queued' } : null);
+    setPending(sub); setChainActive(run); setShotState(run ? { draft: sub.draft, id, state: 'queued' } : null);
     onPrepare(r.handoff);
     return true;
   };
   useEffect(() => {
     const s = sent.current, r = outcome?.run;
     if (!s || !outcome || outcome.n !== s.n) return;
-    if (outcome.error) { setShotState({ id: s.id, state: 'failed', error: outcome.error }); sent.current = null; setChainBusy(false); return; }
-    if (!r) return;
-    if (s.id === 'music') {
-      setShotState({ id: 'music', state: r.state, ...(r.error ? { error: r.error } : {}) });
-      if (r.state === 'queued' || r.state === 'running') return;
-      sent.current = null;
-      setMovie(m => recordGeneratedMusic(m, r)); setDirty(true);
+    if (outcome.error) {
+      setPending(null); setChainActive(false);
+      if (s.draft === draftRef.current) {
+        if (autoRunRef.current) { autoRunRef.current = false; setAutoRun(false); }
+        setRestitch(false);
+      }
+      const cur = movieRef.current;
+      if (s.kind === 'music') {
+        const valid = canApplyMusicGeneration(draftRef.current, cur, epochsRef.current, s, musicSeconds(cur), currentMusicModelPath());
+        setShotState(valid ? { draft: s.draft, id: 'music', state: 'failed', error: outcome.error } : null);
+        if (valid) setError(outcome.error);
+      } else {
+        const target = pendingTargetShot(s);
+        const valid = !!target.id && !!canApplySceneStep(draftRef.current, cur, epochsRef.current, s, target.id, target.stepIndex, sceneCtxFor(cur));
+        setShotState(valid ? { draft: s.draft, id: target.id, state: 'failed', error: outcome.error } : null);
+        if (valid) setError(outcome.error);
+      }
       return;
     }
-    const id = r.step?.shotId || s.id;
-    setShotState({ id, state: r.state, ...(r.error ? { error: r.error } : {}) });
-    if (r.state === 'queued' || r.state === 'running') return;
+    if (!r) { if (!s.run) setPending(null); return; }
+    if (s.kind === 'music') {
+      const cur = movieRef.current;
+      const valid = canApplyMusicGeneration(draftRef.current, cur, epochsRef.current, s, musicSeconds(cur), currentMusicModelPath());
+      if (r.state === 'queued' || r.state === 'running') {
+        if (s.draft === draftRef.current) setShotState(valid ? { draft: s.draft, id: 'music', state: r.state, ...(r.error ? { error: r.error } : {}) } : null);
+        return;
+      }
+      setPending(null);
+      const musicOk = r.state === 'succeeded' && !!r.picture?.audio;
+      if ((!musicOk || !valid) && s.draft === draftRef.current && autoRunRef.current) { autoRunRef.current = false; setAutoRun(false); }
+      if (!valid) {
+        if (s.draft === draftRef.current) setShotState(null);
+        return;
+      }
+      setShotState({ draft: s.draft, id: 'music', state: r.state, ...(r.error ? { error: r.error } : {}) });
+      if (r.state === 'unknown' && r.error) setError(r.error);
+      const next = recordGeneratedMusic(cur, r);
+      if (next !== cur) updateMovie(next, true);
+      return;
+    }
+    const target = pendingTargetShot(s, r.step), id = target.id;
+    const cur = movieRef.current;
+    const matched = canApplySceneStep(draftRef.current, cur, epochsRef.current, s, id, target.stepIndex, sceneCtxFor(cur));
+    if (r.state === 'queued' || r.state === 'running') {
+      if (s.draft === draftRef.current) setShotState(matched ? { draft: s.draft, id, state: r.state, ...(r.error ? { error: r.error } : {}) } : null);
+      return;
+    }
+    const shotOk = r.state === 'succeeded' && !!r.picture?.video;
     const lastShot = !r.step || r.step.index >= r.step.total - 1;
-    if (lastShot || r.state !== 'succeeded') { sent.current = null; setChainBusy(false); }
-    const shot = movie.items.find(i => i.id === id), found = chainOf(movie, id);
-    const continued = !!found && found.chain.ids[0] !== id;
-    setMovie(m => recordShotRun(m, id, r, shot?.seconds ? h3ActualSeconds(shot.seconds, continued) : undefined)); setDirty(true);
-    // A scene (re)made on its own: the film is stitched again once every scene is made (owner-requested default).
-    if (lastShot && r.state === 'succeeded') setRestitch(true);
+    if (lastShot || !shotOk) { setPending(null); setChainActive(false); }
+    if (!shotOk && s.draft === draftRef.current) {
+      if (autoRunRef.current) { autoRunRef.current = false; setAutoRun(false); }
+      setRestitch(false);
+    }
+    if (!matched) {
+      if (s.draft === draftRef.current) { setShotState(null); if (s.origin === 'auto' && autoRunRef.current) { autoRunRef.current = false; setAutoRun(false); } }
+      return;
+    }
+    if (shotOk && !lastShot) setPending(recordCompletedChainShot(s, id));
+    setShotState({ draft: s.draft, id, state: r.state, ...(r.error ? { error: r.error } : {}) });
+    if (!shotOk && r.state === 'unknown' && r.error) setError(r.error);
+    if (shotOk || !s.completedIds.includes(id)) {
+      const next = recordShotRun(cur, id, r, matched.actualSeconds);
+      if (next !== cur) updateMovie(next, true);
+    }
+    // A scene (re)made intentionally on its own: the film is stitched again once every scene is made.
+    if (shouldRestitchAfterShot(s, lastShot, r.state, shotOk)) setRestitch(true);
   }, [outcome]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const refresh = async () => { if (!native) return; try { setSaved(await listMovies()); } catch (e) { setError(e instanceof Error ? e.message : String(e)); } };
@@ -169,18 +261,19 @@ export function MovieMaker({ root, mediaRoots, endpoint, models = null, onPrepar
     : !movie.items.find(i => i.id === 'brief')?.text.trim() ? t('wizards.movie.plan.needStory') : payload && payload.chars > PLANNER_MAX_CHARS ? t('wizards.movie.plan.tooLong', { max: String(PLANNER_MAX_CHARS) }) : '';
   const run = async (mode: PlanMode | 'music') => {
     if (!llmModel || !limits || !root) return;
+    const startDraft = draftRef.current, cur = movieRef.current;
     setAsk(null); setError(''); setNote('');
     if (mode === 'music') {
       setMusicCheck(null); setWritingMusic(true);
-      try { setMusicCheck(await requestMusic(root, llmModel, movie)); }
-      catch (e) { setError(e instanceof Error ? e.message : String(e)); }
-      finally { setWritingMusic(false); }
+      try { const res = await requestMusic(root, llmModel, cur); if (draftRef.current === startDraft) setMusicCheck(res); }
+      catch (e) { if (draftRef.current === startDraft) setError(e instanceof Error ? e.message : String(e)); }
+      finally { if (draftRef.current === startDraft) setWritingMusic(false); }
       return;
     }
     setCheck(null); setPlanning(true); setPlanMode(mode);
-    try { setCheck(await requestPlan(root, llmModel, movie, limits, mode)); }
-    catch (e) { setError(e instanceof Error ? e.message : String(e)); }
-    finally { setPlanning(false); }
+    try { const res = await requestPlan(root, llmModel, cur, limits, mode); if (draftRef.current === startDraft) setCheck(res); }
+    catch (e) { if (draftRef.current === startDraft) setError(e instanceof Error ? e.message : String(e)); }
+    finally { if (draftRef.current === startDraft) setPlanning(false); }
   };
   // A model on another machine only ever receives the brief after the destination and contents are shown and confirmed here.
   const begin = async (mode: PlanMode | 'music') => {
@@ -199,25 +292,32 @@ export function MovieMaker({ root, mediaRoots, endpoint, models = null, onPrepar
   const diff = check?.plan ? planDiff(movie, check.plan, { rewriteMade }) : undefined;
   const final = movie.items.find(i => i.id === 'final');
   const filmPlan = assemblyPlan(movie);
-  const owned = useRef<{ cancelled: boolean; job?: JobStatus } | null>(null);
+  const owned = useRef<{ cancelled: boolean; job?: JobStatus; submitted: SubmittedFilm } | null>(null);
   const [joining, setJoining] = useState('');
   const [mismatch, setMismatch] = useState<{ got: number; want: number } | null>(null);
   const joinBlocked = !native || !endpoint ? t('wizards.movie.film.native') : !filmPlan.ok ? t('wizards.movie.film.notReady') : making ? t('wizards.movie.film.making') : '';
   const join = async () => {
-    if (joinBlocked || owned.current) return;
-    const mine = { cancelled: false } as { cancelled: boolean; job?: JobStatus };
+    if (joinBlocked || owned.current || isGenBusy()) return;
+    const cur = movieRef.current;
+    const submitted = captureFilmSubmission(draftRef.current, cur, epochsRef.current);
+    if (!submitted) return;
+    const mine: { cancelled: boolean; job?: JobStatus; submitted: SubmittedFilm } = { cancelled: false, submitted };
     owned.current = mine; setError(''); setNote(''); setMismatch(null); setJoining(t('wizards.movie.film.joining'));
     try {
-      const r = await assembleMovie(movie, realAssembleDeps(endpoint!, job => { mine.job = job; }), () => !mine.cancelled,
-        (step, n, total) => setJoining(step === 'copy' ? t('wizards.movie.film.copying', { n: String(n), total: String(total) }) : step === 'check' ? t('wizards.movie.film.checking') : t('wizards.movie.film.joining')));
-      setMovie(m => recordFilm(m, r)); setDirty(true);
+      const r = await assembleMovie(cur, realAssembleDeps(endpoint!, job => { mine.job = job; }), () => !mine.cancelled,
+        (step, n, total) => { if (owned.current === mine) setJoining(step === 'copy' ? t('wizards.movie.film.copying', { n: String(n), total: String(total) }) : step === 'check' ? t('wizards.movie.film.checking') : t('wizards.movie.film.joining')); });
+      if (owned.current !== mine || !canCompleteFilm(draftRef.current, movieRef.current, epochsRef.current, mine.submitted)) {
+        if (owned.current === mine && autoRunRef.current) { autoRunRef.current = false; setAutoRun(false); }
+        return;
+      }
+      updateMovie(recordFilm(movieRef.current, r), true);
       if (r.mismatch && r.expectedSeconds !== undefined && r.seconds !== undefined) setMismatch({ got: r.seconds, want: r.expectedSeconds });
       setNote(t('wizards.movie.film.done')); logMovieNotice('join-done');
     } catch (e) {
       const code = e instanceof AssemblyError ? e.code : 'failed';
       logMovieNotice(mine.cancelled || code === 'cancelled' ? 'join-cancelled' : code === 'blocked' ? 'join-blocked' : 'join-failed');
-      if (!mine.cancelled) setError(e instanceof Error ? e.message : String(e));
-    } finally { if (owned.current === mine) owned.current = null; setJoining(''); }
+      if (!mine.cancelled && owned.current === mine && draftRef.current === mine.submitted.draft) setError(e instanceof Error ? e.message : String(e));
+    } finally { if (owned.current === mine) { owned.current = null; setJoining(''); } }
   };
   const stopJoin = () => {
     const o = owned.current; if (!o || o.cancelled) return;
@@ -228,21 +328,30 @@ export function MovieMaker({ root, mediaRoots, endpoint, models = null, onPrepar
   // Music bed: choose a track, set level/ducking/fade, mix it onto the joined film (the film itself is never changed).
   const music = movie.items.find(i => i.kind === 'music'), score = movie.items.find(i => i.kind === 'score');
   const musicPlan = mixPlan(movie);
+  const mixRef = useRef<{ submitted: SubmittedMix } | null>(null);
   const [mixing, setMixing] = useState(false);
   // Reference mode: the music goes to H3 as an audio reference of each cut shot (its slice of the track) instead of being mixed in afterwards.
   const referenceMode = score?.mix?.mode === 'h3-reference' && !!music?.file;
-  const [trackSeconds, setTrackSeconds] = useState<number | null>(null);
+  const [trackInfo, setTrackInfo] = useState<{ path: string; seconds: number } | null>(null);
+  const trackInfoRef = useRef<{ path: string; seconds: number } | null>(null);
+  const updateTrackInfo = (next: { path: string; seconds: number } | null) => { trackInfoRef.current = next; setTrackInfo(next); };
   useEffect(() => {
-    setTrackSeconds(null);
-    if (!native || !music?.file || score?.mix?.mode !== 'h3-reference') return;
+    updateTrackInfo(null);
+    const path = music?.file;
+    if (!native || !path || score?.mix?.mode !== 'h3-reference') return;
     let alive = true;
-    musicInfo(music.file).then(r => { if (alive) setTrackSeconds(r.seconds); }, () => undefined);
+    musicInfo(path).then(r => { if (alive) updateTrackInfo({ path, seconds: r.seconds }); }, () => undefined);
     return () => { alive = false; };
   }, [native, music?.file, score?.mix?.mode]); // eslint-disable-line react-hooks/exhaustive-deps
-  const track = referenceMode && music?.file && trackSeconds ? { path: music.file, seconds: trackSeconds } : undefined;
+  const track = referenceMode && music?.file && trackInfo?.path === music.file && trackInfo.seconds ? trackInfo : undefined;
   const musicModels = models ? modelsForFamilies(MUSIC_FAMILIES, models) : [];
   const [musicPath, setMusicPath] = useState('');
+  const musicPathRef = useRef(''); musicPathRef.current = musicPath;
   const musicModel = musicModels.find(x => x.path === musicPath) ?? musicModels[0];
+  const currentMusicModelPath = () => {
+    const list = modelsRef.current ? modelsForFamilies(MUSIC_FAMILIES, modelsRef.current) : [];
+    return (list.find(x => x.path === musicPathRef.current) ?? list[0])?.path ?? '';
+  };
   // ACE-Step LoRAs of the chosen model's LoRA family (header-detected); YuE2 has no LoRA path.
   const musicLoraFamily = musicModel && !isRestrictedMusicFamily(musicModel.family) ? (builtinFamilies as { id: string; loraFamily?: string }[]).find(f => f.id === musicModel.family)?.loraFamily : undefined;
   const musicLoraModels = models && musicLoraFamily ? models.filter(x => x.category === 'loras' && x.family === musicLoraFamily) : [];
@@ -252,49 +361,69 @@ export function MovieMaker({ root, mediaRoots, endpoint, models = null, onPrepar
   const musicStyleShown = styleFor(music?.text ?? '', music?.preset, musicModel?.family);
   const presetValue = (() => { const p = musicPreset(music?.preset); return p && [p.ace, p.yue2].includes((music?.text ?? '').trim()) ? p.id : ''; })();
   const makeMusic = (run: boolean): boolean => {
-    if (!onPrepare || !musicModel) return false;
-    const r = musicHandoff(movie, { name: musicModel.name, path: musicModel.path, family: musicModel.family }, run, name => musicLoraModels.some(x => x.name === name), render.source === 'movie');
+    if (isGenBusy() || !onPrepare || !musicModel) return false;
+    const cur = movieRef.current;
+    const r = musicHandoff(cur, { name: musicModel.name, path: musicModel.path, family: musicModel.family }, run, name => musicLoraModels.some(x => x.name === name), render.source === 'movie');
     if ('blocked' in r) { setError('detail' in r ? `${t(r.blocked)} ${r.detail}` : t(r.blocked)); return false; }
+    const sub = captureMusicSubmission((handoff ?? 0) + 1, draftRef.current, cur, epochsRef.current, r.handoff.music?.seconds ?? musicSeconds(cur), run, musicModel.path);
+    if (!sub) return false;
     setError(''); setNote('');
-    sent.current = { n: (handoff ?? 0) + 1, id: 'music' }; setShotState(run ? { id: 'music', state: 'queued' } : null);
+    setPending(sub); setChainActive(false); setShotState(run ? { draft: sub.draft, id: 'music', state: 'queued' } : null);
     onPrepare(r.handoff);
     return true;
   };
-  const generating = shotState?.id === 'music' && (shotState.state === 'queued' || shotState.state === 'running');
+  const generating = activePending?.kind === 'music' && activePending.run;
   const mixBlocked = !native ? t('wizards.movie.music.native') : musicPlan.ok ? '' : t(`wizards.movie.music.why.${musicPlan.why}`);
   const chooseMusic = async () => {
-    try { const path = await pickMusic(t('wizards.movie.music.pickTitle')); if (path) change(m => setMusicFile(m, path)); }
-    catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+    const startDraft = draftRef.current;
+    try { const path = await pickMusic(t('wizards.movie.music.pickTitle')); if (path && draftRef.current === startDraft) change(m => setMusicFile(m, path)); }
+    catch (e) { if (draftRef.current === startDraft) setError(e instanceof Error ? e.message : String(e)); }
   };
   const mixIt = async () => {
-    if (!musicPlan.ok || mixing) return;
+    if (!musicPlan.ok || mixing || mixRef.current) return;
+    const cur = movieRef.current;
+    const submitted = captureMixSubmission(draftRef.current, cur, epochsRef.current);
+    if (!submitted) return;
+    const mine = { submitted };
+    mixRef.current = mine;
     setError(''); setNote(''); setMixing(true);
-    try { const r = await mixMusic(musicPlan); setMovie(m => recordScore(m, r)); setDirty(true); setNote(t('wizards.movie.music.done')); }
-    catch (e) { setError(e instanceof Error ? e.message : String(e)); }
-    finally { setMixing(false); }
+    try {
+      const r = await mixMusic(musicPlan);
+      if (mixRef.current !== mine || !canCompleteMix(draftRef.current, movieRef.current, epochsRef.current, mine.submitted)) {
+        if (mixRef.current === mine && autoRunRef.current) { autoRunRef.current = false; setAutoRun(false); }
+        return;
+      }
+      updateMovie(recordScore(movieRef.current, r), true);
+      setNote(t('wizards.movie.music.done'));
+    }
+    catch (e) { if (mixRef.current === mine && draftRef.current === mine.submitted.draft) setError(e instanceof Error ? e.message : String(e)); }
+    finally { if (mixRef.current === mine) { mixRef.current = null; setMixing(false); } }
   };
   const musicSecs = musicSeconds(movie);
-  // --- Make the movie: one step after the other until the film (and its music) is done; Stop ends the run after the current step.
+  // --- Make the movie: one step after the other until the film (and its music) is done; Stop ends admission of the next wizard stage.
   const [autoRun, setAutoRun] = useState(false);
+  const autoRunRef = useRef(false);
   const [restitch, setRestitch] = useState(false);
   const lastStep = useRef('');
-  const busy = making || !!joining || mixing || generating;
+  const busy = making || !!joining || mixing;
+  const isStageBusy = () => isGenBusy() || !!owned.current || !!mixRef.current;
   const caps = { musicModel: !!musicModel, canStitch: native && !!endpoint };
   const step = nextMovieStep(movie, caps);
   useEffect(() => {
     if (!autoRun || busy) return;
     const key = step.kind === 'scene' ? `scene:${step.id}:${movie.items.find(i => i.id === step.id)?.revision}` : step.kind;
     // The same step twice without progress means it could not start (the reason is on screen): stop instead of looping.
-    if (key === lastStep.current && step.kind !== 'done') { setAutoRun(false); return; }
+    if (key === lastStep.current && step.kind !== 'done') { autoRunRef.current = false; setAutoRun(false); return; }
     lastStep.current = key;
-    const started = step.kind === 'scene' ? (step.chain ? makeChain(step.id, true) : makeShot(step.id, true))
+    const started = step.kind === 'scene' ? (step.chain ? makeChain(step.id, true, 'auto') : makeShot(step.id, true, 'auto'))
       : step.kind === 'film' ? (joinBlocked ? (setError(joinBlocked), false) : (void join(), true))
       : step.kind === 'music' ? makeMusic(true)
       : step.kind === 'mix' ? (musicPlan.ok ? (void mixIt(), true) : false)
       : null;
-    if (started === false) { setAutoRun(false); return; }
+    if (started === false) { autoRunRef.current = false; setAutoRun(false); return; }
     if (started === null) {
-      setAutoRun(false); if (step.kind === 'done') setNote(t('wizards.movie.run.done')); else if (step.kind === 'blocked') setError(t(`wizards.movie.run.blocked.${step.why}`));
+      autoRunRef.current = false; setAutoRun(false);
+      if (step.kind === 'done') setNote(t('wizards.movie.run.done')); else if (step.kind === 'blocked') setError(t(`wizards.movie.run.blocked.${step.why}`));
     }
   }, [autoRun, busy, step.kind, step.kind === 'scene' ? step.id : '', movie]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
@@ -302,7 +431,8 @@ export function MovieMaker({ root, mediaRoots, endpoint, models = null, onPrepar
     setRestitch(false);
     if (native && endpoint && needsStitch(movie)) void join();
   }, [restitch, autoRun, busy, movie]); // eslint-disable-line react-hooks/exhaustive-deps
-  const startRun = () => { setError(''); setNote(''); lastStep.current = ''; setAutoRun(true); };
+  const startRun = () => { setError(''); setNote(''); lastStep.current = ''; setRestitch(false); autoRunRef.current = true; setAutoRun(true); };
+  const stopRun = () => { autoRunRef.current = false; setAutoRun(false); setRestitch(false); };
   const scoredClip = score?.state === 'done' ? score.revisions.find(r => r.n === score.revision)?.result?.outputId : undefined;
   const filmClip = final?.state === 'done' ? final.revisions.find(r => r.n === final.revision)?.result?.outputId : undefined;
   const why = (w: string) => t(`wizards.movie.film.why.${w}`);
@@ -312,8 +442,20 @@ export function MovieMaker({ root, mediaRoots, endpoint, models = null, onPrepar
   const shotBlock = (g: { id: string }, _n: number) => !h3Model ? t('wizards.movie.shot.noModel') : continued(g.id) ? t('wizards.movie.shot.withChain') : undefined;
   const change = (f: (m: MovieManifest) => MovieManifest) => {
     setError(''); setNote('');
-    try { setMovie(f(movie)); setDirty(true); } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+    try { updateMovie(f(movieRef.current), true); } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
   };
+  const resetDraftRunState = () => {
+    draftRef.current += 1; setDraft(draftRef.current);
+    autoRunRef.current = false; setAutoRun(false); setRestitch(false); lastStep.current = '';
+    if (!isGenBusy()) setShotState(null);
+    if (!owned.current) setMismatch(null);
+    setPlanning(false); setWritingMusic(false); setDescribing(false);
+    setAsk(null); setCheck(null); setMusicCheck(null); setMusicReplace(false); setRewriteMade(false);
+    setRefused([]); setInputsOpen(''); setPanel(null);
+  };
+  const isSceneRunning = (id: string) =>
+    making && currentShotState?.id === id && (currentShotState.state === 'queued' || currentShotState.state === 'running')
+    && activePending?.kind === 'scene' && !!canApplySceneStep(draft, movie, epochsRef.current, activePending, id, activePending.chain ? activePending.shots.findIndex(x => x.id === id) : 0, sceneCtxFor(movie));
   const brief = movie.items.find(i => i.id === 'brief')!;
   // + adds after the open scene (else at the end); − removes the open scene.
   const scene = panel?.kind === 'scene' ? segments.find(i => i.id === panel.id) : undefined;
@@ -322,38 +464,49 @@ export function MovieMaker({ root, mediaRoots, endpoint, models = null, onPrepar
   // a model on another machine only gets them after the same confirmation as the plan.
   const describeAll = async () => {
     if (!root || !llmModel || describing) return;
-    const todo = (movie.media ?? []).filter(x => x.media === 'image' && !x.note?.trim());
+    const startDraft = draftRef.current;
+    const todo = (movieRef.current.media ?? []).filter(x => x.media === 'image' && !x.note?.trim());
     if (!todo.length) return;
     try {
       const where = await plannerDestination(root, llmModel);
+      if (draftRef.current !== startDraft) return;
       if (where.remote && !window.confirm(t('wizards.movie.media.remoteConfirm', { count: String(todo.length), host: where.host }))) return;
-    } catch (e) { setError(e instanceof Error ? e.message : String(e)); return; }
+    } catch (e) { if (draftRef.current === startDraft) setError(e instanceof Error ? e.message : String(e)); return; }
     setDescribing(true); setError('');
     let failed = '';
     for (const x of todo) {
-      try { const text = await describeMediaPicture(root, llmModel.id, convertFileSrc(x.path), x.path.split(/[\\/]/).pop() ?? 'picture.png'); if (text) setMovie(m => setMediaNote(m, x.path, text)); setDirty(true); }
+      if (draftRef.current !== startDraft) return;
+      try { const text = await describeMediaPicture(root, llmModel.id, convertFileSrc(x.path), x.path.split(/[\\/]/).pop() ?? 'picture.png'); if (draftRef.current !== startDraft) return; if (text) updateMovie(setMediaNote(movieRef.current, x.path, text), true); }
       catch (e) { failed = e instanceof Error ? e.message : String(e); }
     }
+    if (draftRef.current !== startDraft) return;
     setDescribing(false);
     if (failed) setError(t('wizards.movie.media.describeFailed', { error: failed }));
   };
   const newSceneSeconds = limits ? Math.min(limits.max, Math.max(limits.min, 5)) : 5;
   const save = async () => {
     setError(''); setNote('');
-    try { await saveMovie(movie.title.trim() ? movie : { ...movie, title: t('wizards.movie.untitled') }); setDirty(false); setNote(t('wizards.movie.saved')); await refresh(); }
-    catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+    const cur = movieRef.current, startDraft = draftRef.current;
+    try { await saveMovie(cur.title.trim() ? cur : { ...cur, title: t('wizards.movie.untitled') }); if (draftRef.current === startDraft) { latest.current = { movie: movieRef.current, dirty: false }; setDirty(false); setNote(t('wizards.movie.saved')); } await refresh(); }
+    catch (e) { if (draftRef.current === startDraft) setError(e instanceof Error ? e.message : String(e)); }
   };
   const open = async (id: string) => {
+    if (isStageBusy()) return;
     if (dirty && !window.confirm(t('wizards.movie.discard'))) return;
+    const req = ++openSeq.current;
     setError(''); setNote('');
     setGone(null);
     try {
-      setMovie(await openMovie(id)); setDirty(false); setNote(t('wizards.movie.opened'));
+      const loaded = await openMovie(id);
+      if (req !== openSeq.current || isStageBusy()) return;
+      resetDraftRunState();
+      const openedDraft = draftRef.current;
+      updateMovie(loaded, false, true); setNote(t('wizards.movie.opened'));
       // Read-only look at which recorded clips and reference pictures are gone; failing to look never blocks opening.
-      void checkMovie(id).then(c => setGone(c.missing.length || c.truncated ? c : null), () => setError(t('wizards.movie.check.failed')));
-    } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+      void checkMovie(id).then(c => { if (draftRef.current === openedDraft) setGone(c.missing.length || c.truncated ? c : null); }, () => { if (draftRef.current === openedDraft) setError(t('wizards.movie.check.failed')); });
+    } catch (e) { if (req === openSeq.current) setError(e instanceof Error ? e.message : String(e)); }
   };
-  const fresh = () => { if (dirty && !window.confirm(t('wizards.movie.discard'))) return; setMovie(newMovie(newMovieId(), '')); setGone(null); setDirty(false); setError(''); setNote(''); setCheck(null); setMusicCheck(null); forgetPref(DRAFT_KEY); };
+  const fresh = () => { if (isStageBusy()) return; if (dirty && !window.confirm(t('wizards.movie.discard'))) return; openSeq.current += 1; resetDraftRunState(); updateMovie(newMovie(newMovieId(), ''), false, true); setGone(null); setError(''); setNote(''); forgetPref(DRAFT_KEY); };
   // Steps in the order a movie is made; each step says when it is done, so the next thing to do is visible.
   const steps = [
     { n: 1, key: 'idea', done: !!brief.text.trim() || !!movie.media?.length },
@@ -368,14 +521,14 @@ export function MovieMaker({ root, mediaRoots, endpoint, models = null, onPrepar
   const poolScenes = segments.map((g, n) => ({ id: g.id, name: g.title.trim() || t('wizards.movie.scene.untitled', { n: String(n + 1) }) }));
   const assign = (path: string, scenes: string[], role: MediaRole, label?: string) => {
     setError('');
-    try { const r = assignMedia(movie, path, scenes, role, label); setMovie(r.movie); setDirty(true); setRefused(r.refused); }
+    try { const r = assignMedia(movieRef.current, path, scenes, role, label); updateMovie(r.movie, true); setRefused(r.refused); }
     catch (e) { setError(e instanceof Error ? e.message : String(e)); }
   };
   return <div className="forge-card wizards-form movie-maker" data-wizard-form="movie">
     <div className="forge-card-head movie-head">
       <h3 className="forge-card-title">{t('wizards.movie.name')}</h3>
       <div className="movie-button-group" role="group" aria-label={t('wizards.movie.file')}>
-        <button type="button" className="forge-ghost" data-movie-new onClick={fresh}>{t('wizards.movie.new')}</button>
+        <button type="button" className="forge-ghost" data-movie-new disabled={busy} onClick={fresh}>{t('wizards.movie.new')}</button>
         <button type="button" className="action-button" data-movie-save disabled={!native || !dirty} onClick={() => void save()}>{t('wizards.movie.save')}</button>
       </div>
       {dirty && <span className="forge-note" data-movie-dirty>{t('wizards.movie.unsaved')}</span>}
@@ -529,12 +682,13 @@ export function MovieMaker({ root, mediaRoots, endpoint, models = null, onPrepar
       {!!segments.length && h3Models.length > 1 && <label className="forge-field"><span>{t('wizards.movie.shot.model')}</span>
         <select data-movie-shot-model value={h3Model?.name ?? ''} onChange={e => change(m => setRender(m, { model: e.target.value, steps: undefined, cfg: undefined }))}>{h3Models.map(m => <option key={m.path} value={m.name}>{m.name}</option>)}</select></label>}
       <MovieTimeline scenes={segments} music={music} film={final} open={panel} onOpen={setPanel} toSrc={convertFileSrc}
-        running={id => shotState?.id === id && (shotState.state === 'queued' || shotState.state === 'running')}
+        running={isSceneRunning}
         onRename={(id, title) => change(m => setItemTitle(m, id, title))}
-        onTransition={(id, kind, seconds) => { change(m => setTransition(m, id, kind, seconds)); setRestitch(true); }}
+        onTransition={(id, kind, seconds) => { change(m => setTransition(m, id, kind, seconds)); if (!autoRunRef.current && !(sent.current?.kind === 'scene' && sent.current.origin === 'auto' && sent.current.draft === draftRef.current)) setRestitch(true); }}
         onAdd={() => { const next = addScene(movie, newSceneSeconds, scene?.id); change(() => next); const id = next.items.filter(i => i.kind === 'segment')[sceneIndex + 1]?.id; if (id) setPanel({ kind: 'scene', id }); }}
         onRemove={id => {
           // A made scene holds a finished clip: ask first (the file itself stays where it is). The open panel moves to a neighbour.
+          if (segments.length <= 1 && (!!joining || mixing)) return;
           const at = segments.findIndex(g => g.id === id), g = segments[at];
           if (!g || (g.state === 'done' && !window.confirm(t('wizards.movie.scene.removeMade', { name: g.title.trim() || t('wizards.movie.scene.untitled', { n: String(at + 1) }) })))) return;
           change(m => removeScene(m, id));
@@ -546,7 +700,7 @@ export function MovieMaker({ root, mediaRoots, endpoint, models = null, onPrepar
       <p className="forge-note">{t('wizards.movie.run.hint')}</p>
       <div className="wizards-row movie-button-group">
         <button type="button" className="action-button" data-movie-run disabled={!native || !onPrepare || !h3Model || autoRun || busy || !segments.length} title={!h3Model ? t('wizards.movie.shot.noModel') : undefined} onClick={startRun}>{t(autoRun ? 'wizards.movie.run.running' : step.kind === 'done' ? 'wizards.movie.run.again' : 'wizards.movie.run.start')}</button>
-        {autoRun && <button type="button" className="forge-ghost" data-movie-run-stop onClick={() => setAutoRun(false)}>{t('wizards.movie.run.stop')}</button>}
+        {autoRun && <button type="button" className="forge-ghost" data-movie-run-stop onClick={stopRun}>{t('wizards.movie.run.stop')}</button>}
       </div>
       {autoRun && <p className="forge-note" role="status" data-movie-run-step>{t(`wizards.movie.run.step.${step.kind}`, { name: step.kind === 'scene' ? (movie.items.find(i => i.id === step.id)?.title || t('wizards.movie.scene.untitled', { n: String(segments.findIndex(i => i.id === step.id) + 1) })) : '' })}</p>}
     </section>
@@ -592,11 +746,11 @@ export function MovieMaker({ root, mediaRoots, endpoint, models = null, onPrepar
             </>}
           </details>
           <div className="wizards-row movie-button-group" data-movie-shot={g.id}>
-            <span className="forge-note" data-movie-shot-state>{t(`wizards.movie.shot.state.${shotState?.id === g.id && (shotState.state === 'queued' || shotState.state === 'running') ? 'running' : g.state}`)}</span>
+            <span className="forge-note" data-movie-shot-state>{t(`wizards.movie.shot.state.${isSceneRunning(g.id) ? 'running' : g.state}`)}</span>
             <button type="button" className="forge-ghost" data-movie-shot-prepare disabled={!native || !onPrepare || !h3Model || making || continued(g.id)} title={shotBlock(g, n)} onClick={() => chainLen(g.id) > 1 ? makeChain(g.id, false) : makeShot(g.id, false)}>{t(chainLen(g.id) > 1 ? 'wizards.movie.shot.prepareChain' : 'wizards.movie.shot.prepare')}</button>
             <button type="button" className="action-button" data-movie-shot-make disabled={!native || !onPrepare || !h3Model || making || continued(g.id)} title={shotBlock(g, n)} onClick={() => chainLen(g.id) > 1 ? makeChain(g.id, true) : makeShot(g.id, true)}>{chainLen(g.id) > 1 ? t(g.state === 'done' ? 'wizards.movie.shot.chainAgain' : 'wizards.movie.shot.makeChain', { count: String(chainLen(g.id)) }) : t(g.state === 'done' ? 'wizards.movie.shot.again' : 'wizards.movie.shot.make')}</button>
           </div>
-          {shotState?.id === g.id && shotState.error && <p className="error-message" role="alert" data-movie-shot-error>{shotState.error}</p>}
+          {currentShotState?.id === g.id && currentShotState.error && <p className="error-message" role="alert" data-movie-shot-error>{currentShotState.error}</p>}
           {g.state === 'done' && (() => { const out = g.revisions.find(r => r.n === g.revision)?.result?.outputId; return out && /\.(mp4|webm|mkv|mov)$/i.test(out) ? <MoviePlayer path={out} media="video" toSrc={convertFileSrc} data-movie-shot-video/> : null; })()}
           <p className="forge-note" data-movie-seg-actual>{t('wizards.movie.plan.actual', { seconds: (Math.round(h3ActualSeconds(g.seconds ?? 0, !!g.continuous) * 100) / 100).toString() })}</p>
           {(g.dialogue ?? []).map((d, k) => <p key={k} className="forge-note" data-movie-seg-line>{t('wizards.movie.plan.line', { name: d.speaker, line: d.line })}</p>)}
@@ -635,7 +789,7 @@ export function MovieMaker({ root, mediaRoots, endpoint, models = null, onPrepar
         <button type="button" className="action-button" data-movie-music-generate disabled={!native || !onPrepare || !musicModel || making} title={musicModel ? undefined : t('wizards.movie.music.noModel')} onClick={() => makeMusic(true)}>{t(generating ? 'wizards.movie.music.generating' : 'wizards.movie.music.generate', { seconds: String(musicSecs) })}</button>
         {!musicModel && <span className="forge-note" data-movie-music-nomodel>{t('wizards.movie.music.noModel')}</span>}
       </div>
-      {shotState?.id === 'music' && shotState.error && <p className="error-message" role="alert" data-movie-music-error>{shotState.error}</p>}
+      {currentShotState?.id === 'music' && currentShotState.error && <p className="error-message" role="alert" data-movie-music-error>{currentShotState.error}</p>}
       <div className="wizards-row movie-button-group">
         <button type="button" className="forge-ghost" data-movie-music-pick disabled={!native} onClick={() => void chooseMusic()}>{t(music?.file ? 'wizards.movie.music.change' : 'wizards.movie.music.pick')}</button>
         {music?.file && <span className="forge-note wizards-name" title={music.file} data-movie-music-file>{fileName(music.file)}</span>}
@@ -660,14 +814,14 @@ export function MovieMaker({ root, mediaRoots, endpoint, models = null, onPrepar
 
       </div>
     </MoviePanel>}
-    {panel?.kind === 'film' && final && <MoviePanel kind="film" title={t('wizards.movie.film.title')} onClose={() => setPanel(null)}>
+    {panel?.kind === 'film' && (final || !!joining) && <MoviePanel kind="film" title={t('wizards.movie.film.title')} onClose={() => setPanel(null)}>
       <div className="wizards-step" data-movie-film>
       <span className="forge-note">{t('wizards.movie.film.title')}</span>
       <p className="forge-note">{t('wizards.movie.film.intro')}</p>
       {!filmPlan.ok && filmPlan.missing.length > 0 && <ul data-movie-film-missing>{filmPlan.missing.map(x => <li key={x.id} className="forge-note">{t('wizards.movie.film.missing', { title: x.title, why: why(x.why) })}</li>)}</ul>}
-      {final.state === 'stale' && <p className="forge-note" data-movie-film-stale>{t('wizards.movie.film.stale')}</p>}
+      {final?.state === 'stale' && <p className="forge-note" data-movie-film-stale>{t('wizards.movie.film.stale')}</p>}
       <div className="wizards-row movie-button-group">
-        <button type="button" className="action-button" data-movie-film-run disabled={!!joinBlocked || !!joining} title={joinBlocked || undefined} onClick={() => void join()}>{t(final.state === 'done' ? 'wizards.movie.film.again' : 'wizards.movie.film.run')}</button>
+        <button type="button" className="action-button" data-movie-film-run disabled={!!joinBlocked || !!joining} title={joinBlocked || undefined} onClick={() => void join()}>{t(final?.state === 'done' ? 'wizards.movie.film.again' : 'wizards.movie.film.run')}</button>
         {joining && <button type="button" className="forge-ghost" data-movie-film-stop onClick={stopJoin}>{t('wizards.run.stop')}</button>}
         {joining && <span className="forge-note" role="status" data-movie-film-progress>{joining}</span>}
         {joinBlocked && !joining && <span className="forge-note" data-movie-film-blocked>{joinBlocked}</span>}
@@ -683,7 +837,7 @@ export function MovieMaker({ root, mediaRoots, endpoint, models = null, onPrepar
       <span className="forge-note">{t('wizards.movie.open')}</span>
       {saved && !saved.movies.length && <p className="forge-note" data-movie-none>{t('wizards.movie.none')}</p>}
       {saved?.movies.map(s => <div className="wizards-row" key={s.id} data-movie-saved-item={s.id}>
-        <button type="button" className="forge-ghost" data-movie-open={s.id} onClick={() => void open(s.id)}>{s.title || s.id}</button>
+        <button type="button" className="forge-ghost" data-movie-open={s.id} disabled={busy} onClick={() => void open(s.id)}>{s.title || s.id}</button>
         <span className="forge-note">{t('wizards.movie.savedInfo', { items: String(s.items), seconds: String(s.targetSeconds) })}</span>
       </div>)}
       {!!saved?.damaged && <p className="forge-note" data-movie-damaged>{t('wizards.movie.damaged', { count: String(saved.damaged) })}</p>}
