@@ -78,7 +78,9 @@ Expand a pack in **Folders** to browse its subfolders and YAML groups.
 Selecting a folder shows its lists. Search also finds matches in that
 folder's descendants. Choose a wildcard to inspect its choices and insert it
 in the positive or negative prompt. A choice can reference other lists
-with the same `__name__` syntax.
+with the same `__name__` syntax. Inside a list, a short name looks for a
+top-level list first and then for a list in the same folder. Use the full
+path to reference a list in a specific folder.
 
 Studio expands imported wildcards and choices like `{1|2|3}` in the
 main positive and negative prompts for image and video generation. Each
