@@ -105,7 +105,11 @@ def open_fixture(browser, url, user_agent=None):
     original = collection.FIXTURE
     collection.FIXTURE += FIXTURE
     try:
-        return collection.open_studio(browser, url, False, user_agent=user_agent)
+        context, page, errors = collection.open_studio(browser, url, False, user_agent=user_agent)
+        clip = Path(__file__).resolve().parents[1] / 'src-tauri/test-data/preview/preview.mp4'
+        page.route('https://image.civitai.com/library-preview-fixture.mp4',
+                   lambda route: route.fulfill(path=clip, content_type='video/mp4'))
+        return context, page, errors
     finally:
         collection.FIXTURE = original
 
@@ -114,9 +118,6 @@ def verify_web_video_cover(browser, url):
     # WebView2 (Windows) path: the web <video> cover. The Linux desktop never renders it.
     context, page, errors = open_fixture(browser, url, 'DEAS Windows Chromium fixture')
     try:
-        clip = Path(__file__).resolve().parents[1] / 'src-tauri/test-data/preview/preview.mp4'
-        page.route('https://image.civitai.com/library-preview-fixture.mp4',
-                   lambda request: request.fulfill(path=clip, content_type='video/mp4'))
         page.locator('[data-node="optional-downloads"]').click()
         page.locator('[data-library-tab="installed"]').click()
         card = page.get_by_role('button', name='video-cover.safetensors', exact=True)

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.50
+
+- **Studio can import wildcard folders.** My wildcards browses nested TXT and YAML lists, inserts `__name__` tokens, and previews the expanded prompt. Imports support up to 64 MiB of source files per folder and combine lists that share a name within the folder.
+- **My wildcards supports Random and Fixed seeds.** Studio expands `{one|two|three}` choices in positive and negative image and video prompts without a wildcard pack.
+- **The Windows folder picker preserves the working directory.** You can move a wildcard folder after import and keep using the saved lists.
+
 ## 0.3.49
 
 - **Movie Maker keeps the shots it already made.** A shot, chain, music bed, film stitch or mix that finished late — after you edited a scene, removed and re-added one, changed a transition, picked another music track, or switched to another movie — no longer marks the newer plan complete. Each run is bound to the draft, scene revision and effective inputs it was started with, and a reply that no longer matches is dropped instead of written into the film. The shot, chain and music buttons now share one active slot, so a second hand-over cannot replace a running generation; **New** and **Saved movies → open** wait until the running stage settles, and the film panel keeps its **Stop** button while a stitch runs.

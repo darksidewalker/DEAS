@@ -103,6 +103,8 @@ import type { WizardHandoff, WizardRun } from '../../lib/wizards';
 import { jobOutputPath } from '../../lib/wizards';
 import { PresetPanel } from '../presets/PresetPanel';
 import { WildcardPanel } from '../wildcards/WildcardPanel';
+import { WildcardTabs } from '../wildcards/WildcardTabs';
+import { useWildcardPacks } from '../wildcards/useWildcardPacks';
 import { defaultWildcard, isWildcardRules, wildcardNode, parseWildcardLibrary, flattenCategories, mergeVariableLibrary, parsePins, parseVariableLibrary, prunePins, scanVariables, variablePick, type WildcardLibrary } from '../../lib/wildcard';
 import { containedImageHit, flattenImages, flattenLayer, visibleImages, type ImageLayer } from './imageEditor';
 import './workbench.css';
@@ -159,6 +161,7 @@ function useBlobSrc(src:string|undefined,active:boolean):{url?:string;error?:str
 /** Media element failures are invisible in the native webview; the caption shows them. */
 const mediaError=(e:React.SyntheticEvent<HTMLMediaElement>)=>{const m=e.currentTarget.error;return m?`error ${m.code}${m.message?`: ${m.message}`:''}`:'';};
 const isSeed=(v:unknown):v is number=>typeof v==='number'&&Number.isSafeInteger(v)&&v>=0;
+const isWildcardSeed=(v:unknown):v is number=>isSeed(v)&&v<=0xffffffff;
 const isSeeds=(v:unknown):v is number[]=>Array.isArray(v)&&v.length<=10&&v.every(isSeed);
 const dockTabs=['media','models','loras','notes','presets','wildcards','post','options'] as const;
 /** Pipeline taxonomy. `t2i`/`i2i` (images) and `t2v`/`i2v` (LTX, Wan, MiniMax H3 per family data) have native recipes; `v2v`/`ref2v` stay listed but disabled. */
@@ -253,6 +256,10 @@ function WorkbenchContent({beginner=false,beginnerPage='generate',onBeginnerPage
  const [aceDuration,setAceDuration]=usePref('studio.run.music.ace.duration',120,isNumber);
  const [aceProfilePref,setAceProfilePref]=usePref('studio.run.music.aceProfile','',isString);
  const [wildcard,setWildcard]=usePref('studio.run.wildcard',defaultWildcard,isWildcardRules);
+ const [wildcardPackSeed,setWildcardPackSeed]=usePref('studio.run.wildcardPackSeed',wildcard.seed,isWildcardSeed);
+ const [wildcardSeedMode,setWildcardSeedMode]=usePref('studio.run.wildcardSeedMode','fixed',oneOf('random','fixed'));
+ const wildcardPacks=useWildcardPacks(native,dockTab==='wildcards',positive,negative,wildcardPackSeed);
+ const submittedPrompts=wildcardPacks.preview??{positive,negative};
  const [wildcardEnabled,setWildcardEnabled]=usePref('studio.run.wildcardEnabled',false,isBoolean);
  const [wildcardLibrary,setWildcardLibrary]=useState<WildcardLibrary|null>(null);
  const [wildcardLoading,setWildcardLoading]=useState(false);
@@ -867,6 +874,7 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
    ...(optionsPref.vae==='tiled'&&!options?.vaeTile?['VAEDecodeTiled']:[])]:[])
  ];
  if(lyingSigmaUnavailable)unavailable.push(lyingSigmaUnavailable);
+ if(!isMusic&&wildcardPacks.error)unavailable.push(wildcardPacks.error);
  if(animaLoraRequested&&choices&&!animaLoraAvailable)unavailable.push(t('loraSets.animaRemapUnavailable'));
  if((isMusic||isVideo&&videoFamily!=='wan')&&!audioEnhance.ready)unavailable.push(t('studio.audioEnhance.notReady'));
  // A chained refinement that cannot run blocks Run instead of being silently dropped.
@@ -1045,7 +1053,7 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
   const inputLayers=visibleImages(layers);
   const refineSigmas=only?.upscaleOnly?null:tail(refineDenoise); // Upscale alone: no diffusion tail, the pass is resize + model upscale.
   const wiredWildcard:typeof wildcard=wildcardEnabled?{...wildcard,...(Object.keys(wildcardVars.lib).length?{variables_json:JSON.stringify(wildcardVars.lib),variable_selections:JSON.stringify(prunePins(negative,wildcardVars.lib,prunePins(positive,wildcardVars.lib,parsePins(wildcard.variable_selections))))}:{})}:wildcard;
-  const common={recipeId:'checkpoint-text-to-image-diagnostic',version:1,...(lyingSigmaActive&&!only?{lyingSigma:{...lyingSigma}}:{}),...(animaLoraRequested?{animaLoraRemap:true}:{}),...(Object.values(componentOverrides).some(Boolean)?{componentOverrides:{...componentOverrides}}:{}),positivePrompt:positive,negativePrompt:negative,checkpoint,seed,cfg,sampler,scheduler,outputPrefix:naming,...(wildcardEnabled?{wildcard:wiredWildcard}:{}),...(activeLoras.length?{loras:activeLoras}:{}),...(split&&family?.clipType?{diffusion:{textEncoder,...(dualClip&&textEncoder2?{textEncoder2}:{}),clipType:family.clipType,vae,family:family.id}}:{}),...(family?{family:family.id}:{}),...(family?.id==='moss-image'&&mossSkip.trim()?{skipLayers:mossSkip.trim()}:{}),...(h3Image?{h3Edit:{shiftVideo:video.shiftVideo,shiftAudio:video.shiftAudio},...(latentEnabled&&!only?{latentUpscale:{model:latentModel,scale:latentPref.scale,steps:latentPref.steps,denoise:latentPref.denoise,...(latentAdvanced?{advanced:latentAdvanced}:{})}}:{})}:{}),...(imageRefs.length&&referenceMethod?(referenceMethod==='revision'?{imageReference:{visionModel:refVision,images:imageRefs.map(r=>({image:comfyName(r.item)||r.item.path!,strength:r.strength}))}}:{nativeImageReference:{method:referenceMethod,images:imageRefs.map(r=>comfyName(r.item)||r.item.path!)}}):{}),...(options?{options}:{}),...(out.imageFormat!=='png'||out.imageCompression!==44?{imageFormat:out.imageFormat,imageCompression:out.imageCompression}:{})} as const;
+  const common={recipeId:'checkpoint-text-to-image-diagnostic',version:1,...(lyingSigmaActive&&!only?{lyingSigma:{...lyingSigma}}:{}),...(animaLoraRequested?{animaLoraRemap:true}:{}),...(Object.values(componentOverrides).some(Boolean)?{componentOverrides:{...componentOverrides}}:{}),positivePrompt:submittedPrompts.positive,negativePrompt:submittedPrompts.negative,checkpoint,seed,cfg,sampler,scheduler,outputPrefix:naming,...(wildcardEnabled?{wildcard:wiredWildcard}:{}),...(activeLoras.length?{loras:activeLoras}:{}),...(split&&family?.clipType?{diffusion:{textEncoder,...(dualClip&&textEncoder2?{textEncoder2}:{}),clipType:family.clipType,vae,family:family.id}}:{}),...(family?{family:family.id}:{}),...(family?.id==='moss-image'&&mossSkip.trim()?{skipLayers:mossSkip.trim()}:{}),...(h3Image?{h3Edit:{shiftVideo:video.shiftVideo,shiftAudio:video.shiftAudio},...(latentEnabled&&!only?{latentUpscale:{model:latentModel,scale:latentPref.scale,steps:latentPref.steps,denoise:latentPref.denoise,...(latentAdvanced?{advanced:latentAdvanced}:{})}}:{})}:{}),...(imageRefs.length&&referenceMethod?(referenceMethod==='revision'?{imageReference:{visionModel:refVision,images:imageRefs.map(r=>({image:comfyName(r.item)||r.item.path!,strength:r.strength}))}}:{nativeImageReference:{method:referenceMethod,images:imageRefs.map(r=>comfyName(r.item)||r.item.path!)}}):{}),...(options?{options}:{}),...(out.imageFormat!=='png'||out.imageCompression!==44?{imageFormat:out.imageFormat,imageCompression:out.imageCompression}:{})} as const;
   const resized=!!upscaleModel||target.width!==only?.size.width||target.height!==only?.size.height;
   return Object.freeze(only
    ?{...common,width:target.width,height:target.height,steps:refineSigmas?refineSigmas.length-1:steps,...(refineSigmas?{sigmas:refineSigmas}:{}),inputImage:only.image,denoise:only.upscaleOnly?0:refineDenoise,...(resized?{inputResize:{...target,crop:'disabled' as const}}:{}),...(upscaleModel?{upscaleModel}:{})}
@@ -1057,6 +1065,7 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
  async function run(only?:{image:string;size:Size;src:string;item:MediaItem;upscaleOnly?:boolean},step?:{index:number;all:boolean},chat?:{positive:string;negative:string;size?:Size}):Promise<{job:JobStatus;intent:DiagnosticImageIntentV1|VideoIntentV1|MusicIntentV1}|undefined>{
   if(!native||stopLock.current||admissionBlocked||samBusy||nativeRefining||scanning||((step||autoPlan||planRun.current||resolving)&&(!step||serialBlocked))||(moss&&only))return;
   if(step&&!continuityOn)return;
+  if(!isMusic&&wildcardPacks.pending)return;
   if(!checkpoint){setError(t('studio.run.noModels'));return;}
   if(backendPending||(only?unavailable.filter(issue=>issue!==lyingSigmaUnavailable):unavailable).length||musicNeedsStyle||historyProblems.length)return; // The overlay derives dependency warnings from the current selections.
   const editing=!only&&inpaint;
@@ -1070,6 +1079,7 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
   if(naming===null){setError(t('studio.run.opt.outputNaming.invalid'));return;}
   const out=optionsPref.output??defaultVideoOutput;
   if(seedMode==='random'){nextSeed.current=randomSeed();setSeed(nextSeed.current);}
+  if(!isMusic&&!only&&!chat&&wildcardSeedMode==='random'&&wildcardPacks.preview)setWildcardPackSeed(randomSeed());
   if(isMusic&&!only)return await runMusic(naming,capturedSeed);
   // The started video job is returned like a picture job, so a wizard run can follow it.
   if(isVideo&&!only)return await runVideo(naming,out,capturedSeed,step);
@@ -1218,7 +1228,7 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
   const enhancedPreview=family?choices?.videoPreviews?.[family.id]:undefined;
   const chunks=optionsPref.chunkHeadroom?chunkCount(count,outputSize.width,outputSize.height,optionsPref.chunkHeadroom):undefined;
   const {imageFormat,imageCompression,...output}=out;void imageFormat;void imageCompression;
-  const base={recipeId:'video-generation',version:1,...(Object.values(componentOverrides).some(Boolean)?{componentOverrides:{...componentOverrides}}:{}),positivePrompt:positive,negativePrompt:negative,model:checkpoint,textEncoder,vae,seed,width:outputSize.width,height:outputSize.height,frames:count,frameRate:fps,steps,cfg,sampler,scheduler,outputPrefix:naming,output,
+  const base={recipeId:'video-generation',version:1,...(Object.values(componentOverrides).some(Boolean)?{componentOverrides:{...componentOverrides}}:{}),positivePrompt:submittedPrompts.positive,negativePrompt:submittedPrompts.negative,model:checkpoint,textEncoder,vae,seed,width:outputSize.width,height:outputSize.height,frames:count,frameRate:fps,steps,cfg,sampler,scheduler,outputPrefix:naming,output,
    ...(activeLoras.length?{loras:activeLoras}:{}),...(options?{options}:{}),...(chunks?{chunks}:{}),...(enhancedPreview&&optionsPref.enhancedPreview!==false?{enhancedPreview}:{}),...(videoPost?{videoPost}:{}),...(vf!=='wan'&&audioEnhance.intent?{audioEnhance:audioEnhance.intent}:{})} as const;
    let intent:VideoIntentV1;
    // The Director's default canvas fit for DEAS stays implicit, so unchanged intents stay byte-identical.
@@ -1343,6 +1353,8 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
  useEffect(()=>{
   const activeChain=movieChain.current&&moviePlanRef.current?.n===movieChain.current.n?movieChain.current:null;
   if(!autoPlan||stopLock.current||current||admissionBlocked||serialBlocked||(activeChain&&samBusy)||resolving)return;
+  if(wildcardPacks.pending)return;
+  if(wildcardPacks.error){setAutoPlan(false);return;}
   const next=nextStep(plan);
   if(!next||!continuityOn){
    setAutoPlan(false);
@@ -1364,8 +1376,8 @@ const loadChoices=()=>{if(native&&!choices&&endpoint.trim())void refreshChoices(
    setAutoPlan(false);
    abortMovieChain(targetN,stepIndex,shotIds,e instanceof Error?e.message:String(e));
   });
- },[autoPlan,current,admissionBlocked,serialBlocked,samBusy,busy,resolving,plan,continuityOn]); // eslint-disable-line react-hooks/exhaustive-deps
- const runPlan=(all:boolean)=>{if(stopLock.current||admissionBlocked||serialBlocked||resolving||historyProblems.length||unavailable.length)return;const next=nextStep(plan);if(!next||!continuityOn)return;if(all)setAutoPlan(true);else void run(undefined,{index:next.index,all:false});};
+ },[autoPlan,current,admissionBlocked,serialBlocked,samBusy,busy,resolving,plan,continuityOn,wildcardPacks.pending,wildcardPacks.error]); // eslint-disable-line react-hooks/exhaustive-deps
+ const runPlan=(all:boolean)=>{if(stopLock.current||admissionBlocked||serialBlocked||resolving||wildcardPacks.pending||historyProblems.length||unavailable.length)return;const next=nextStep(plan);if(!next||!continuityOn)return;if(all)setAutoPlan(true);else void run(undefined,{index:next.index,all:false});};
  async function stop(){
   if(stopLock.current)return;
   const activeChain=movieChain.current;
@@ -2354,7 +2366,7 @@ const promptTools=forgeContext&&<>
   }))().then(stop=>{if(alive)unlisten=stop;else stop();}).catch(()=>{if(alive)setMoreResult(t('studio.run.metadata.dropFailed'));});
   return()=>{alive=false;unlisten?.();};
  },[native]);
- const planNotices=[t('studio.plan.validation'),...(historyProblems.length?[t('studio.history.blocked',{items:historyProblems.join(' · ')})]:[]),...(backendPending?[t('studio.run.backendPending')]:[]),...(unavailable.length?[t('studio.quick.unavailable',{names:unavailable.join(', ')})]:[]),...(musicNeedsStyle?[t('studio.music.needsStyle')]:[]),...(!checkpoint?[t('studio.run.noModels')]:[]),...(sizeError?[t(sizeError,{multiple:String(grid)})]:[]),...(inpaint&&!masked?[t('studio.run.edit.needsMask')]:[]),...(naming===null?[t('studio.run.opt.outputNaming.invalid')]:[]),...(!choices?[]:[]),...((isVideo&&(post||wildcardEnabled||optionsPref.sigmas?.trim()))||(h3Image&&post)?[t('studio.plan.imageOnly')]:[]),...(h3Image&&imageRefs.length&&outputSize.width*outputSize.height<2_000_000?[t('studio.run.reference.h3Area')]:[]),...(isMusic&&(post||wildcardEnabled||optionsPref.sigmas?.trim()||(!aceProfile&&activeLoras.length))?[t('studio.plan.imageOnly')]:[])];
+ const planNotices=[t('studio.plan.validation'),...(!isMusic&&wildcardPacks.pending?[t('wildpacks.resolving')]:[]),...(historyProblems.length?[t('studio.history.blocked',{items:historyProblems.join(' · ')})]:[]),...(backendPending?[t('studio.run.backendPending')]:[]),...(unavailable.length?[t('studio.quick.unavailable',{names:unavailable.join(', ')})]:[]),...(musicNeedsStyle?[t('studio.music.needsStyle')]:[]),...(!checkpoint?[t('studio.run.noModels')]:[]),...(sizeError?[t(sizeError,{multiple:String(grid)})]:[]),...(inpaint&&!masked?[t('studio.run.edit.needsMask')]:[]),...(naming===null?[t('studio.run.opt.outputNaming.invalid')]:[]),...(!choices?[]:[]),...((isVideo&&(post||wildcardEnabled||optionsPref.sigmas?.trim()))||(h3Image&&post)?[t('studio.plan.imageOnly')]:[]),...(h3Image&&imageRefs.length&&outputSize.width*outputSize.height<2_000_000?[t('studio.run.reference.h3Area')]:[]),...(isMusic&&(post||wildcardEnabled||optionsPref.sigmas?.trim()||(!aceProfile&&activeLoras.length))?[t('studio.plan.imageOnly')]:[])];
  const inputNotes=[...(inpaint?[t('studio.plan.mask',{blur:String(maskBlur),grow:String(maskGrow),crop:t(inpaintOnlyMasked?'studio.plan.yes':'studio.plan.no')})]:[]),...(pipeline==='i2i'&&layers.some(l=>l.visible)?[t('studio.plan.layersPending')]:[]),...(isVideo||imageRefs.length||pipeline==='cover'?[t('studio.plan.uploadPending')]:[])];
  const projectDraft:ImageDraft={positivePrompt:positive,negativePrompt:negative,checkpoint:project?checkpointPref:checkpoint,width:project&&!model?width:outputSize.width,height:project&&!model?height:outputSize.height,steps,cfg,sampler,scheduler,seed,denoise,pipeline:pipeline==='i2i'?'i2i':'t2i'};
  const restoreProject=(next:ProjectSnapshot|null)=>{
@@ -2409,7 +2421,7 @@ const promptTools=forgeContext&&<>
  const stopCurrent=jobs.find(j=>j.id===stopChoice?.jobId);
  const stopCurrentReason=!stopCurrent?'studio.run.stop.noCurrent':!stopAvailable?'studio.run.stop.unsupported':stopCurrent.state==='unknown'?'studio.run.stop.unknown':!stoppable(stopCurrent)?'studio.run.stop.inactive':'';
  const runControls=(<div className="wb-run-actions">
-     <button ref={runButton} type="button" className="aio-confirm-button wb-run" data-run disabled={(beginner&&!family?.defaults&&!(model&&beginnerTarget(model)))||!native||scanning||admissionBlocked||samBusy||nativeRefining||autoPlan||resolving||!!planRun.current||!!sizeError||(inpaint&&!masked)||!checkpoint||backendPending||unavailable.length>0||musicNeedsStyle||historyProblems.length>0} title={beginner&&!family?.defaults&&!(model&&beginnerTarget(model))?t('beginner.unknownFamily'):!native?t('studio.backendHelp'):backendPending?t('studio.run.backendPending'):historyProblems.length?t('studio.history.blocked',{items:historyProblems.join(' · ')}):busy||current?undefined:sizeError?t(sizeError,{multiple:String(grid)}):inpaint&&!masked?t('studio.run.edit.needsMask'):!checkpoint?t(why(pipeline)||'studio.run.noModels'):unavailable.length?t('studio.quick.unavailable',{names:unavailable.join(', ')}):musicNeedsStyle?t('studio.music.needsStyle'):undefined} onClick={()=>void run()}>{t('studio.run.run')}</button>{(working||current||nativeRefining||autoPlan||resolving||preparing>0||frontendAdmitting||stopping||(!recovered&&!!error))&&<button type="button" ref={stopTrigger} className="wb-run-stop" data-run-stop aria-haspopup={stopQueue>1?'menu':undefined} aria-expanded={stopQueue>1||stopChoice?!!stopChoice:undefined} disabled={stopping} aria-label={t('studio.run.stop.label')} title={t(stopQueue>1?'studio.run.stop.hint':'studio.run.stop.current')} onClick={()=>{if(stopQueue<=1){void stop();return;}setStopChoice(stopChoice?null:{jobId:(jobs.find(j=>j.state==='running')??current)?.id??''});}}>{t(stopping?'studio.run.stop.stopping':'studio.run.stop.label')}</button>}{stopChoice&&<div ref={stopMenu} role="menu" data-run-stop-choice className="media-menu wb-stop-menu" aria-label={t('studio.run.stop.choose')}>
+     <button ref={runButton} type="button" className="aio-confirm-button wb-run" data-run disabled={(beginner&&!family?.defaults&&!(model&&beginnerTarget(model)))||!native||scanning||admissionBlocked||samBusy||nativeRefining||autoPlan||resolving||!!planRun.current||!!sizeError||(inpaint&&!masked)||!checkpoint||backendPending||(!isMusic&&wildcardPacks.pending)||unavailable.length>0||musicNeedsStyle||historyProblems.length>0} title={beginner&&!family?.defaults&&!(model&&beginnerTarget(model))?t('beginner.unknownFamily'):!native?t('studio.backendHelp'):backendPending?t('studio.run.backendPending'):historyProblems.length?t('studio.history.blocked',{items:historyProblems.join(' · ')}):busy||current?undefined:!isMusic&&wildcardPacks.pending?t('wildpacks.resolving'):sizeError?t(sizeError,{multiple:String(grid)}):inpaint&&!masked?t('studio.run.edit.needsMask'):!checkpoint?t(why(pipeline)||'studio.run.noModels'):unavailable.length?t('studio.quick.unavailable',{names:unavailable.join(', ')}):musicNeedsStyle?t('studio.music.needsStyle'):undefined} onClick={()=>void run()}>{t('studio.run.run')}</button>{(working||current||nativeRefining||autoPlan||resolving||preparing>0||frontendAdmitting||stopping||(!recovered&&!!error))&&<button type="button" ref={stopTrigger} className="wb-run-stop" data-run-stop aria-haspopup={stopQueue>1?'menu':undefined} aria-expanded={stopQueue>1||stopChoice?!!stopChoice:undefined} disabled={stopping} aria-label={t('studio.run.stop.label')} title={t(stopQueue>1?'studio.run.stop.hint':'studio.run.stop.current')} onClick={()=>{if(stopQueue<=1){void stop();return;}setStopChoice(stopChoice?null:{jobId:(jobs.find(j=>j.state==='running')??current)?.id??''});}}>{t(stopping?'studio.run.stop.stopping':'studio.run.stop.label')}</button>}{stopChoice&&<div ref={stopMenu} role="menu" data-run-stop-choice className="media-menu wb-stop-menu" aria-label={t('studio.run.stop.choose')}>
     <button type="button" role="menuitem" data-run-stop-current disabled={!!stopCurrentReason||stopping} title={stopCurrentReason?t(stopCurrentReason):undefined} aria-describedby={stopCurrentReason?'studio-stop-current-reason':undefined} onClick={()=>{if(stopCurrent&&!stopCurrentReason){setStopChoice(null);void stopJob(stopCurrent);}}}>{t('studio.run.stop.current')}</button>{stopCurrentReason&&<small id="studio-stop-current-reason">{t(stopCurrentReason)}</small>}
     <button type="button" role="menuitem" data-run-stop-all disabled={stopping} onClick={()=>{setStopChoice(null);void stop();}}>{t('studio.run.stop.all')}</button>
    </div>}<span id="project-actions-slot" hidden={beginner}/></div>);
@@ -2692,7 +2704,14 @@ const promptTools=forgeContext&&<>
     mainPrompts={{positive,negative}}
     onUsePrompts={(notePositive,noteNegative)=>{setPositive(notePositive);setNegative(noteNegative);}}/></div>}
    {dockTab==='presets'&&<div className="wb-dock-panel"><PresetPanel disabled={busy||!!current||autoPlan||resolving}/></div>}
-    {dockTab==='wildcards'&&<div className="wb-dock-panel"><WildcardPanel library={wildcardLibrary} loading={wildcardLoading} error={wildcardLibraryError} onReload={()=>setWildcardRevision(v=>v+1)} value={wildcard} onChange={setWildcard} enabled={wildcardEnabled} onEnabled={setWildcardEnabled} positive={positive} negative={negative} onInsert={name=>setPositive(p=>`${p.trim()?`${p} `:''}$${name}`)}/></div>}
+    {dockTab==='wildcards'&&<div className="wb-dock-panel">
+     <WildcardTabs catalog={wildcardPacks} native={native} seed={wildcardPackSeed} seedMode={wildcardSeedMode}
+      onSeed={next=>{setWildcardPackSeed(next);setWildcardSeedMode('fixed');}}
+      onSeedMode={mode=>{if(mode==='random'&&mode!==wildcardSeedMode)setWildcardPackSeed(randomSeed());setWildcardSeedMode(mode);}}
+      onReroll={()=>setWildcardPackSeed(randomSeed())}
+      onInsert={(token,side)=>(side==='positive'?setPositive:setNegative)(prompt=>prompt.trim()?prompt+' '+token:token)}
+      library={<WildcardPanel library={wildcardLibrary} loading={wildcardLoading} error={wildcardLibraryError} onReload={()=>setWildcardRevision(v=>v+1)} value={wildcard} onChange={setWildcard} enabled={wildcardEnabled} onEnabled={setWildcardEnabled} positive={positive} negative={negative} onInsert={name=>setPositive(p=>`${p.trim()?`${p} `:''}$${name}`)}/>}/>
+    </div>}
 {dockTab==='post'&&<section className="wb-dock-panel wb-post" aria-label={t('studio.run.dock.post')}>
     <div className="wb-post-cards" role="group" aria-label={t('studio.run.dock.post')}>
      {postCategories.map(cat=><button key={cat.id} ref={el=>{postCardRefs.current[cat.id]=el;}} type="button" className="wb-post-card" disabled={!cat.available} title={cat.reason||undefined} data-post-card={cat.id} data-post-state={cat.active?'active':cat.available?'inactive':'unavailable'} data-post-count={cat.count} aria-haspopup="dialog" aria-expanded={openPostCategory===cat.id} aria-describedby={cat.reason?`wb-post-reason-${cat.id}`:undefined} onClick={e=>{if(!e.currentTarget.dataset.revealOpen)focusPostOverlay.current=true;setOpenPostCategory(cat.id);if(native&&endpoint.trim())void refreshChoices(false);}}>
@@ -2849,6 +2868,6 @@ const promptTools=forgeContext&&<>
       const names=new Map(await Promise.all([...uploads].map(async path=>[path,await uploadInput(capturedEndpoint,path)] as const)));
       return JSON.parse(JSON.stringify(intent),(key,value:unknown)=>['image','file','sourceVideo','firstFrame','lastFrame'].includes(key)&&typeof value==='string'&&names.has(value)?names.get(value):value) as VideoIntentV1;
     }};
-  }:undefined} endpoint={endpoint} root={root} forgeContext={forgeContext} allowReferences={continuityReferences} plan={plan} onChange={setPlan} onRun={runPlan} running={autoPlan||resolving||!!planRun.current||!!current} disabled={!native||busy||admissionBlocked||!isVideo||!!continuitySizeError||unavailable.length>0} onClose={()=>{setContinuityOpen(false);continuityButton.current?.focus();}}/>}
+  }:undefined} endpoint={endpoint} root={root} forgeContext={forgeContext} allowReferences={continuityReferences} plan={plan} onChange={setPlan} onRun={runPlan} running={autoPlan||resolving||!!planRun.current||!!current} disabled={!native||busy||admissionBlocked||!isVideo||!!continuitySizeError||wildcardPacks.pending||unavailable.length>0} onClose={()=>{setContinuityOpen(false);continuityButton.current?.focus();}}/>}
  </div></>;
 }

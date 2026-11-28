@@ -77,10 +77,16 @@ pub mod movie_store;
 pub mod music_source;
 pub mod recipe_prerequisites;
 pub mod wildcard;
+mod wildcard_packs;
+mod wildcard_store;
 pub mod window_mode;
 pub use music_source::native_music_source_check;
 pub use recipe_prerequisites::native_recipe_prerequisites;
-pub use wildcard::{native_wildcard_build, native_wildcard_library};
+pub use wildcard::{
+    native_expand_wildcard_packs, native_import_wildcard_pack, native_remove_wildcard_pack,
+    native_wildcard_build, native_wildcard_choices, native_wildcard_packs,
+    native_wildcard_library,
+};
 pub use window_mode::{native_logs_window_error, native_window_read, native_window_write};
 pub mod backend;
 pub use backend::{
