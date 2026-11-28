@@ -386,11 +386,25 @@ impl<C: ChoiceCatalog> Expansion<'_, C> {
     }
 
     fn pick(&mut self, name: &str, depth: usize) -> Result<(), String> {
-        let choices = self
-            .lists
-            .count(name)?
-            .filter(|count| *count > 0)
-            .ok_or_else(|| format!("Unknown wildcard __{name}__"))?;
+        let unknown = || format!("Unknown wildcard __{name}__");
+        let resolved;
+        let (name, choices) = if let Some(count) = self.lists.count(name)?.filter(|n| *n > 0) {
+            (name, count)
+        } else {
+            let (folder, _) = self
+                .stack
+                .last()
+                .and_then(|parent| parent.rsplit_once('/'))
+                .filter(|_| !name.contains('/'))
+                .ok_or_else(&unknown)?;
+            resolved = format!("{folder}/{name}");
+            let count = self
+                .lists
+                .count(&resolved)?
+                .filter(|n| *n > 0)
+                .ok_or_else(unknown)?;
+            (resolved.as_str(), count)
+        };
         if self.stack.iter().any(|parent| parent == name) {
             return Err(format!("Circular wildcard reference at __{name}__"));
         }
@@ -491,6 +505,50 @@ mod tests {
         ]);
         let prompts = expand(&lists, "__scene__", "", 0).unwrap();
         assert!(["blue coat", "green coat"].contains(&prompts.positive.as_str()));
+    }
+
+    #[test]
+    fn resolves_short_references_to_lists_in_the_same_folder() {
+        let source = tempfile::tempdir().unwrap();
+        let folder = source.path().join("scenes/forest");
+        fs::create_dir_all(&folder).unwrap();
+        fs::write(folder.join("weather.txt"), "{__clear__|__rain__}\n").unwrap();
+        fs::write(folder.join("clear.txt"), "sunny with __sky__\n").unwrap();
+        fs::write(folder.join("rain.txt"), "rain with __sky__\n").unwrap();
+        fs::write(folder.join("sky.txt"), "clouds\n").unwrap();
+        fs::write(folder.join("cycle.txt"), "__cycle__\n").unwrap();
+        fs::write(source.path().join("sky.txt"), "mist\n").unwrap();
+
+        let profile = tempfile::tempdir().unwrap();
+        let mut store = crate::wildcard_store::Store::open(profile.path()).unwrap();
+        store.import(load_pack(source.path()).unwrap()).unwrap();
+        let picks: HashSet<_> = (0..24)
+            .map(|seed| {
+                store
+                    .expand("__scenes/forest/weather__", "", seed)
+                    .unwrap()
+                    .positive
+            })
+            .collect();
+        assert_eq!(
+            picks,
+            HashSet::from(["sunny with mist".into(), "rain with mist".into()])
+        );
+        assert_eq!(
+            store
+                .expand("__scenes/forest/sky__", "", 0)
+                .unwrap()
+                .positive,
+            "clouds"
+        );
+        assert_eq!(
+            store.expand("__clear__", "", 0).unwrap_err(),
+            "Unknown wildcard __clear__"
+        );
+        assert_eq!(
+            store.expand("__scenes/forest/cycle__", "", 0).unwrap_err(),
+            "Circular wildcard reference at __scenes/forest/cycle__"
+        );
     }
 
     #[test]

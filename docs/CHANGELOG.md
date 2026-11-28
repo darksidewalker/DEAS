@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **My wildcards resolves short references within a folder.** If a nested list calls a short name with no top-level match, DEAS checks the calling list's folder.
+
 ## 0.3.50
 
 - **Studio can import wildcard folders.** My wildcards browses nested TXT and YAML lists, inserts `__name__` tokens, and previews the expanded prompt. Imports support up to 64 MiB of source files per folder and combine lists that share a name within the folder.
