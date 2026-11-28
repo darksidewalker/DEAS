@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- **Studio can import wildcard folders.** My wildcards browses nested TXT and YAML lists, inserts `__name__` tokens, and previews the expanded prompt. Imports support up to 64 MiB of source files per folder and combine lists that share a name within the folder.
+- **My wildcards supports Random and Fixed seeds.** Studio expands `{one|two|three}` choices in positive and negative image and video prompts without a wildcard pack.
+- **The Windows folder picker preserves the working directory.** You can move a wildcard folder after import and keep using the saved lists.
+
 ## 0.3.48
 
 - **Movie Maker: remove a scene with the ✕ on its card.** The **−** button beside **+** (which removed whichever scene was open) is gone. Every scene card now has its own **✕**. A scene that is not made is removed at once, a made scene asks first (its clip file stays on disk), and a scene that is being made cannot be removed.

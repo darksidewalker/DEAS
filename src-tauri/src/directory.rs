@@ -1,6 +1,9 @@
 //! A native folder chooser, not a browser upload or a filesystem mutation.
 use std::path::PathBuf;
 
+#[cfg(windows)]
+mod windows_picker;
+
 fn validate_title(title: &str) -> Result<(), String> {
     if title.trim().is_empty() || title.len() > 240 || title.chars().any(char::is_control) {
         return Err("Directory chooser title must be nonempty, at most 240 bytes and contain no control characters".into());
@@ -25,12 +28,40 @@ fn selected_directory(path: Option<PathBuf>) -> Result<Option<String>, String> {
 #[tauri::command]
 pub async fn native_pick_directory(title: String) -> Result<Option<String>, String> {
     validate_title(&title)?;
+    let chosen = pick_directory(title).await.inspect_err(|error| {
+        crate::logs::push(
+            crate::logs::Source::Deas,
+            &format!("WARN directory.pick {error}"),
+        );
+    })?;
+    selected_directory(chosen)
+}
+
+#[cfg(windows)]
+async fn pick_directory(title: String) -> Result<Option<PathBuf>, String> {
+    let (send, receive) = tokio::sync::oneshot::channel();
+    std::thread::Builder::new()
+        .name("folder-picker".into())
+        .spawn(move || {
+            let result = windows_picker::pick(&title).map_err(|error| {
+                format!("Windows folder chooser failed ({:#010X})", error.code().0)
+            });
+            let _ = send.send(result);
+        })
+        .map_err(|_| "Cannot start the Windows folder chooser")?;
+    receive
+        .await
+        .map_err(|_| "The Windows folder chooser stopped unexpectedly")?
+}
+
+#[cfg(not(windows))]
+async fn pick_directory(title: String) -> Result<Option<PathBuf>, String> {
     let chosen = rfd::AsyncFileDialog::new()
         .set_title(title)
         .set_can_create_directories(false)
         .pick_folder()
         .await;
-    selected_directory(chosen.map(|handle| handle.path().to_owned()))
+    Ok(chosen.map(|handle| handle.path().to_owned()))
 }
 
 /// JSON documents the user saves or opens through OS dialogs (e.g. Director reference packs): small and well-formed only.

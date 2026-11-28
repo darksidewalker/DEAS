@@ -1915,6 +1915,110 @@ test('wildcard dock and hammer keep base text, snapshot active rules per run and
  expect((screen.getByRole('checkbox',{name:'Active for generation'}) as HTMLInputElement).checked).toBe(false);
 });
 
+test('My wildcards imports a pack and submits the same expansion shown in its preview',async()=>{
+ const pack={id:'a'.repeat(64),name:'Fixture pack',lists:{scene:1,'worlds/sky/outfit':1,'worlds/ground/outfit':1}};
+ const legacy={id:'b'.repeat(64),name:'Legacy pack',lists:{old:['old choice']}};
+ const migrated={...legacy,lists:{old:1}};
+ localStorage.setItem('deas.pref.studio.wildcardPacks',JSON.stringify([legacy]));
+ let finish!: (prompts:{positive:string;negative:string})=>void;
+ vi.mocked(invoke).mockImplementation(async command=>{
+  if(command==='native_wildcard_packs')return [migrated];
+  if(command==='native_import_wildcard_pack')return [pack,migrated];
+  if(command==='native_remove_wildcard_pack')return [migrated];
+  if(command==='native_expand_wildcard_packs')return new Promise(resolve=>{finish=resolve;});
+  if(command==='native_wildcard_library')return JSON.stringify({categories:{}});
+  return {entries:[],truncated:false};
+ });
+ vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'a.safetensors',path:'/m/a.safetensors',family:'sdxl',size:1,info:null}]);
+ vi.mocked(runWorkbenchJob).mockResolvedValue({id:'pack-job',baseUrl:evidence.baseUrl,promptId:'p',state:'succeeded',outputs:[],error:null,generationReady:false});
+ render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
+ const runButton=screen.getByRole('button',{name:'Run'});
+ await waitFor(()=>expect(runButton).toHaveProperty('disabled',false));
+ dock('Wildcards');
+ fireEvent.keyDown(screen.getByRole('tab',{name:'Library'}),{key:'ArrowRight'});
+ expect(screen.getByRole('tab',{name:'My wildcards'}).getAttribute('aria-selected')).toBe('true');
+ const mine=screen.getByRole('tabpanel',{name:'My wildcards'});
+ const importFolder=within(mine).getByRole('button',{name:'Import wildcard folder'});
+ await waitFor(()=>expect(importFolder).toHaveProperty('disabled',false));
+ expect(invoke).toHaveBeenCalledWith('native_wildcard_packs',{legacy:[legacy]});
+ expect(localStorage.getItem('deas.pref.studio.wildcardPacks')).toBeNull();
+ fireEvent.click(importFolder);
+ const folders=await within(mine).findByRole('navigation',{name:'Folders'});
+ await within(folders).findByRole('button',{name:'Fixture pack'});
+ const lists=within(mine).getByRole('navigation',{name:'Wildcard lists'});
+ fireEvent.click(within(folders).getByRole('button',{name:'worlds'}));
+ fireEvent.click(within(folders).getByRole('button',{name:'sky'}));
+ expect(within(lists).getByRole('button',{name:/^outfit\s+1$/}).getAttribute('title')).toBe('worlds/sky/outfit');
+ expect(within(lists).queryByRole('button',{name:/^scene/})).toBeNull();
+ fireEvent.click(within(folders).getByRole('button',{name:'All wildcards'}));
+ fireEvent.change(screen.getByRole('textbox',{name:'Prompt'}),{target:{value:'portrait,'}});
+ fireEvent.click(within(mine).getByRole('button',{name:'Insert in prompt'}));
+ expect(screen.getByRole('textbox',{name:'Prompt'})).toHaveProperty('value','portrait, __scene__');
+ expect(runButton).toHaveProperty('disabled',true);
+ fireEvent.click(runButton);
+ expect(runWorkbenchJob).not.toHaveBeenCalled();
+ await waitFor(()=>expect(invoke).toHaveBeenCalledWith('native_expand_wildcard_packs',{
+  positive:'portrait, __scene__',negative:'',seed:0,
+ }));
+ await act(async()=>finish({positive:'portrait, blue coat, sky city',negative:''}));
+ expect(within(mine).getByText('portrait, blue coat, sky city')).toBeTruthy();
+ fireEvent.click(runButton);
+ await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(1));
+ expect(vi.mocked(runWorkbenchJob).mock.calls[0][1]).toMatchObject({positivePrompt:'portrait, blue coat, sky city',negativePrompt:''});
+ expect(screen.getByRole('textbox',{name:'Prompt'})).toHaveProperty('value','portrait, __scene__');
+ const remove=within(folders).getByRole('button',{name:'Remove pack Fixture pack'});
+ fireEvent.click(remove);
+ fireEvent.click(within(screen.getByRole('dialog')).getByRole('button',{name:'Cancel'}));
+ expect(invoke).not.toHaveBeenCalledWith('native_remove_wildcard_pack',{id:pack.id});
+ fireEvent.click(remove);
+ fireEvent.click(within(screen.getByRole('dialog')).getByRole('button',{name:'Confirm'}));
+ await waitFor(()=>expect(within(mine).queryByRole('button',{name:'Remove pack Fixture pack'})).toBeNull());
+ expect(invoke).toHaveBeenCalledWith('native_remove_wildcard_pack',{id:pack.id});
+ expect(within(folders).getByRole('button',{name:'Legacy pack'})).toBeTruthy();
+});
+
+test('inline wildcard choices run without packs and Random advances the seed for the next preview',async()=>{
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,checkpoints:['inline.safetensors']}});
+ vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'inline.safetensors',path:'/m/checkpoints/inline.safetensors',size:1,info:null}]);
+ vi.mocked(runWorkbenchJob).mockResolvedValue({id:'inline-job',baseUrl:evidence.baseUrl,promptId:'p',state:'succeeded',outputs:[],error:null,generationReady:false});
+ vi.mocked(invoke).mockImplementation(async (command,args)=>{
+  if(command==='native_wildcard_packs')return [];
+  if(command==='native_expand_wildcard_packs')return {positive:`choice at ${(args as {seed:number}).seed}`,negative:'grainy'};
+  return null;
+ });
+ localStorage.setItem('deas.pref.studio.run.seedMode','"fixed"');
+ render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
+ dock('Wildcards');
+ fireEvent.click(screen.getByRole('tab',{name:'My wildcards'}));
+ const mine=within(screen.getByRole('tabpanel',{name:'My wildcards'}));
+ const prompt=screen.getByRole('textbox',{name:'Prompt'});
+ const runButton=screen.getByRole('button',{name:'Run'});
+ fireEvent.change(prompt,{target:{value:'{1|2|3}'}});
+ fireEvent.change(screen.getByRole('textbox',{name:'Negative prompt'}),{target:{value:'{blurry|grainy}'}});
+ fireEvent.change(mine.getByRole('spinbutton',{name:'Wildcard seed'}),{target:{value:'42'}});
+ expect(mine.getByRole('button',{name:'Fixed',pressed:true})).toBeTruthy();
+ await mine.findByText('choice at 42');
+ await waitFor(()=>expect(runButton).toHaveProperty('disabled',false));
+ fireEvent.click(runButton);
+ await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(1));
+ expect(vi.mocked(runWorkbenchJob).mock.calls[0][1]).toMatchObject({positivePrompt:'choice at 42',negativePrompt:'grainy'});
+ expect(mine.getByRole('spinbutton',{name:'Wildcard seed'})).toHaveProperty('value','42');
+ const rng=vi.spyOn(Math,'random');
+ try {
+  rng.mockReturnValueOnce(0.25);
+  fireEvent.click(mine.getByRole('button',{name:'Random'}));
+  expect(mine.getByRole('button',{name:'Random',pressed:true})).toBeTruthy();
+  await mine.findByText('choice at 1073741824');
+  await waitFor(()=>expect(runButton).toHaveProperty('disabled',false));
+  rng.mockReturnValueOnce(0.5);
+  fireEvent.click(runButton);
+  await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(2));
+  expect(vi.mocked(runWorkbenchJob).mock.calls[1][1]).toMatchObject({positivePrompt:'choice at 1073741824',negativePrompt:'grainy'});
+  await mine.findByText('choice at 2147483648');
+  expect(prompt).toHaveProperty('value','{1|2|3}');
+ } finally { rng.mockRestore(); }
+});
+
 test('Options naming persists and resolves the submitted seed/model, rejecting unsafe templates before preparation',async()=>{
  vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,checkpoints:['folder/My Model.safetensors']}});
  vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'folder/My Model.safetensors',path:'/m/checkpoints/folder/My Model.safetensors',size:1,info:null}]);

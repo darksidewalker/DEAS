@@ -1,4 +1,47 @@
 .wildcards { display: grid; gap: 8px; min-width: 0; font-size: 12px; }
+.wildcard-workspace { display: grid; gap: .55rem; min-width: 0; }
+.wildcard-workspace > [hidden] { display: none; }
+.wildcard-tabs { border-bottom: 1px solid var(--line); }
+.wb-dock-tabs.wildcard-tabs [role=tab][aria-selected=true] { border-color: var(--line); background: var(--surface); }
+.wildpacks { display: grid; gap: .55rem; min-width: 0; font-size: .75rem; }
+.wildpacks-toolbar { padding-block: .2rem; }
+.wildpacks-grid { display: grid; grid-template-columns: clamp(9rem,17%,17rem) clamp(10rem,23%,22rem) minmax(0,1fr); border-block-start: 1px solid var(--line); }
+.wildpacks-folders, .wildpacks-browser, .wildpacks-detail { display: grid; align-content: start; gap: .4rem; min-width: 0; padding: .65rem; }
+.wildpacks-folders, .wildpacks-browser { border-inline-end: 1px solid var(--line); }
+.wildpacks-tree, .wildpacks-tree ul, .wildpacks-list { list-style: none; margin: 0; padding: 0; }
+.wildpacks-tree, .wildpacks-list { display: grid; align-content: start; gap: .2rem; max-height: 18rem; overflow: auto; padding: 2px; }
+.wildpacks-tree ul { display: grid; gap: .2rem; padding-block-start: .2rem; padding-inline-start: .6rem; }
+.wildpacks-folder-row { display: flex; align-items: center; gap: .2rem; min-width: 0; }
+.wildpacks :is(.wildpacks-all, .wildpacks-folder-name, .wildpacks-list button, .wildpacks-remove) { min-width: 0; padding: .35rem .5rem; border: 1px solid var(--line); border-radius: .3rem; background: var(--field); color: inherit; font: inherit; cursor: pointer; }
+.wildpacks :is(.wildpacks-all, .wildpacks-folder-name, .wildpacks-list button)[aria-pressed=true] { border-color: var(--copper); color: var(--copper); }
+.wildpacks :is(.wildpacks-all, .wildpacks-folder-name, .wildpacks-list button):hover { border-color: var(--line-strong); }
+.wildpacks-folder-name { flex: 1; text-align: start; overflow-wrap: anywhere; }
+.wildpacks .wildpacks-folder-toggle { display: grid; place-items: center; flex: 0 0 1rem; min-width: 0; height: 1.5rem; padding: 0; border: 0; background: transparent; color: var(--muted); }
+.wildpacks button.wildpacks-folder-toggle:hover { color: var(--chalk); cursor: pointer; }
+.wildpacks-folder-toggle[aria-expanded=true] svg { transform: rotate(90deg); }
+.wildpacks .wildpacks-remove { flex: 0 0 1.5rem; height: 1.5rem; padding: 0; display: grid; place-items: center; color: var(--muted); }
+.wildpacks .wildpacks-remove:hover:not(:disabled) { color: var(--chalk); background: var(--surface); }
+.wildpacks .wildpacks-remove:disabled { opacity: .45; cursor: default; }
+.wildpacks-list button { width: 100%; display: flex; justify-content: space-between; gap: .5rem; text-align: start; overflow-wrap: anywhere; }
+.wildpacks-list button span { min-width: 0; }
+.wildpacks-list button small, .wildpacks-empty, .wildpacks-path { color: var(--muted); }
+.wildpacks-path { overflow-wrap: anywhere; }
+.wildpacks h3, .wildpacks p { margin: 0; }
+.wildpacks h3 { font-size: .8rem; overflow-wrap: anywhere; }
+.wildpacks-detail code { color: var(--copper); }
+.wildpacks-choices { border: 1px solid var(--line); padding: .35rem .5rem; border-radius: .3rem; }
+.wildpacks-choices summary { cursor: pointer; }
+.wildpacks-choice-pages { align-items: center; margin-block-start: .45rem; }
+.wildpacks-choices ul { margin: 6px 0 0; padding-inline-start: 1.5em; max-height: 11rem; overflow: auto; overflow-wrap: anywhere; }
+.wildpacks-preview { display: grid; gap: .3rem; padding-top: .45rem; border-top: 1px solid var(--line); overflow-wrap: anywhere; }
+.wildpacks-preview p { white-space: pre-wrap; }
+.wildpacks-preview p strong { display: block; color: var(--copper); }
+@media (max-width: 680px) {
+  .wildpacks-grid { grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); }
+  .wildpacks-browser { border-inline-end: 0; }
+  .wildpacks-detail { grid-column: 1 / -1; border-block-start: 1px solid var(--line); }
+  .wildpacks-tree, .wildpacks-list { max-height: 12rem; }
+}
 .wildcard-toolbar { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; }
 .wildcard-toolbar label { display: grid; gap: 3px; color: var(--muted); }
 .wildcard-toolbar input[type=number] { width: 7rem; }

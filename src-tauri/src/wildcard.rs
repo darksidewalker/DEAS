@@ -1,7 +1,10 @@
 //! The original DaSiWa node owns prompt assembly; this adapter only validates its inputs and reads its library.
+use crate::wildcard_packs::{load_pack, ExpandedPrompts, WildcardPack};
+use crate::wildcard_store::{PackSummary, Store};
 use serde::Deserialize;
 use serde_json::Value;
 use std::{collections::BTreeMap, time::Duration};
+use tauri::Manager;
 
 pub(crate) const NODE: &str = "DaSiWa_WildcardPresetPromptBuilder";
 #[derive(Deserialize)]
@@ -155,4 +158,88 @@ pub async fn native_wildcard_library(base_url: String) -> Result<String, String>
     tokio::time::timeout(Duration::from_secs(10), work)
         .await
         .map_err(|_| "Wildcard library timed out")?
+}
+
+async fn with_store<T: Send + 'static>(
+    app: tauri::AppHandle,
+    task: impl FnOnce(&mut Store) -> Result<T, String> + Send + 'static,
+) -> Result<T, String> {
+    let root = app
+        .path()
+        .app_local_data_dir()
+        .map_err(|_| "Cannot locate Studio preferences")?;
+    tokio::task::spawn_blocking(move || task(&mut Store::open(&root)?))
+        .await
+        .map_err(|_| {
+            crate::logs::push(
+                crate::logs::Source::Deas,
+                "WARN studio.wildcards worker stopped",
+            );
+            "Wildcard worker stopped".to_owned()
+        })?
+}
+
+#[tauri::command]
+pub async fn native_wildcard_packs(
+    app: tauri::AppHandle,
+    legacy: Vec<WildcardPack>,
+) -> Result<Vec<PackSummary>, String> {
+    with_store(app, move |store| {
+        store.migrate(legacy)?;
+        store.summaries()
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn native_import_wildcard_pack(
+    app: tauri::AppHandle,
+    title: String,
+) -> Result<Option<Vec<PackSummary>>, String> {
+    let Some(path) = crate::directory::native_pick_directory(title).await? else {
+        return Ok(None);
+    };
+    let result = with_store(app, move |store| {
+        store.import(load_pack(std::path::Path::new(&path))?)?;
+        store.summaries()
+    })
+    .await;
+    if result.is_err() {
+        crate::logs::push(
+            crate::logs::Source::Deas,
+            "WARN studio.wildcards pack import failed",
+        );
+    }
+    result.map(Some)
+}
+
+#[tauri::command]
+pub async fn native_remove_wildcard_pack(
+    app: tauri::AppHandle,
+    id: String,
+) -> Result<Vec<PackSummary>, String> {
+    with_store(app, move |store| {
+        store.remove(&id)?;
+        store.summaries()
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn native_wildcard_choices(
+    app: tauri::AppHandle,
+    name: String,
+    offset: usize,
+) -> Result<Vec<String>, String> {
+    with_store(app, move |store| store.page(&name, offset)).await
+}
+
+#[tauri::command]
+pub async fn native_expand_wildcard_packs(
+    app: tauri::AppHandle,
+    positive: String,
+    negative: String,
+    seed: u32,
+) -> Result<ExpandedPrompts, String> {
+    with_store(app, move |store| store.expand(&positive, &negative, seed)).await
 }

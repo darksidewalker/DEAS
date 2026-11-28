@@ -1,5 +1,11 @@
 # DEAS verification — native baseline, optional capabilities and languages
 
+## Local Windows build with Studio wildcard packs
+
+- Base `08bc48e` (0.3.48). The production frontend and Windows release executable built successfully. The executable contains the wildcard catalog commands, updated frontend assets, and a Common Controls v6 manifest.
+- Twelve isolated Rust tests passed, including inline choices without a catalog, named wildcard composition, overlapping definitions, and source folder moves after import. Both Studio UI test files passed (198 tests), including fixed and random wildcard seed submission and preview.
+- The Chromium workspace layout script passed 600 checks across 12 tabs with simulated IPC. Both browser contexts serve the sample MP4 locally. The installed Windows executable was checked by digest and version. Interactive desktop and model generation remain unverified.
+
 ## Release 0.3.48 (published)
 
 - Release: https://github.com/darksidewalker/DEAS/releases/tag/v0.3.48 (Latest, not a draft or prerelease). Rolls up 0.3.24–0.3.48 since `v0.3.23`.

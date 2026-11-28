@@ -63,7 +63,40 @@ Up to 100 presets are stored in an app-local JSON file through the native servic
 
 ## Wildcards
 
-Generate's **Wildcards** dock tab sits beside LoRAs and also opens from the hammer. It reads the installed DaSiWa node's library, with searchable categories, independent preset/wildcard selections and weights, Booru/natural-language style, its own seed and an estimated token budget per positive/negative side. Positive/negative placement follows the original library categories.
+The **Wildcards** dock has **Library** and **My wildcards** tabs. Use
+**My wildcards → Import wildcard folder** to read a pack containing UTF-8
+`.txt`, `.yaml`, or `.yml` files. TXT files use one choice per line and
+ignore blank lines and lines beginning with `#`. Text files are named by
+their relative paths without the extension. YAML uses nested mappings
+with choice lists or single values. Both a nested `worlds → sky → outfit`
+mapping and a `worlds/sky/outfit` key define `__worlds/sky/outfit__`.
+Blank and null entries are skipped. Quote a value if you want the literal
+spelling of a number, boolean or null. When definitions in one imported
+folder share a name, DEAS combines them and skips exact choices already
+supplied by earlier definitions.
+Expand a pack in **Folders** to browse its subfolders and YAML groups.
+Selecting a folder shows its lists. Search also finds matches in that
+folder's descendants. Choose a wildcard to inspect its choices and insert it
+in the positive or negative prompt. A choice can reference other lists
+with the same `__name__` syntax.
+
+Studio expands imported wildcards and choices like `{1|2|3}` in the
+main positive and negative prompts for image and video generation. Each
+choice group contributes one alternative and works without imported packs.
+Choices can contain nested groups or named wildcards. The preview shows the
+text for the next generation. **Fixed** reuses the wildcard seed.
+**Random** rolls a new seed for each generation. **Reroll** changes the
+current seed once. The prompt editor keeps the original text and the job
+records the resolved text for reproducibility. With imported packs loaded,
+unknown or circular references stop the run with an explanation. Packs up
+to 64 MiB of source files are stored in the local Studio profile. Long
+choice lists are displayed in pages. Choose the same folder again to refresh
+its lists as one pack. You can move the source folder after import. The
+imported lists are stored locally and remain available. Use the remove
+button on the pack's row to unlink it from Studio. DEAS asks for
+confirmation and keeps the source files.
+
+The **Library** tab reads the installed DaSiWa node's library, with searchable categories, independent preset/wildcard selections and weights, Booru/natural-language style, its own seed and an estimated token budget per positive/negative side. Positive/negative placement follows the original library categories.
 
 Activation is opt-in and remembered with the rules. Manual or Forge-written prompts remain the base text; the original `DaSiWa_WildcardPresetPromptBuilder` runs before both text encoders and appends the selected fragments. **New picks** rerolls alternatives; **Random select** explicitly replaces the selection with 1–10 available entries. **New picks on every generation** rerolls alternatives only, never the selected subjects. The original node handles weighting, category order and budget pruning; DEAS has no second prompt-expansion engine.
 
