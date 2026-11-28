@@ -247,6 +247,7 @@
   "wizards.movie.shot.tooManyRefs": "Дубль может использовать не больше 12 опорных материалов; уберите часть из входных материалов сцены.",
   "wizards.movie.shot.noModel": "Модель MiniMax H3 не установлена.",
   "wizards.movie.shot.skipped": "Файлов-референсов, не являющихся картинками, пропущено: {count}.",
+  "wizards.movie.staleSubmission": "План изменился во время подготовки этого шага, поэтому в бэкенд ничего не отправлено. Нажмите кнопку ещё раз.",
   "wizards.movie.shot.model": "Видеомодель",
   "wizards.movie.shot.prepare": "Подготовить в Generate",
   "wizards.movie.shot.make": "Создать этот кадр",

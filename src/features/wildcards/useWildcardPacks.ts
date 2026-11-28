@@ -1,13 +1,13 @@
 import { invoke } from '@tauri-apps/api/core';
 import { useEffect, useMemo, useState } from 'react';
-import { readPref } from '../../lib/preferences';
 
 type Pack = { id: string; name: string; lists: Record<string, number> };
 type Prompts = { positive: string; negative: string };
 const emptyPacks: Pack[] = [];
-const legacyKey = 'studio.wildcardPacks';
 const errorText = (error: unknown) => error instanceof Error ? error.message : String(error);
 
+// DEAS owns the brace groups in the Studio prompts: the node pack resolves braces only inside its own library
+// patterns, and its `$variable` path never touches them, so expanding here takes nothing away from that node.
 export function useWildcardPacks(native: boolean, active: boolean, positive: string, negative: string, seed: number) {
   const [loaded, setPacks] = useState<Pack[] | null>(null);
   const [loadError, setLoadError] = useState('');
@@ -17,29 +17,25 @@ export function useWildcardPacks(native: boolean, active: boolean, positive: str
   const hasNames = [positive, negative].some(prompt => /__[^\n]+?__/.test(prompt));
   // Rust decides which groups are valid and preserves literal braces.
   const hasChoices = [positive, negative].some(prompt => prompt.includes('{') && prompt.includes('|') && prompt.includes('}'));
+  const needsExpansion = hasNames || hasChoices;
   const needsCatalog = native && (active || hasNames);
   const loading = needsCatalog && !loaded && !loadError;
 
   useEffect(() => {
     if (!needsCatalog || loaded || loadError) return;
     let cancelled = false;
-    const legacy = readPref<unknown[]>(legacyKey, [], Array.isArray);
-    void invoke<Pack[]>('native_wildcard_packs', { legacy }).then(
-      next => {
-        if (cancelled) return;
-        setPacks(Array.isArray(next) ? next : []);
-        if (legacy.length && Array.isArray(next)) {
-          try { localStorage.removeItem(`deas.pref.${legacyKey}`); } catch { /* The native migration is idempotent. */ }
-        }
-      },
+    void invoke<Pack[]>('native_wildcard_packs').then(
+      next => { if (!cancelled) setPacks(Array.isArray(next) ? next : []); },
       error => { if (!cancelled) setLoadError(errorText(error)); },
     );
     return () => { cancelled = true; };
   }, [needsCatalog, loaded, loadError]);
 
-  const draft = useMemo(() => native && !(hasNames && loading) && (hasChoices || (hasNames && packs.length > 0))
+  // An unknown __name__ must reach the native resolver even when no pack is imported, so Studio reports it instead
+  // of sending the literal token to the model.
+  const draft = useMemo(() => native && !(hasNames && loading) && needsExpansion
     ? { positive, negative, seed, packs }
-    : null, [native, packs, hasNames, loading, hasChoices, positive, negative, seed]);
+    : null, [native, loading, hasNames, needsExpansion, positive, negative, seed]);
   const [resolved, setResolved] = useState<{ draft: NonNullable<typeof draft>; value?: Prompts; error?: string } | null>(null);
 
   useEffect(() => {

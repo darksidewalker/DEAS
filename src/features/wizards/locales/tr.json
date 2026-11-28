@@ -247,6 +247,7 @@
   "wizards.movie.shot.tooManyRefs": "Bir çekim en fazla 12 referans kullanabilir; sahne girdilerinden bazılarını kaldırın.",
   "wizards.movie.shot.noModel": "Yüklü MiniMax H3 modeli yok.",
   "wizards.movie.shot.skipped": "Resim olmayan {count} referans dosyası dışarıda bırakıldı.",
+  "wizards.movie.staleSubmission": "Bu adım hazırlanırken plan değişti, bu yüzden backend'e hiçbir şey gönderilmedi. Lütfen tekrar basın.",
   "wizards.movie.shot.model": "Video modeli",
   "wizards.movie.shot.prepare": "Generate'te hazırla",
   "wizards.movie.shot.make": "Bu çekimi üret",

@@ -1917,14 +1917,12 @@ test('wildcard dock and hammer keep base text, snapshot active rules per run and
 
 test('My wildcards imports a pack and submits the same expansion shown in its preview',async()=>{
  const pack={id:'a'.repeat(64),name:'Fixture pack',lists:{scene:1,'worlds/sky/outfit':1,'worlds/ground/outfit':1}};
- const legacy={id:'b'.repeat(64),name:'Legacy pack',lists:{old:['old choice']}};
- const migrated={...legacy,lists:{old:1}};
- localStorage.setItem('deas.pref.studio.wildcardPacks',JSON.stringify([legacy]));
+ const second={id:'b'.repeat(64),name:'Second pack',lists:{old:1}};
  let finish!: (prompts:{positive:string;negative:string})=>void;
  vi.mocked(invoke).mockImplementation(async command=>{
-  if(command==='native_wildcard_packs')return [migrated];
-  if(command==='native_import_wildcard_pack')return [pack,migrated];
-  if(command==='native_remove_wildcard_pack')return [migrated];
+  if(command==='native_wildcard_packs')return [second];
+  if(command==='native_import_wildcard_pack')return [pack,second];
+  if(command==='native_remove_wildcard_pack')return [second];
   if(command==='native_expand_wildcard_packs')return new Promise(resolve=>{finish=resolve;});
   if(command==='native_wildcard_library')return JSON.stringify({categories:{}});
   return {entries:[],truncated:false};
@@ -1940,8 +1938,7 @@ test('My wildcards imports a pack and submits the same expansion shown in its pr
  const mine=screen.getByRole('tabpanel',{name:'My wildcards'});
  const importFolder=within(mine).getByRole('button',{name:'Import wildcard folder'});
  await waitFor(()=>expect(importFolder).toHaveProperty('disabled',false));
- expect(invoke).toHaveBeenCalledWith('native_wildcard_packs',{legacy:[legacy]});
- expect(localStorage.getItem('deas.pref.studio.wildcardPacks')).toBeNull();
+ expect(invoke).toHaveBeenCalledWith('native_wildcard_packs');
  fireEvent.click(importFolder);
  const folders=await within(mine).findByRole('navigation',{name:'Folders'});
  await within(folders).findByRole('button',{name:'Fixture pack'});
@@ -1964,7 +1961,7 @@ test('My wildcards imports a pack and submits the same expansion shown in its pr
  expect(within(mine).getByText('portrait, blue coat, sky city')).toBeTruthy();
  fireEvent.click(runButton);
  await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(1));
- expect(vi.mocked(runWorkbenchJob).mock.calls[0][1]).toMatchObject({positivePrompt:'portrait, blue coat, sky city',negativePrompt:''});
+ expect(vi.mocked(runWorkbenchJob).mock.calls[0][1]).toMatchObject({positivePrompt:'portrait, blue coat, sky city',negativePrompt:'',wildcardSeed:0});
  expect(screen.getByRole('textbox',{name:'Prompt'})).toHaveProperty('value','portrait, __scene__');
  const remove=within(folders).getByRole('button',{name:'Remove pack Fixture pack'});
  fireEvent.click(remove);
@@ -1974,7 +1971,7 @@ test('My wildcards imports a pack and submits the same expansion shown in its pr
  fireEvent.click(within(screen.getByRole('dialog')).getByRole('button',{name:'Confirm'}));
  await waitFor(()=>expect(within(mine).queryByRole('button',{name:'Remove pack Fixture pack'})).toBeNull());
  expect(invoke).toHaveBeenCalledWith('native_remove_wildcard_pack',{id:pack.id});
- expect(within(folders).getByRole('button',{name:'Legacy pack'})).toBeTruthy();
+ expect(within(folders).getByRole('button',{name:'Second pack'})).toBeTruthy();
 });
 
 test('inline wildcard choices run without packs and Random advances the seed for the next preview',async()=>{
@@ -2001,7 +1998,7 @@ test('inline wildcard choices run without packs and Random advances the seed for
  await waitFor(()=>expect(runButton).toHaveProperty('disabled',false));
  fireEvent.click(runButton);
  await waitFor(()=>expect(runWorkbenchJob).toHaveBeenCalledTimes(1));
- expect(vi.mocked(runWorkbenchJob).mock.calls[0][1]).toMatchObject({positivePrompt:'choice at 42',negativePrompt:'grainy'});
+ expect(vi.mocked(runWorkbenchJob).mock.calls[0][1]).toMatchObject({positivePrompt:'choice at 42',negativePrompt:'grainy',wildcardSeed:42});
  expect(mine.getByRole('spinbutton',{name:'Wildcard seed'})).toHaveProperty('value','42');
  const rng=vi.spyOn(Math,'random');
  try {
@@ -2017,6 +2014,24 @@ test('inline wildcard choices run without packs and Random advances the seed for
   await mine.findByText('choice at 2147483648');
   expect(prompt).toHaveProperty('value','{1|2|3}');
  } finally { rng.mockRestore(); }
+});
+
+test('an unknown wildcard name stops Run even when no pack is imported',async()=>{
+ vi.mocked(checkRecipePrerequisites).mockResolvedValue({...evidence,allowlist:{...evidence.allowlist,checkpoints:['unknown.safetensors']}});
+ vi.mocked(scanModels).mockResolvedValue([{category:'checkpoints',name:'unknown.safetensors',path:'/m/checkpoints/unknown.safetensors',size:1,info:null}]);
+ vi.mocked(invoke).mockImplementation(async command=>{
+  if(command==='native_wildcard_packs')return [];
+  if(command==='native_expand_wildcard_packs')return Promise.reject('Unknown wildcard __missing__');
+  return null;
+ });
+ const view=render(<I18nProvider><Workbench endpoint={evidence.baseUrl} roots={{models:'/m'}}/></I18nProvider>);
+ const runButton=screen.getByRole('button',{name:'Run'});
+ await waitFor(()=>expect(runButton).toHaveProperty('disabled',false));
+ fireEvent.change(screen.getByRole('textbox',{name:'Prompt'}),{target:{value:'portrait, __missing__'}});
+ await waitFor(()=>expect(runButton).toHaveProperty('disabled',true));
+ await waitFor(()=>expect(runButton.getAttribute('title')).toContain('Unknown wildcard __missing__'));
+ expect(screen.getByRole('button',{name:'Run'})).toHaveProperty('disabled',true);
+ view.unmount();
 });
 
 test('Options naming persists and resolves the submitted seed/model, rejecting unsafe templates before preparation',async()=>{

@@ -6,7 +6,7 @@ A Rust/Tauri desktop workstation for ComfyUI and DaSiWa tools: generation, model
 
 | Tab | What you get |
 | --- | --- |
-| **Studio** | Images with the checkpoint you choose (Illustrious, Anima, Krea 2, MOSS, SDXL) at model-exact sizes, with ordered LoRA sets, personal prompt notes and a Beginner mode; SAM 3.1 masking that understands words, points and boxes, plus opt-in Auto Refine against the original |
+| **Studio** | Images with the checkpoint you choose (Illustrious, Anima, Krea 2, MOSS, SDXL) at model-exact sizes, with ordered LoRA sets, personal prompt notes, imported wildcard folders and a Beginner mode; SAM 3.1 masking that understands words, points and boxes, plus opt-in Auto Refine against the original |
 | **Video & Music** | MiniMax H3 with fast-motion de-rope, face refinement and adjustable Hi-Res Regenerate; Wan and LTX pipelines; songs with YuE2 and ACE-Step |
 | **Dark Wizards** | Guided helpers that prepare Generate for you: **Replace** swaps a person or object in a picture or video; **Movie Maker** turns an idea and your media into a planned film — scenes, transitions, per-scene models, music and mix — made through Generate's own queue |
 | **Prompt Forge** | Prompts written in your exact model's own style — presets, wildcards and spellcheck included |

@@ -153,7 +153,7 @@ export function MovieMaker({ root, mediaRoots, endpoint, models = null, onPrepar
     const shot = cur.items.find(i => i.id === id && i.kind === 'segment');
     const found = chainOf(cur, id), isContinued = !!found && found.chain.ids[0] !== id;
     const sub = captureSceneSubmission((handoff ?? 0) + 1, draftRef.current, cur, epochsRef.current, [id], [shot?.seconds ? h3ActualSeconds(shot.seconds, isContinued) : undefined], run, origin, false, sceneCtxFor(cur));
-    if (!sub) return false;
+    if (!sub) { setError(t('wizards.movie.staleSubmission')); logMovieNotice('submission-stale'); return false; }
     setError(''); setNote(r.skipped ? t('wizards.movie.shot.skipped', { count: String(r.skipped) }) : '');
     setPending(sub); setChainActive(false); setShotState(run ? { draft: sub.draft, id, state: 'queued' } : null);
     onPrepare(r.handoff);
@@ -167,7 +167,7 @@ export function MovieMaker({ root, mediaRoots, endpoint, models = null, onPrepar
     const r = chainHandoff(cur, found.chain, found.index, { name: h3Model.name, path: h3Model.path }, run, convertFileSrc, env, referenceMode);
     if ('blocked' in r) { setError(r.detail ? `${t(r.blocked)} ${r.detail}` : t(r.blocked)); return false; }
     const sub = captureSceneSubmission((handoff ?? 0) + 1, draftRef.current, cur, epochsRef.current, found.chain.ids, r.actualSeconds, run, origin, true, sceneCtxFor(cur));
-    if (!sub) return false;
+    if (!sub) { setError(t('wizards.movie.staleSubmission')); logMovieNotice('submission-stale'); return false; }
     setError(''); setNote(r.skipped ? t('wizards.movie.shot.skipped', { count: String(r.skipped) }) : '');
     setPending(sub); setChainActive(run); setShotState(run ? { draft: sub.draft, id, state: 'queued' } : null);
     onPrepare(r.handoff);
@@ -300,7 +300,7 @@ export function MovieMaker({ root, mediaRoots, endpoint, models = null, onPrepar
     if (joinBlocked || owned.current || isGenBusy()) return;
     const cur = movieRef.current;
     const submitted = captureFilmSubmission(draftRef.current, cur, epochsRef.current);
-    if (!submitted) return;
+    if (!submitted) { setError(t('wizards.movie.staleSubmission')); logMovieNotice('submission-stale'); return; }
     const mine: { cancelled: boolean; job?: JobStatus; submitted: SubmittedFilm } = { cancelled: false, submitted };
     owned.current = mine; setError(''); setNote(''); setMismatch(null); setJoining(t('wizards.movie.film.joining'));
     try {
@@ -366,7 +366,7 @@ export function MovieMaker({ root, mediaRoots, endpoint, models = null, onPrepar
     const r = musicHandoff(cur, { name: musicModel.name, path: musicModel.path, family: musicModel.family }, run, name => musicLoraModels.some(x => x.name === name), render.source === 'movie');
     if ('blocked' in r) { setError('detail' in r ? `${t(r.blocked)} ${r.detail}` : t(r.blocked)); return false; }
     const sub = captureMusicSubmission((handoff ?? 0) + 1, draftRef.current, cur, epochsRef.current, r.handoff.music?.seconds ?? musicSeconds(cur), run, musicModel.path);
-    if (!sub) return false;
+    if (!sub) { setError(t('wizards.movie.staleSubmission')); logMovieNotice('submission-stale'); return false; }
     setError(''); setNote('');
     setPending(sub); setChainActive(false); setShotState(run ? { draft: sub.draft, id: 'music', state: 'queued' } : null);
     onPrepare(r.handoff);
@@ -383,7 +383,7 @@ export function MovieMaker({ root, mediaRoots, endpoint, models = null, onPrepar
     if (!musicPlan.ok || mixing || mixRef.current) return;
     const cur = movieRef.current;
     const submitted = captureMixSubmission(draftRef.current, cur, epochsRef.current);
-    if (!submitted) return;
+    if (!submitted) { setError(t('wizards.movie.staleSubmission')); logMovieNotice('submission-stale'); return; }
     const mine = { submitted };
     mixRef.current = mine;
     setError(''); setNote(''); setMixing(true);

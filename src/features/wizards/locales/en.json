@@ -247,6 +247,7 @@
   "wizards.movie.shot.tooManyRefs": "A take can use at most 12 references; remove some from the scene inputs.",
   "wizards.movie.shot.noModel": "No MiniMax H3 model is installed.",
   "wizards.movie.shot.skipped": "{count} reference file(s) that are not pictures were left out.",
+  "wizards.movie.staleSubmission": "The plan changed while this step was being prepared, so nothing was sent to the backend. Press the button again.",
   "wizards.movie.shot.model": "Video model",
   "wizards.movie.shot.prepare": "Prepare in Generate",
   "wizards.movie.shot.make": "Make this shot",

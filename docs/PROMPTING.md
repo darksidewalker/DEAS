@@ -89,11 +89,16 @@ Choices can contain nested groups or named wildcards. The preview shows the
 text for the next generation. **Fixed** reuses the wildcard seed.
 **Random** rolls a new seed for each generation. **Reroll** changes the
 current seed once. The prompt editor keeps the original text and the job
-records the resolved text for reproducibility. With imported packs loaded,
-unknown or circular references stop the run with an explanation. Packs up
+records the resolved text for reproducibility, together with the seed the
+expansion used. The node-pack Wildcards path resolves braces only inside the
+library patterns it generates itself, so expanding the Studio prompt here
+never takes a choice away from that node. Unknown or circular references stop
+the run with an explanation, also when no pack has been imported yet. Packs up
 to 64 MiB of source files are stored in the local Studio profile. Long
 choice lists are displayed in pages. Choose the same folder again to refresh
-its lists as one pack. You can move the source folder after import. The
+its lists as one pack, and choosing a moved or copied folder with the same
+name replaces the earlier snapshot of that name. You can move the source
+folder after import. The
 imported lists are stored locally and remain available. Use the remove
 button on the pack's row to unlink it from Studio. DEAS asks for
 confirmation and keeps the source files.

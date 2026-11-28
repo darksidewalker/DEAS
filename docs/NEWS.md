@@ -1,5 +1,27 @@
 # News
 
+## 0.3.50
+
+Two community contributions, plus the follow-ups they needed: imported wildcard folders in Studio, and a Movie Maker that never applies a result to the wrong thing.
+
+### Studio has a **My wildcards** tab
+
+**Generate → Wildcards → My wildcards → Import wildcard folder** reads a folder of UTF-8 `.txt` / `.yaml` lists (up to 64 MiB) into Studio's own catalogue. Expand the pack to browse its subfolders and YAML groups, search it, look at a list's choices and insert `__name__` into the positive or negative prompt. The pane shows the exact text the next generation will use, with a seed of its own: **Fixed** repeats the same choices, **Random** rolls a new seed for every generation, **Reroll** changes the current seed once. Choices like `{one|two|three}` work even without any imported folder.
+
+The lists are stored locally, so you can move or copy the source folder afterwards and the pack stays usable; choosing the same folder again refreshes it. Removing a pack only unlinks it — your files are never touched.
+
+### Wildcard behaviour you can rely on
+
+- A `__name__` no imported pack provides stops **Run** and names itself, even before you have imported anything.
+- Each run records the seed its expansion used, so the recorded prompt can be reproduced exactly.
+- Inside a list, a short `__name__` may reference a list in the same folder; a full path always addresses one folder exactly.
+- The Wildcards node path is untouched: it still resolves its own library patterns with its own seed and selection state.
+
+### Movie Maker keeps what you made
+
+Every in-flight stage is bound to exactly what was submitted, so a late result from a scene you edited or deleted, a changed chain reference, a different audio track or a changed mix can no longer mark the wrong thing finished. **New** and *Saved movies → open* wait while a stage is running, and **Stop after this step** finishes the current stage without quietly starting the film stitch. If the plan changed while a step was being prepared, the button now tells you instead of doing nothing.
+
+
 ## 0.3.48
 
 This release rolls up 0.3.24 to 0.3.48. Most of it is the new **Movie Maker** in Dark Wizards, plus **Replace in a video** and ACE-Step LoRAs.

@@ -247,6 +247,7 @@
   "wizards.movie.shot.tooManyRefs": "一次拍摄最多使用 12 个参考；请从场景输入中移除一些。",
   "wizards.movie.shot.noModel": "未安装 MiniMax H3 模型。",
   "wizards.movie.shot.skipped": "已忽略 {count} 个不是图片的参考文件。",
+  "wizards.movie.staleSubmission": "准备此步骤时计划已更改，因此没有向后端发送任何内容。请再按一次。",
   "wizards.movie.shot.model": "视频模型",
   "wizards.movie.shot.prepare": "在 Generate 中准备",
   "wizards.movie.shot.make": "生成此镜头",

@@ -5,7 +5,7 @@ import { musicRequest, parseMusicAnswer, parsePlannerAnswer, plannerRequest, typ
 
 /** The planner's request must fit a 4096-token window together with its answer; refuse a longer brief instead of silently truncating it. */
 export const PLANNER_MAX_CHARS = 6000;
-export type MovieNotice = 'plan-remote' | 'plan-failed' | 'plan-invalid' | 'plan-applied' | 'join-blocked' | 'join-failed' | 'join-done' | 'join-cancelled';
+export type MovieNotice = 'plan-remote' | 'plan-failed' | 'plan-invalid' | 'plan-applied' | 'join-blocked' | 'join-failed' | 'join-done' | 'join-cancelled' | 'submission-stale';
 const note = (operation: MovieNotice) => void invoke('native_logs_movie_notice', { operation }).catch(() => undefined);
 export const logMovieNotice = note;
 

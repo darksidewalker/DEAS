@@ -247,6 +247,7 @@
   "wizards.movie.shot.tooManyRefs": "Eine Aufnahme kann höchstens 12 Referenzen verwenden; entferne einige aus den Szeneneingaben.",
   "wizards.movie.shot.noModel": "Kein MiniMax-H3-Modell installiert.",
   "wizards.movie.shot.skipped": "{count} Referenzdatei(en), die keine Bilder sind, wurden weggelassen.",
+  "wizards.movie.staleSubmission": "Der Plan hat sich geändert, während dieser Schritt vorbereitet wurde – es wurde nichts an das Backend gesendet. Bitte erneut klicken.",
   "wizards.movie.shot.model": "Videomodell",
   "wizards.movie.shot.prepare": "Im Generator vorbereiten",
   "wizards.movie.shot.make": "Diese Einstellung erzeugen",

@@ -1,5 +1,5 @@
 //! The original DaSiWa node owns prompt assembly; this adapter only validates its inputs and reads its library.
-use crate::wildcard_packs::{load_pack, ExpandedPrompts, WildcardPack};
+use crate::wildcard_packs::{load_pack, ExpandedPrompts};
 use crate::wildcard_store::{PackSummary, Store};
 use serde::Deserialize;
 use serde_json::Value;
@@ -194,15 +194,8 @@ async fn with_store<T: Send + 'static>(
 }
 
 #[tauri::command]
-pub async fn native_wildcard_packs(
-    app: tauri::AppHandle,
-    legacy: Vec<WildcardPack>,
-) -> Result<Vec<PackSummary>, String> {
-    with_store(app, "packs", true, move |store| {
-        store.migrate(legacy)?;
-        store.summaries()
-    })
-    .await
+pub async fn native_wildcard_packs(app: tauri::AppHandle) -> Result<Vec<PackSummary>, String> {
+    with_store(app, "packs", true, |store| store.summaries()).await
 }
 
 #[tauri::command]
@@ -249,5 +242,8 @@ pub async fn native_expand_wildcard_packs(
     negative: String,
     seed: u32,
 ) -> Result<ExpandedPrompts, String> {
-    with_store(app, "expand", false, move |store| store.expand(&positive, &negative, seed)).await
+    with_store(app, "expand", false, move |store| {
+        store.expand(&positive, &negative, seed)
+    })
+    .await
 }

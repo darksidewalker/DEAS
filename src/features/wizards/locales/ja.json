@@ -247,6 +247,7 @@
   "wizards.movie.shot.tooManyRefs": "1 テイクで使える参照は最大 12 個です。シーンの入力からいくつか外してください。",
   "wizards.movie.shot.noModel": "MiniMax H3 モデルがインストールされていません。",
   "wizards.movie.shot.skipped": "画像ではない参照ファイル {count} 件を除外しました。",
+  "wizards.movie.staleSubmission": "このステップの準備中にプランが変更されたため、バックエンドには何も送信されませんでした。もう一度押してください。",
   "wizards.movie.shot.model": "動画モデル",
   "wizards.movie.shot.prepare": "Generate で準備",
   "wizards.movie.shot.make": "このショットを作成",

@@ -1,16 +1,17 @@
 # Changelog
 
-## Unreleased
-
-- **My wildcards resolves short references within a folder.** If a nested list calls a short name with no top-level match, DEAS checks the calling list's folder.
-
 ## 0.3.50
 
+- **Unknown wildcard names stop the run.** A `__name__` no imported pack provides is reported and blocks **Run** instead of being sent to the model as literal text.
+- **A run records the wildcard seed.** The seed that expanded the imported lists and `{a|b}` choices is submitted with the job, so the recorded prompt can be reproduced exactly and re-used later.
+- **Choosing a wildcard folder again replaces it.** Re-importing a folder whose name is already imported replaces that pack, so a moved or copied folder can be added again; another folder may still not take a list a different pack owns.
+- **Movie Maker says why a step did not start.** When the plan changed while a shot, chain, music, join or mix step was being prepared, the refusal is shown and recorded in the central Logs instead of nothing happening.
+- **My wildcards resolves short references inside a folder.** A `__name__` written inside a list uses the top-level list of that name, and otherwise the list of that name in the calling list's folder; a full path always addresses one folder exactly.
 - **Studio can import wildcard folders.** My wildcards browses nested TXT and YAML lists, inserts `__name__` tokens, and previews the expanded prompt. Imports support up to 64 MiB of source files per folder and combine lists that share a name within the folder.
 - **My wildcards supports Random and Fixed seeds.** Studio expands `{one|two|three}` choices in positive and negative image and video prompts without a wildcard pack.
 - **The Windows folder picker preserves the working directory.** You can move a wildcard folder after import and keep using the saved lists.
 
-## 0.3.49
+## 0.3.49 (untagged; shipped in 0.3.50)
 
 - **Movie Maker keeps the shots it already made.** A shot, chain, music bed, film stitch or mix that finished late — after you edited a scene, removed and re-added one, changed a transition, picked another music track, or switched to another movie — no longer marks the newer plan complete. Each run is bound to the draft, scene revision and effective inputs it was started with, and a reply that no longer matches is dropped instead of written into the film. The shot, chain and music buttons now share one active slot, so a second hand-over cannot replace a running generation; **New** and **Saved movies → open** wait until the running stage settles, and the film panel keeps its **Stop** button while a stitch runs.
 - **Stop after this step stops the run.** Pressing it during the last scene (or during a chain that finishes it) no longer starts an automatic film stitch, music generation or mix; a whole Continuity chain still finishes and keeps its clips. The automatic re-stitch now happens only for an intentional single remake or a changed transition.

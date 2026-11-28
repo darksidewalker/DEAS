@@ -28,8 +28,9 @@ const FIELDS: [&str; 17] = [
     "sampler",
     "scheduler",
 ];
-const OPTIONAL: [&str; 14] = [
+const OPTIONAL: [&str; 15] = [
     "dials",
+    "wildcardSeed",
     "streamDecode",
     "faceRefine",
     "enhancedPreview",
@@ -1518,6 +1519,13 @@ pub(crate) fn validate(i: &Value) -> Result<&str, String> {
         || !object.contains_key(block)
     {
         return Err("Missing or unknown video intent fields".into());
+    }
+    // The seed Studio used to expand imported wildcard lists and inline {a|b} choices into these prompts. Not a
+    // graph input; it keeps the recorded video prompt reproducible next to its resolved text.
+    if let Some(seed) = i.get("wildcardSeed") {
+        if !seed.as_u64().is_some_and(|s| s <= u32::MAX as u64) {
+            return Err("Invalid wildcardSeed: expected a 32-bit expansion seed".into());
+        }
     }
     if let Some(stream) = i.get("streamDecode") {
         if stream != &json!(true) {

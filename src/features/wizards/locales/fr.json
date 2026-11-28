@@ -247,6 +247,7 @@
   "wizards.movie.shot.tooManyRefs": "Une prise peut utiliser au plus 12 références ; retirez-en des entrées de la scène.",
   "wizards.movie.shot.noModel": "Aucun modèle MiniMax H3 installé.",
   "wizards.movie.shot.skipped": "{count} fichier(s) de référence qui ne sont pas des images ont été ignorés.",
+  "wizards.movie.staleSubmission": "Le plan a changé pendant la préparation de cette étape : rien n'a été envoyé au backend. Appuyez à nouveau.",
   "wizards.movie.shot.model": "Modèle vidéo",
   "wizards.movie.shot.prepare": "Préparer dans Generate",
   "wizards.movie.shot.make": "Créer ce plan",

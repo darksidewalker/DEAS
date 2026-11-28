@@ -541,6 +541,22 @@ fn wildcard_plugin_keeps_base_prompts_and_rule_snapshot() {
     }
 }
 
+#[test]
+fn wildcard_seed_is_recorded_and_bounded() {
+    let mut i = intent();
+    i["wildcardSeed"] = json!(2_147_483_647_u64);
+    let graph = compile(&i).unwrap();
+    assert_eq!(graph["2"]["inputs"]["text"], i["positivePrompt"]);
+    for bad in [json!(-1), json!(4_294_967_296_u64), json!("7"), json!(null)] {
+        let mut rejected = i.clone();
+        rejected["wildcardSeed"] = bad.clone();
+        assert!(
+            compile(&rejected).unwrap_err().contains("wildcardSeed"),
+            "{bad}"
+        );
+    }
+}
+
 pub(super) fn intent() -> Value {
     json!({"recipeId":"checkpoint-text-to-image-diagnostic","version":1,
         "positivePrompt":"a cat", "negativePrompt":"", "checkpoint":"sd/model.safetensors",

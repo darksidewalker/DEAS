@@ -142,9 +142,10 @@ pub fn native_logs_movie_notice(operation: String) {
         "join-failed" => (5, "ERROR: Movie Maker assembly: copying the clips or running the join failed"),
         "join-done" => (6, "INFO: Movie Maker assembly: the shots were joined into one film"),
         "join-cancelled" => (7, "INFO: Movie Maker assembly: the join was stopped"),
+        "submission-stale" => (8, "WARN: Movie Maker step preparation: the plan changed while this step was being prepared, so nothing was submitted"),
         _ => return,
     };
-    static LAST: Mutex<[Option<std::time::Instant>; 8]> = Mutex::new([None; 8]);
+    static LAST: Mutex<[Option<std::time::Instant>; 9]> = Mutex::new([None; 9]);
     let mut last = LAST.lock().unwrap_or_else(|e| e.into_inner());
     if last[slot].is_some_and(|at| at.elapsed() < std::time::Duration::from_secs(60)) {
         return;
@@ -345,6 +346,7 @@ mod tests {
             "join-failed",
             "join-done",
             "join-cancelled",
+            "submission-stale",
         ] {
             native_logs_movie_notice(op.into());
             native_logs_movie_notice(op.into());
@@ -354,9 +356,10 @@ mod tests {
             .filter(|e| {
                 e.text.contains("Movie Maker story planning")
                     || e.text.contains("Movie Maker assembly")
+                    || e.text.contains("Movie Maker step preparation")
             })
             .collect();
-        assert_eq!(entries.len(), 8);
+        assert_eq!(entries.len(), 9);
         assert!(entries
             .iter()
             .all(|e| e.source == Source::Deas && !e.text.contains("secret")));

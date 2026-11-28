@@ -714,6 +714,14 @@ pub(crate) fn compile(i: &Value) -> Result<Value, String> {
     if let Some(rules) = wildcard {
         crate::wildcard::validate(rules)?;
     }
+    // `wildcardSeed`: the seed Studio used to expand imported wildcard lists and inline {a|b} choices into the
+    // submitted prompts. It is not a graph input; it keeps the recorded prompt reproducible next to its text.
+    let wildcard_seed = object.get("wildcardSeed");
+    if wildcard_seed.is_some()
+        && !wildcard_seed.is_some_and(|v| v.as_u64().is_some_and(|s| s <= u32::MAX as u64))
+    {
+        return Err("Invalid wildcardSeed: expected a 32-bit expansion seed".into());
+    }
     if options.is_some_and(|o| !valid_options(o)) {
         return Err("Invalid options".into());
     }
@@ -752,6 +760,7 @@ pub(crate) fn compile(i: &Value) -> Result<Value, String> {
             + usize::from(compression.is_some())
             + usize::from(options.is_some())
             + usize::from(wildcard.is_some())
+            + usize::from(wildcard_seed.is_some())
             + usize::from(loras.is_some())
             + 2 * usize::from(image.is_some())
             + usize::from(diffusion.is_some())

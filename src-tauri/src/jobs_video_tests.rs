@@ -1117,6 +1117,22 @@ fn seamless_loop_runs_first_and_its_audio_passes_the_baseline_gate() {
     assert!(crate::jobs_video_post::validate_rtx_hardware(&i, Some(&Backend::Amd)).is_ok());
 }
 
+#[test]
+fn wildcard_seed_is_accepted_and_bounded_in_video_intents() {
+    let mut i = ltx();
+    i["wildcardSeed"] = json!(4_294_967_295_u64);
+    compile(&i).unwrap();
+    for bad in [json!(-1), json!(4_294_967_296_u64), json!("7"), json!(null)] {
+        let mut rejected = ltx();
+        rejected["wildcardSeed"] = bad.clone();
+        assert_eq!(
+            compile(&rejected).unwrap_err(),
+            "Invalid wildcardSeed: expected a 32-bit expansion seed",
+            "{bad}"
+        );
+    }
+}
+
 pub(crate) fn ltx() -> Value {
     json!({
         "recipeId":"video-generation","version":1,"family":"ltx-2",

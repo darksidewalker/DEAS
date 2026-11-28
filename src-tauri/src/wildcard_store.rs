@@ -79,32 +79,6 @@ impl Store {
         Ok(packs)
     }
 
-    pub(crate) fn migrate(&mut self, legacy: Vec<WildcardPack>) -> Result<(), String> {
-        if legacy.is_empty() {
-            return Ok(());
-        }
-        if legacy.len() > MAX_PACKS {
-            return Err("Too many legacy wildcard packs".into());
-        }
-        let tx = self
-            .0
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(database_error)?;
-        for pack in legacy {
-            let exists: bool = tx
-                .query_row(
-                    "SELECT EXISTS(SELECT 1 FROM packs WHERE id = ?1)",
-                    [&pack.id],
-                    |row| row.get(0),
-                )
-                .map_err(database_error)?;
-            if !exists {
-                save(&tx, pack)?;
-            }
-        }
-        tx.commit().map_err(database_error)
-    }
-
     pub(crate) fn import(&mut self, pack: WildcardPack) -> Result<(), String> {
         let tx = self
             .0
@@ -162,6 +136,10 @@ fn save(tx: &Transaction<'_>, pack: WildcardPack) -> Result<(), String> {
     let bytes = wildcard_packs::validate_catalog(&lists)?;
     // Deletion and reinsertion share one transaction so a rejected refresh preserves the current pack.
     tx.execute("DELETE FROM packs WHERE id = ?1", [&id])
+        .map_err(database_error)?;
+    // A pack is named after its folder, so choosing the same folder again (also after moving or copying it)
+    // replaces the previous snapshot instead of failing on every list name it shares with itself.
+    tx.execute("DELETE FROM packs WHERE name = ?1", [&name])
         .map_err(database_error)?;
     let (total_packs, total_bytes, total_lists): (u32, u32, u32) = tx
         .query_row(
@@ -265,22 +243,29 @@ mod tests {
     }
 
     #[test]
-    fn migrates_repeatedly_without_overwriting_and_rejects_duplicate_refreshes_atomically() {
+    fn reimporting_a_folder_replaces_it_and_other_packs_keep_their_own_lists() {
         let profile = tempfile::tempdir().unwrap();
         let mut store = Store::open(profile.path()).unwrap();
-        let make = |id: char, key: &str, choice: &str| WildcardPack {
+        let make = |id: char, name: &str, key: &str, choice: &str| WildcardPack {
             id: id.to_string().repeat(64),
-            name: id.to_string(),
+            name: name.to_owned(),
             lists: BTreeMap::from([(key.to_owned(), vec![choice.to_owned()])]),
         };
-        store
-            .migrate(vec![make('a', "first", "one"), make('b', "second", "two")])
-            .unwrap();
-        store
-            .migrate(vec![make('a', "first", "duplicate")])
-            .unwrap();
-        assert!(store.import(make('a', "second", "duplicate")).is_err());
-        assert_eq!(store.page("first", 0).unwrap(), ["one"]);
-        assert_eq!(store.page("second", 0).unwrap(), ["two"]);
+        store.import(make('a', "first", "one", "a one")).unwrap();
+        store.import(make('b', "second", "two", "b two")).unwrap();
+        // The same folder chosen again from a new location: new id, same name, overlapping lists.
+        store.import(make('c', "first", "one", "c one")).unwrap();
+        assert_eq!(store.summaries().unwrap().len(), 2);
+        assert_eq!(store.page("one", 0).unwrap(), ["c one"]);
+        assert_eq!(store.page("two", 0).unwrap(), ["b two"]);
+        // A differently named pack may not take a list another pack owns, and the refusal is atomic.
+        assert!(store.import(make('d', "third", "one", "d one")).is_err());
+        assert_eq!(store.page("one", 0).unwrap(), ["c one"]);
+        assert_eq!(store.summaries().unwrap().len(), 2);
+        store.remove(&'c'.to_string().repeat(64)).unwrap();
+        let rest = store.summaries().unwrap();
+        assert_eq!(rest.len(), 1);
+        assert_eq!(rest[0].name, "second");
+        assert_eq!(store.page("one", 0).unwrap(), Vec::<String>::new());
     }
 }
